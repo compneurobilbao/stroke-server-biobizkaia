@@ -1074,6 +1074,7 @@ def to_study_read(study: Study) -> StudyRead:
         processing_started_at=study.processing_started_at,
         processing_finished_at=study.processing_finished_at,
         deleted_at=study.deleted_at,
+        keep_forever=study.keep_forever,
         error_message=study.error_message,
         processor_name=study.processor_name,
         processor_version=study.processor_version,

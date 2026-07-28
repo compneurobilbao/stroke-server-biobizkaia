@@ -1,6 +1,7 @@
-.PHONY: up down logs test lint format migrate seed clean smoke check-docs check-secrets frontend-rebuild rebuild create-admin backup restore
+.PHONY: up down logs test lint format migrate seed clean smoke check-docs check-secrets frontend-rebuild rebuild create-admin backup restore retention-dry-run retention-execute
 
 WORKER_REPLICAS ?=
+DAYS ?= 90
 
 up:
 	worker_replicas="$(WORKER_REPLICAS)"; \
@@ -40,6 +41,12 @@ migrate:
 create-admin:
 	test -n "$(EMAIL)" || (echo "Uso: make create-admin EMAIL=admin@example.org"; exit 1)
 	docker compose exec api python -m app.cli.create_admin --email "$(EMAIL)"
+
+retention-dry-run:
+	docker compose exec api python -m app.cli.retention --days "$(DAYS)"
+
+retention-execute:
+	docker compose exec api python -m app.cli.retention --days "$(DAYS)" --execute
 
 backup:
 	sh ./scripts/backup.sh

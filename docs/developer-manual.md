@@ -65,6 +65,7 @@ Puntos principales:
 - `backend/app/models/user.py`: modelo `User`, roles y usuario `system`.
 - `backend/app/services/auth.py`: hash PBKDF2, JWT, dependencias de usuario actual y admin.
 - `backend/app/cli/create_admin.py`: creación o actualización del admin inicial.
+- `backend/app/cli/retention.py`: dry-run y ejecución explícita de retención de estudios.
 - `backend/alembic/versions/0004_multiuser_auth.py`: tabla `users`, `owner_user_id` y `actor_user_id`.
 - `frontend/src/main.jsx`: login, sesión, “Mis estudios” y gestión básica de usuarios admin.
 
@@ -74,7 +75,7 @@ Crear el primer admin:
 make create-admin EMAIL=admin@example.org
 ```
 
-La gestión básica de trabajos incluye logs truncados, cancelación de trabajos en cola o en ejecución, reintento de fallidos y borrado seguro. El dashboard admin ya muestra estado global de cola, trabajos, almacenamiento, servicios, usuarios y estudios por estado. Backup y restore local, compartición segura de informes PDF, notificaciones, cuotas por usuario y revisión técnica de resultados ya están disponibles. La siguiente fase recomendada es subida múltiple y lotes.
+La gestión básica de trabajos incluye logs truncados, cancelación de trabajos en cola o en ejecución, reintento de fallidos y borrado seguro. El dashboard admin ya muestra estado global de cola, trabajos, almacenamiento, servicios, usuarios y estudios por estado. Backup y restore local, compartición segura de informes PDF, notificaciones, cuotas por usuario, revisión técnica de resultados y retención inicial por CLI ya están disponibles. La siguiente fase recomendada es subida múltiple y lotes.
 
 Permisos mínimos esperados:
 

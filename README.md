@@ -56,6 +56,7 @@ make format   # ruff format
 make migrate  # aplicar migraciones en el contenedor api
 make create-admin EMAIL=admin@example.org # crear/actualizar admin inicial
 make backup   # crear backup local de PostgreSQL y data/studies
+make retention-dry-run DAYS=90  # ver estudios candidatos a retención sin borrar
 make restore BACKUP_DIR=backups/<timestamp> CONFIRM_RESTORE=YES_I_UNDERSTAND # restaurar backup local
 make seed     # crear fichero de prueba local
 make smoke    # comprobar healthcheck vía proxy
@@ -148,7 +149,7 @@ Cada carpeta de primer nivel incluye su propio `README.md` explicando para qué 
 
 - Sin anonimización DICOM integrada.
 - Sin revisión clínica formal; los resultados pueden marcarse como solo técnicos, revisados o validados para trazabilidad interna.
-- Sin retención automática de datos.
+- Retención de datos inicial por CLI/configuración, desactivada por defecto para borrado real y sin pantalla GUI en esta versión.
 - Sin subida múltiple ni lotes.
 - Sin MinIO/S3 en esta versión.
 - El procesador dummy no tiene validez clínica.
@@ -159,4 +160,4 @@ Cada carpeta de primer nivel incluye su propio `README.md` explicando para qué 
 
 El roadmap detallado está en `docs/roadmap.md` y organiza la evolución por fases. La **Fase 6 — Notificaciones** ya añade avisos internos y SMTP configurable sin adjuntos pesados.
 
-Quedan para fases posteriores: Google/OIDC, ORCID, múltiples subidas, retención automática, flujos de procesamiento configurables e integración institucional.
+Quedan para fases posteriores: Google/OIDC, ORCID, múltiples subidas, pantalla admin avanzada de retención, flujos de procesamiento configurables e integración institucional.

@@ -43,6 +43,8 @@ class Settings(BaseSettings):
     auth_secret_key: str = "change-me-in-production"
     auth_access_token_expire_minutes: int = 480
     share_link_expire_hours: int = 72
+    retention_enabled: bool = False
+    retention_days: int = 90
     app_public_base_url: str = "http://localhost"
     notifications_email_enabled: bool = False
     smtp_host: str | None = None

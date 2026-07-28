@@ -54,4 +54,4 @@ npm run lint
 
 ## Criterio De Diseño
 
-La interfaz es deliberadamente simple. Incluye login local, historial por usuario, gestión básica de jobs, dashboard operativo, usuarios/cuotas admin, sharing de PDF, notificaciones y una marca de revisión técnica. No incluye revisión clínica formal, lotes, retención automática ni flujos hospitalarios futuros.
+La interfaz es deliberadamente simple. Incluye login local, historial por usuario, gestión básica de jobs, dashboard operativo, usuarios/cuotas admin, sharing de PDF, notificaciones y una marca de revisión técnica. No incluye revisión clínica formal, lotes, pantalla GUI de retención ni flujos hospitalarios futuros.

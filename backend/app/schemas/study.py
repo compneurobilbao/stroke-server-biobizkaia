@@ -16,6 +16,7 @@ class StudyRead(BaseModel):
     processing_started_at: datetime | None = None
     processing_finished_at: datetime | None = None
     deleted_at: datetime | None = None
+    keep_forever: bool = False
     error_message: str | None = None
     processor_name: str | None = None
     processor_version: str | None = None

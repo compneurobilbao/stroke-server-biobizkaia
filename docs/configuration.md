@@ -46,6 +46,8 @@ El fichero `.env` no debe commitearse. Puede contener contraseñas, rutas locale
 | `AUTH_SECRET_KEY` | Clave HMAC para firmar tokens JWT. Debe cambiarse fuera de desarrollo. | `change-me-in-production` |
 | `AUTH_ACCESS_TOKEN_EXPIRE_MINUTES` | Duración del access token local. | `480` |
 | `SHARE_LINK_EXPIRE_HOURS` | Caducidad por defecto de enlaces temporales de descarga PDF. | `72` |
+| `RETENTION_ENABLED` | Permite la ejecución real de borrado por retención. El dry-run no requiere activación. | `false` |
+| `RETENTION_DAYS` | Días mínimos de conservación usados por el CLI de retención. | `90` |
 | `APP_PUBLIC_BASE_URL` | URL pública incluida en los correos de notificación. | `http://100.114.173.115` |
 | `NOTIFICATIONS_EMAIL_ENABLED` | Activa el intento de envío SMTP además de notificaciones internas. | `true` en Docker Compose |
 | `SMTP_HOST` | Servidor SMTP usado por el worker para enviar correos electrónicos. | `mailpit` |
@@ -68,6 +70,17 @@ El comando solicita la contraseña por consola y ejecuta `python -m app.cli.crea
 La autenticación local usa JWT firmado con `AUTH_SECRET_KEY`. En desarrollo existe un valor por defecto, pero en cualquier entorno compartido debe configurarse una clave propia y no commitearla. La API rechaza arrancar fuera de `development` si la clave sigue siendo el valor por defecto o es demasiado corta.
 
 Los enlaces de compartición usan tokens aleatorios opacos y solo guardan su hash en base de datos. `SHARE_LINK_EXPIRE_HOURS` define la caducidad por defecto cuando el usuario crea un enlace desde la GUI o la API.
+
+La política de retención se configura con `RETENTION_DAYS` y se aplica por CLI. La ejecución real está desactivada por defecto con `RETENTION_ENABLED=false`; el comando sin `--execute` funciona como dry-run y permite revisar candidatos sin borrar datos:
+
+```bash
+make retention-dry-run DAYS=90
+make retention-execute DAYS=90
+```
+
+`make retention-execute` solo borra si `RETENTION_ENABLED=true` está configurado en el entorno del contenedor `api`.
+
+La retención solo afecta a estudios terminales (`completed`, `failed`, `canceled`) y excluye `queued`, `processing`, estudios ya borrados y estudios con `keep_forever`.
 
 ## Notificaciones Por SMTP
 
