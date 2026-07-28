@@ -55,4 +55,4 @@ Después, el admin puede crear usuarios `researcher` o `admin` desde la GUI, asi
 
 El dashboard admin muestra cola, jobs fallidos, servicios, uso de disco, usuarios y estudios por estado. Sirve para diagnóstico operativo; no sustituye la revisión de logs si un procesamiento falla.
 
-Quedan para fases posteriores la subida múltiple, la retención automática y la revisión clínica formal.
+Quedan para fases posteriores la subida múltiple, una pantalla GUI de retención y la revisión clínica formal.

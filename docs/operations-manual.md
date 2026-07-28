@@ -29,7 +29,7 @@ El comando pide contraseña por consola. No hay registro público abierto; los d
 - PostgreSQL guarda metadatos, estados y auditoría.
 - `data/studies/{study_id}` guarda entrada, BIDS, resultados, logs y metadatos.
 - Respaldar PostgreSQL y `data/`; ambos son necesarios para reconstruir trazabilidad.
-- Hasta definir retención, los estudios y resultados se conservan indefinidamente.
+- La retención inicial se ejecuta por CLI/configuración y no desde la GUI. El borrado real está desactivado por defecto.
 
 La Fase 4 implementa backup/restore local por CLI, sin endpoints ni pantalla admin:
 
@@ -42,6 +42,14 @@ La Fase 4 implementa backup/restore local por CLI, sin endpoints ni pantalla adm
 - El archivado de `data/studies` usa la lista de estudios registrada en PostgreSQL para evitar respaldar carpetas huérfanas de uploads interrumpidos.
 - El backup también se cancela si falta la carpeta local de un estudio activo; solo tolera carpetas ausentes de estudios ya borrados.
 - Los ficheros de backup se crean con permisos privados mediante `umask 077`.
+
+La retención de estudios se aplica de forma explícita desde el contenedor `api`:
+
+- `make retention-dry-run DAYS=90` muestra candidatos sin borrar datos.
+- `make retention-execute DAYS=90` borra estudios terminales antiguos, registra auditoría y elimina la carpeta física solo si `RETENTION_ENABLED=true`.
+- Solo son candidatos los estudios `completed`, `failed` o `canceled` con antigüedad mayor o igual a `DAYS`.
+- Se excluyen estudios `queued`, `processing`, ya borrados y estudios marcados con `keep_forever`.
+- Mantener `RETENTION_ENABLED=false` salvo durante una ventana operativa controlada, ejecutar primero el dry-run y revisar candidatos antes de usar `retention-execute`.
 - `backups/` queda ignorado por Git; debe copiarse fuera del servidor si se necesita protección real ante pérdida de disco.
 - `make restore BACKUP_DIR=backups/<timestamp> CONFIRM_RESTORE=YES_I_UNDERSTAND` detiene `api` y `worker`, restaura PostgreSQL y `data/studies`, vuelve a levantar `api` y `worker`, espera a que `api` responda internamente y reinicia `reverse-proxy` para refrescar el upstream `api`.
 - El restore limpia Redis con `FLUSHALL` porque la cola Celery no forma parte de la unidad restaurable.

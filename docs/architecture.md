@@ -186,7 +186,7 @@ Evolución posterior:
 
 - Un rol `viewer` completo no entra en la implementación actual. La compartición actual se limita a PDF técnico mediante token temporal opaco, caducidad, revocación y auditoría.
 - Google/OIDC y ORCID deben vincularse a usuarios internos existentes o aprovisionados, sin sustituir el modelo de permisos propio.
-- Backups y restore local ya se cubren como operación CLI; retención automática queda para una fase posterior.
+- Backups, restore local y retención inicial se cubren como operaciones CLI; una pantalla admin avanzada de retención queda para una fase posterior.
 
 ## Estados
 

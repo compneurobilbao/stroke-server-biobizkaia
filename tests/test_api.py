@@ -10,7 +10,10 @@ from app.models.share_link import ShareLink
 from app.models.study import Study, StudyStatus
 from app.models.user import User, UserRole
 from app.schemas.admin import AdminServiceHealth
+from app.cli import retention as retention_cli
 from app.services.auth import hash_password, normalize_email
+from app.services.retention import apply_retention_policy
+from app.services.storage import LocalStudyStorage
 
 
 def test_healthcheck(client):
@@ -501,6 +504,85 @@ def test_delete_processing_study_is_rejected(client):
     assert delete.status_code == 409
 
 
+def test_retention_dry_run_does_not_delete_study(client):
+    headers, _ = auth_headers(client, "researcher@example.org", "secret-pass")
+    response = client.post(
+        "/api/studies/upload",
+        files={"file": ("study.nii", b"dummy image", "application/octet-stream")},
+        headers=headers,
+    )
+    study_id = UUID(response.json()["id"])
+
+    db = client.app.state.testing_session_local()
+    study = db.get(Study, study_id)
+    study.status = StudyStatus.completed
+    study.created_at = datetime.utcnow() - timedelta(days=120)
+    study_dir = Path(study.output_path).parent
+    storage = LocalStudyStorage(study_dir.parent)
+    db.commit()
+
+    result = apply_retention_policy(db, storage, 90, dry_run=True)
+
+    assert [candidate.id for candidate in result.candidates] == [study_id]
+    assert result.deleted == []
+    assert db.get(Study, study_id).deleted_at is None
+    assert study_dir.exists()
+    db.close()
+
+
+def test_retention_execute_deletes_only_expired_terminal_studies(client):
+    headers, _ = auth_headers(client, "researcher@example.org", "secret-pass")
+    old_id = upload_test_study(client, headers, "old.nii")
+    protected_id = upload_test_study(client, headers, "protected.nii")
+    queued_id = upload_test_study(client, headers, "queued.nii")
+
+    db = client.app.state.testing_session_local()
+    old_study = db.get(Study, old_id)
+    protected_study = db.get(Study, protected_id)
+    queued_study = db.get(Study, queued_id)
+    old_study.status = StudyStatus.completed
+    protected_study.status = StudyStatus.completed
+    protected_study.keep_forever = True
+    queued_study.status = StudyStatus.queued
+    old_study.created_at = datetime.utcnow() - timedelta(days=120)
+    protected_study.created_at = datetime.utcnow() - timedelta(days=120)
+    queued_study.created_at = datetime.utcnow() - timedelta(days=120)
+    old_dir = Path(old_study.output_path).parent
+    protected_dir = Path(protected_study.output_path).parent
+    queued_dir = Path(queued_study.output_path).parent
+    storage = LocalStudyStorage(old_dir.parent)
+    db.commit()
+
+    result = apply_retention_policy(db, storage, 90, dry_run=False)
+
+    assert [candidate.id for candidate in result.deleted] == [old_id]
+    assert db.get(Study, old_id).deleted_at is not None
+    assert db.get(Study, protected_id).deleted_at is None
+    assert db.get(Study, queued_id).deleted_at is None
+    assert not old_dir.exists()
+    assert protected_dir.exists()
+    assert queued_dir.exists()
+    event = (
+        db.query(AuditEvent)
+        .filter(AuditEvent.event_type == "study_retention_deleted")
+        .one()
+    )
+    assert event.study_id == old_id
+    assert event.actor == "system/retention"
+    db.close()
+
+
+def test_retention_cli_blocks_execute_when_disabled(monkeypatch):
+    monkeypatch.setattr("sys.argv", ["retention", "--execute"])
+
+    try:
+        retention_cli.main()
+    except SystemExit as exc:
+        assert "RETENTION_ENABLED=true" in str(exc)
+    else:
+        raise AssertionError("retention execute should require RETENTION_ENABLED=true")
+
+
 def test_admin_can_create_researcher_user(client):
     admin_headers, _ = auth_headers(
         client, "admin@example.org", "secret-pass", role=UserRole.admin.value
@@ -959,6 +1041,16 @@ def auth_headers(
     )
     assert response.status_code == 200
     return {"Authorization": f"Bearer {response.json()['access_token']}"}, user_id
+
+
+def upload_test_study(client, headers, filename: str = "study.nii") -> UUID:
+    response = client.post(
+        "/api/studies/upload",
+        files={"file": (filename, b"dummy image", "application/octet-stream")},
+        headers=headers,
+    )
+    assert response.status_code == 201
+    return UUID(response.json()["id"])
 
 
 def complete_study_with_pdf(client, study_id: str) -> Path:

@@ -34,4 +34,4 @@ Solo se versionan `.gitkeep` y este `README.md`. Los estudios reales, resultados
 
 ## Advertencia
 
-No guardar datos identificativos. La versión actual asume estudios anonimizados y todavía no implementa política de retención automática.
+No guardar datos identificativos. La versión actual asume estudios anonimizados y aplica la retención inicial por CLI/configuración, no desde la GUI; el borrado real está desactivado por defecto.

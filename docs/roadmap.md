@@ -6,7 +6,7 @@ Este roadmap ordena la evolución funcional de la plataforma desde el estado act
 
 La plataforma actual permite login local, roles básicos `admin`/`researcher`, propietario por estudio, subida de un T1w `.nii.gz`, preparación BIDS, encolado con Celery/Redis, worker `compneuro`, renderizado NIfTI a PNG con FSL `slicer`, artefactos técnicos, descarga de resultados según permisos, gestión básica de jobs, dashboard operativo para admin, backup/restore local por CLI, compartición temporal de PDF técnicos, notificaciones internas/correo electrónico y cuotas básicas por usuario.
 
-Todavía no existen retención automática, flujos seleccionables desde GUI ni revisión clínica formal con revisor, fecha y comentarios.
+Todavía no existen flujos seleccionables desde GUI, pantalla admin avanzada de retención ni revisión clínica formal con revisor, fecha y comentarios.
 
 ## Roadmap de evolución funcional
 
@@ -255,15 +255,15 @@ Criterios de aceptación:
 
 Objetivo: controlar crecimiento de datos y costes operativos.
 
-Estado: cuota básica por usuario implementada; retención automática, `keep_forever`, dry-run y limpieza avanzada quedan pendientes.
+Estado: cuota básica por usuario implementada; retención inicial por CLI/configuración implementada con `keep_forever`, dry-run, auditoría y borrado físico, pero desactivada por defecto para ejecución real. Quedan pendientes una pantalla admin avanzada y limpieza manual guiada.
 
 Alcance recomendado:
 
-- Política de retención automática.
+- Política de retención por CLI/configuración.
 - Recomendación inicial: 90 días.
 - Flag `keep_forever`.
-- Dry-run.
-- Auditoría de borrado.
+- Dry-run por defecto.
+- Auditoría de borrado automático.
 - Evolución de cuota por usuario ya implementada como límite básico de subida.
 - Alerta de uso de disco.
 - Limpieza manual controlada.
