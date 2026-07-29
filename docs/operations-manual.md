@@ -6,6 +6,7 @@
 - `make down`: parar servicios.
 - `make logs`: inspeccionar logs.
 - `make smoke`: comprobar healthcheck.
+- `make migrate`: aplicar migraciones Alembic en el contenedor `api`.
 - `make create-admin EMAIL=admin@example.org`: crear o actualizar el admin inicial.
 - `make backup`: crear backup local de PostgreSQL y `data/studies`.
 - `make restore BACKUP_DIR=backups/<timestamp> CONFIRM_RESTORE=YES_I_UNDERSTAND`: restaurar backup local.
@@ -16,7 +17,14 @@
 
 ## Usuarios
 
-Tras aplicar migraciones, crear el primer usuario admin:
+Tras levantar servicios, aplicar migraciones antes de crear el primer usuario admin:
+
+```bash
+make up
+make migrate
+```
+
+Después, crear o actualizar el admin inicial:
 
 ```bash
 make create-admin EMAIL=admin@example.org
