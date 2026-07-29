@@ -24,6 +24,7 @@ Esta carpeta contiene la documentación técnica, operativa y de defensa del TFM
 - `testing.md`: pruebas disponibles.
 - `ai-development-rules.md`: reglas para desarrollo asistido por IA.
 - `troubleshooting.md`: incidencias habituales.
+- `demo-guide.md`: guion operativo para demostrar la plataforma ante tribunal.
 - `tfm-technical-summary.md`: resumen técnico para el TFM.
 - `agentic-workflow-audit.md`: auditoría y decisiones de configuración OpenCode/agentes.
 
