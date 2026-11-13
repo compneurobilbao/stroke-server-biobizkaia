@@ -651,7 +651,7 @@ th, td {
 
 .auth-form { flex-direction: column; align-items: stretch; gap: 14px; }
 .field { display: flex; flex-direction: column; gap: 6px; font-size: .88rem; font-weight: 600; color: #3a4360; }
-.auth-form .field input { flex: none; width: 100%; box-sizing: border-box; }
+.auth-card .auth-form .field input, .auth-form .field input { flex: none; height: auto; width: 100%; box-sizing: border-box; }
 .auth-form button { margin-top: 6px; padding: 13px 18px; background: var(--bb-indigo); }
 
 @media (max-width: 860px) {
