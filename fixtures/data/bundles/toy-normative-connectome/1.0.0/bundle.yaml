@@ -18,13 +18,13 @@ metadata:
   age_range: 45-85
   n_parcels: 100
   layout: placeholder-v0
-content_digest: sha256:9db94900cabd539a6e9b0d76f0473eec3ee095b14ce02608fa8f4c65d2799e3c
+content_digest: sha256:e4029c076c9cbe237bda6dfdcbbe138340d9b6d83f7e9dd8992be88a450779dc
 files:
 - path: README.md
   sha256: 8a0d04dfe6b8c70aa0327e483ab9b6f8c39f97709bcfecf097320d995073c1cc
   size_bytes: 786
 - path: connectomes.npz
-  sha256: ea78c1a5396febafcec153896f00dea3acd1584e0db56be6572062f837cfc5af
+  sha256: dead3c24a538c84dbbca765b0d3c55d556e0cba35101bc0d89dd95dca90fdcd4
   size_bytes: 801854
 - path: parcellation/atlas.nii.gz
   sha256: a54c93cd60be9258a1654fc467561425ec9eda0f32fd105b1ea2ab94937c5194

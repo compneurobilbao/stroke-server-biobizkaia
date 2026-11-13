@@ -6,13 +6,13 @@
       "size_bytes": 786
     },
     "bundles/toy-normative-connectome/1.0.0/bundle.yaml": {
-      "payload_sha256": "4b3fee702b0492ac01ce11fe1818eb414088e68996b0f417ed36fb1d7ab5d2a0",
-      "sha256": "4b3fee702b0492ac01ce11fe1818eb414088e68996b0f417ed36fb1d7ab5d2a0",
+      "payload_sha256": "35252cf9020b6b0f610c5b2c3d4aa84ca6accf40a53bf1d40c042782782eeb81",
+      "sha256": "35252cf9020b6b0f610c5b2c3d4aa84ca6accf40a53bf1d40c042782782eeb81",
       "size_bytes": 1268
     },
     "bundles/toy-normative-connectome/1.0.0/connectomes.npz": {
-      "payload_sha256": "ea78c1a5396febafcec153896f00dea3acd1584e0db56be6572062f837cfc5af",
-      "sha256": "ea78c1a5396febafcec153896f00dea3acd1584e0db56be6572062f837cfc5af",
+      "payload_sha256": "dead3c24a538c84dbbca765b0d3c55d556e0cba35101bc0d89dd95dca90fdcd4",
+      "sha256": "dead3c24a538c84dbbca765b0d3c55d556e0cba35101bc0d89dd95dca90fdcd4",
       "size_bytes": 801854
     },
     "bundles/toy-normative-connectome/1.0.0/parcellation/atlas.nii.gz": {

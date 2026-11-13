@@ -219,6 +219,9 @@ def make_connectome_bundle(out: Path) -> None:
     for i in range(N_PARTICIPANTS):
         f = shared + 0.3 * rng.normal(size=shared.shape)
         f = f + (0.15 if sex[i] == "F" else -0.15) * sex_dir
+        # Factors on a 1/16 grid make the products and sums exact in float64, so the
+        # result does not depend on the BLAS build.
+        f = np.round(f * 16.0) / 16.0
         w = (f @ f.T) / RANK * (1.0 - 0.004 * (age[i] - 65))
         np.fill_diagonal(w, 0.0)
         mats[i] = np.round(w, 3).astype(np.float32)
