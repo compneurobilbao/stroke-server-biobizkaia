@@ -924,7 +924,10 @@ def cancel_study_processing(
                 ProcessingJob.id == job.id,
                 ProcessingJob.status == StudyStatus.processing.value,
             )
-            .values(error_message="Cancelación solicitada por el usuario")
+            .values(
+                error_message="Cancelación solicitada por el usuario",
+                cancel_requested_at=now,
+            )
         ).rowcount
         if updated_studies != 1 or updated_jobs != 1:
             db.rollback()

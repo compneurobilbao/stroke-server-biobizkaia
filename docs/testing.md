@@ -28,6 +28,7 @@ Tests actuales:
 - logs truncados.
 - cancelación de jobs en cola.
 - cancelación de jobs en procesamiento con terminación de tarea Celery.
+- la cancelación se detecta solo por `cancel_requested_at`, nunca por el texto de `error_message`.
 - retry de jobs fallidos.
 - soft delete y borrado físico de carpeta de estudio.
 - bloqueo de borrado para estudios en procesamiento.

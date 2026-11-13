@@ -23,6 +23,7 @@ class ProcessingJob(Base):
     )
     started_at: Mapped[datetime | None] = mapped_column(DateTime)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime)
+    cancel_requested_at: Mapped[datetime | None] = mapped_column(DateTime)
     retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     worker_name: Mapped[str | None] = mapped_column(String(255))
     exit_code: Mapped[int | None] = mapped_column(Integer)

@@ -378,6 +378,12 @@ def test_cancel_queued_study(client):
     status_response = client.get(f"/api/studies/{study_id}/status", headers=headers)
     assert status_response.json()["status"] == "canceled"
 
+    db = client.app.state.testing_session_local()
+    job = db.get(Study, UUID(study_id)).jobs[0]
+    assert job.status == StudyStatus.canceled.value
+    assert job.cancel_requested_at is None
+    db.close()
+
 
 def test_cancel_processing_study_terminates_celery_task(client, monkeypatch):
     headers, _ = auth_headers(client, "researcher@example.org", "secret-pass")
@@ -427,6 +433,7 @@ def test_cancel_processing_study_terminates_celery_task(client, monkeypatch):
     assert study.error_message == "Cancelación solicitada por el usuario"
     assert job.status == StudyStatus.processing.value
     assert job.error_message == "Cancelación solicitada por el usuario"
+    assert job.cancel_requested_at is not None
     db.close()
 
 

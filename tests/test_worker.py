@@ -1,5 +1,7 @@
+from datetime import datetime
 from uuid import uuid4
 
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -145,8 +147,16 @@ def test_worker_skips_canceled_study(tmp_path, monkeypatch):
     get_settings.cache_clear()
 
 
-def test_worker_marks_running_study_canceled_when_adapter_is_interrupted(
-    tmp_path, monkeypatch
+@pytest.mark.parametrize(
+    ("flag_set", "error_message"),
+    [
+        (True, "Cancelación solicitada por el usuario"),
+        (True, "arbitrary text unrelated to cancellation"),
+        (False, "Cancelación solicitada por el usuario"),
+    ],
+)
+def test_worker_cancellation_depends_only_on_flag(
+    tmp_path, monkeypatch, flag_set, error_message
 ):
     db_path = tmp_path / "worker.db"
     storage_root = tmp_path / "studies"
@@ -176,7 +186,9 @@ def test_worker_marks_running_study_canceled_when_adapter_is_interrupted(
         def run(**_kwargs):
             db = TestingSessionLocal()
             job = db.get(ProcessingJob, job_id)
-            job.error_message = "Cancelación solicitada por el usuario"
+            job.error_message = error_message
+            if flag_set:
+                job.cancel_requested_at = datetime.utcnow()
             db.commit()
             db.close()
             raise ProcessorCanceled("Procesamiento cancelado por señal 15")
@@ -216,10 +228,15 @@ def test_worker_marks_running_study_canceled_when_adapter_is_interrupted(
     db = TestingSessionLocal()
     study = db.get(Study, study_id)
     job = db.get(ProcessingJob, job_id)
-    assert study.status == StudyStatus.canceled
-    assert study.error_message == "Cancelado por el usuario"
-    assert job.status == StudyStatus.canceled.value
-    assert job.error_message == "Procesamiento cancelado por señal 15"
-    assert db.query(Notification).count() == 0
+    if flag_set:
+        assert study.status == StudyStatus.canceled
+        assert study.error_message == "Cancelado por el usuario"
+        assert job.status == StudyStatus.canceled.value
+        assert job.error_message == "Procesamiento cancelado por señal 15"
+        assert db.query(Notification).count() == 0
+    else:
+        # Message text alone must never be treated as a cancellation.
+        assert study.status == StudyStatus.failed
+        assert job.status == StudyStatus.failed.value
     db.close()
     get_settings.cache_clear()
