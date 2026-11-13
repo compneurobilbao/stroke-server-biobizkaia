@@ -84,6 +84,56 @@ jobs:
       - name: Postgres-marked tests (pytest -m postgres)
         run: PYTHONPATH=.:backend pytest tests -m postgres -v
 
+  docker-executor:
+    name: Docker executor integration (socket proxy)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      registry:
+        image: registry:2
+        ports:
+          - 5000:5000
+    env:
+      # Keep in sync with the docker-proxy service in docker-compose.yml
+      PROXY_IMAGE: tecnativa/docker-socket-proxy@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459
+      STEP_TAG: localhost:5000/ci/template-step:ci
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-python@v5.3.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
+      - name: Build the template step image and push it to the local registry
+        run: |
+          docker build -f steps/template/Dockerfile -t "$STEP_TAG" .
+          docker push "$STEP_TAG"
+          ref="$(docker image inspect "$STEP_TAG" --format '{{index .RepoDigests 0}}')"
+          echo "Pinned reference: $ref"
+          echo "STROKE_TEST_STEP_IMAGE=$ref" >> "$GITHUB_ENV"
+      - name: Start the restricted socket proxy
+        run: |
+          docker run -d --name docker-proxy             -p 127.0.0.1:2375:2375             -v /var/run/docker.sock:/var/run/docker.sock:ro             -e CONTAINERS=1 -e IMAGES=1 -e POST=1 -e DELETE=1             "$PROXY_IMAGE"
+          for _ in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:2375/_ping && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:2375/_ping
+          echo "STROKE_TEST_DOCKER_PROXY_URL=http://127.0.0.1:2375" >> "$GITHUB_ENV"
+      - name: Proxy refuses what the executor does not need
+        run: |
+          code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:2375/volumes)"
+          test "$code" = 403
+          code="$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:2375/networks/create)"
+          test "$code" = 403
+      - name: Docker executor tests (pytest)
+        run: PYTHONPATH=.:backend pytest tests/test_docker_executor.py tests/test_docker_executor_integration.py -v -rs
+      - name: Proxy log
+        if: failure()
+        run: docker logs docker-proxy
+
   frontend:
     name: Frontend typecheck, lint, test and build
     runs-on: ubuntu-24.04

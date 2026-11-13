@@ -154,6 +154,52 @@ services:
       - frontend
       - api
 
+  # Restricted Docker API for the `docker` step executor (card F0-14, docs/deployment.md).
+  # Off by default: start it with `docker compose --profile docker-executor up -d`.
+  # Only the API sections needed to create, start, inspect, kill, log and remove
+  # containers and to inspect images are enabled; exec, volumes, networks, build,
+  # swarm, secrets and the rest answer 403. The proxy does not inspect request
+  # bodies, so the executor builds every container spec itself. It listens on an
+  # internal network only; never publish its port.
+  docker-proxy:
+    profiles: ["docker-executor"]
+    image: tecnativa/docker-socket-proxy@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459 # v0.5.0
+    environment:
+      CONTAINERS: 1
+      IMAGES: 1
+      POST: 1
+      DELETE: 1
+      EXEC: 0
+      VOLUMES: 0
+      NETWORKS: 0
+      BUILD: 0
+      COMMIT: 0
+      CONFIGS: 0
+      DISTRIBUTION: 0
+      EVENTS: 0
+      INFO: 0
+      NODES: 0
+      PLUGINS: 0
+      SECRETS: 0
+      SERVICES: 0
+      SESSION: 0
+      SWARM: 0
+      SYSTEM: 0
+      TASKS: 0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - executor-net
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+networks:
+  # Internal: no route to the outside. The worker joins it when the docker executor is
+  # wired in (card F0-15); until then only the proxy is attached.
+  executor-net:
+    internal: true
+
 volumes:
   postgres-data:
   redis-data:
