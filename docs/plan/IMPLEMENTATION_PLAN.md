@@ -1,6 +1,6 @@
 # Stroke-server platform and pipelines — implementation plan
 
-Version 0.2 (public edition), 13 Nov 2026. Planner: Claude Fable. Approved by the project owner.
+Version 0.3 (public edition), 13 Nov 2026. Planner: Claude Fable. Approved by the project owner.
 This is the public edition of the plan: internal inputs, institutional matters and the decision log are kept outside the repository.
 
 How to use this document: sections 1-3 give the assessment, the target architecture and the phases. Section 5 holds the task cards; each card is handed to one agent together with the repository.
@@ -87,8 +87,8 @@ flowchart LR
 **D1. Step contract.** Every processing tool is a *step*: a container image plus a manifest `step.yaml`.
 
 - Entry point: `run --in /in --out /out --params /in/params.json`. Reads only `/in` and `/ref` (read-only), writes only `/out` and `/tmp`. No network. Runs as non-root. Must behave identically under Docker and Apptainer.
-- `step.yaml` declares: name, semantic version, image reference, typed inputs and outputs (BIDS-style entities and suffixes, e.g. `space-MNI152NLin6Asym_res-2_label-lesion_mask.nii.gz`), a JSON Schema for parameters, required reference bundles, resources (CPU, memory, GPU, wall time), and its reference dataset with expected outputs and tolerances.
-- Every run writes `/out/provenance.json`: step name and version, image digest, parameters, SHA-256 of each input, reference bundle IDs and checksums, model version, start/end, exit status, software versions.
+- `step.yaml` declares: name, semantic version, image repository (the digest is pinned in `pipeline.yaml`; a step name and version map to one digest), typed inputs and outputs (BIDS-style entities and suffixes, e.g. `space-MNI152NLin6Asym_res-2_label-lesion_mask.nii.gz`), a JSON Schema for parameters, required reference bundles, resources (CPU, memory, GPU, wall time), and its reference dataset with expected outputs and tolerances.
+- Every run writes `/out/provenance.json`: step name and version, parameters, SHA-256 of each input, reference bundle IDs and checksums, model version, start/end, exit status, software versions. The platform wraps it in a run record that adds the image digest (a container cannot know its own), executor, resources, slot choice and accounting.
 - Exit codes: 0 success, 10 invalid input (user-facing message in `/out/error.json`), other = internal failure.
 - *Rejected:* keeping per-tool adapter classes inside the web repo (does not scale, couples releases); BIDS Apps CLI as-is (no manifest, no typed outputs, no provenance), although the CLI shape is deliberately close to it.
 
@@ -227,7 +227,7 @@ Mechanical split into `auth`, `users`, `studies`, `shares`, `notifications`, `ad
 ### 5.2 Phase 0 — lane B: contract, data model, orchestration
 
 **F0-10 ADRs and the step contract specification** · opus · Depends: F0-00 · Touches: `docs/adr/`, `docs/contracts/`, `contracts/` (JSON Schemas)
-Write ADR-001…ADR-008 for decisions D1-D8, then the normative spec and JSON Schemas for `step.yaml`, `pipeline.yaml`, `provenance.json`, `bundle.yaml`, `error.json`, plus two worked examples (a real-looking normalisation step and a stub). Include a `contracts/validate.py` CLI. Accept: schemas validate the examples in CI; spec answers: I/O typing, parameters, resources, exit codes, Apptainer constraints, versioning and compatibility rules. **Everything in lanes B-D depends on this card; do it first.** *Added 13 Nov (D15):* the spec also defines slots (`provides:` in `step.yaml`, slot declarations and optional slots in `pipeline.yaml`, the per-run implementation selection in `provenance.json`) and ADR-015 for D15. *Added 13 Nov:* `provenance.json` and the executor request carry an optional `accounting` block (submitting identity, billed account/project).
+Write ADR-0001…ADR-0008 for decisions D1-D8, then the normative spec and JSON Schemas for `step.yaml`, `pipeline.yaml`, `provenance.json`, `bundle.yaml`, `error.json`, plus two worked examples (a real-looking normalisation step and a stub). Include a `contracts/validate.py` CLI. Accept: schemas validate the examples in CI; spec answers: I/O typing, parameters, resources, exit codes, Apptainer constraints, versioning and compatibility rules. **Everything in lanes B-D depends on this card; do it first.** *Added 13 Nov (D15):* the spec also defines slots (`provides:` in `step.yaml`, slot declarations and optional slots in `pipeline.yaml`, the per-run implementation selection in `provenance.json`) and ADR-015 for D15. *Added 13 Nov:* `provenance.json` and the executor request carry an optional `accounting` block (submitting identity, billed account/project).
 
 **F0-11 Data model design** · opus · Depends: F0-10 · Touches: `docs/adr/`, `docs/data-model.md`
 ER design for D4 with the migration strategy from `Study`/`ProcessingJob`, state machines for `PipelineRun` and `StepRun`, permission matrix per role. Design only. Accept: PI approval recorded in the ADR.
@@ -262,7 +262,7 @@ Deterministic generator of: (a) "patient" CTs made by applying random affine + s
 Python package that implements the contract side of a step: argument parsing, input validation against `step.yaml`, provenance writer, error file, logging; a cookiecutter-style template with Dockerfile, Apptainer build recipe, reference-dataset test and CI workflow. Accept: template step builds, runs under Docker and Apptainer, and passes contract validation.
 
 **F0-22 Step: lesion intake and QC** · sonnet · Depends: F0-21, F0-20 · Touches: `steps/lesion-qc/`
-Checks: NIfTI validity, binary mask, non-empty, declared space matches template grid (for MNI masks), volume, hemisphere, connected components; resamples to the pipeline's working grid; QC figure. Invalid input → exit 10 with a clear message. Accept: fixture tests including each failure mode.
+Checks: NIfTI validity, binary mask, non-empty, declared space matches template grid (for MNI masks), volume, hemisphere, connected components; resamples to the pipeline's working grid (MNI-mask mode only; in CT mode QC runs on the native mask, and whether a second QC after normalisation is wanted is open); QC figure. Invalid input → exit 10 with a clear message. Accept: fixture tests including each failure mode.
 
 **F0-23 Step: CT lesion to MNI152** · sonnet · Depends: F0-21, F0-20 · Touches: `CTLesion2MNI152` repo (new `step/` folder, wrapper only; algorithm unchanged)
 Wrap the existing CLI; check every subprocess exit code; optional ventricle removal driven by an age parameter; outputs named per contract; registration QC overlay. Accept: fixture CT + mask → MNI mask with Dice ≥ 0.6 against the known synthetic ground truth (threshold to be tuned once and then frozen); reference-dataset test in CI.
@@ -271,7 +271,7 @@ Wrap the existing CLI; check every subprocess exit code; optional ventricle remo
 Wrap flnm-fast under the contract, with the normative cohort as a bundle and node-strength normalisation as a recorded parameter; expose sex-specific subset selection as a parameter. Build the stub with identical outputs. Do not change the algorithm. Accept: runs on the toy bundle in CI and the stub in public CI; output schema identical between both. *Changed 13 Nov:* no private repo or private CI; if the source is not available when the card is picked up, only the CI stub is built and the slot stays unmounted in deployments until the real step exists.
 
 **F0-25 Step: tract-wise structural disconnection** · sonnet · Depends: F0-21, F0-20 · Touches: `lnm` repo `step/`
-Port `lnm_tracts.sh` to a per-case, concurrency-safe step (no writes into the reference tree), HCP1065 tracts as a bundle, output a tidy TSV of per-tract disconnection. Voxel-wise structural disconnection is **not** in this card. Accept: toy tract bundle test; results equal to the old script on the same input.
+Port `lnm_tracts.sh` to a per-case, concurrency-safe step (no writes into the reference tree), HCP1065 tracts as a bundle, output a tidy TSV of per-tract disconnection. Voxel-wise structural disconnection is **not** in this card. Accept: toy tract bundle test; results equal to the old script on the same input, where the contract's `tract_disconnection` = 1 − the old script's `Disc` column.
 
 **F0-26 Step: COGNET-STROKE** · sonnet · Depends: F0-21, F0-20 · Touches: `COGNET-STROKE` repo
 Split a slim runtime package (numpy, nibabel, nilearn, pandas only) from the analysis environment; precomputed concept maps and nulls as a bundle; outputs a JSON profile (score and p-value per concept/domain) plus figure; unit tests for `compute_cdr` including edge cases (zero outside mean, empty masks). Accept: container under 1.5 GB; tests green; JSON validates against a schema added to `contracts/`.
@@ -291,7 +291,7 @@ Case creation wizard (two modes), run page with step timeline, logs, artefact li
 NiiVue view of template + lesion mask + disconnection map overlays with opacity and threshold controls. No editing yet. Accept: loads fixture artefacts; works offline (no CDN assets).
 
 **F0-33 `stroke-lnm` v0 pipeline definition and registry** · sonnet · Depends: F0-15, F0-22…F0-27 · Touches: `pipelines/stroke-lnm/`, `docs/processing-pipeline.md`
-`pipeline.yaml` for section 2.3 written with slots (D15), a registry of implementations per slot with image digests, and a `ci` configuration that fills every slot with stubs; end-to-end test in CI on fixtures. Slots without a real implementation are left unmounted in deployments. Accept: CI job "e2e-stroke-lnm" green; a run with a non-default implementation in one slot passes; provenance record lists every slot, step digest and bundle.
+`pipeline.yaml` for section 2.3 written with slots (D15), a registry of implementations per slot with image digests, and a `ci` configuration that fills each slot with a stub or, where a light real step exists, with the real step on fixtures (only F0-24 must ship a stub); end-to-end test in CI on fixtures. Slots without a real implementation are left unmounted in deployments. Accept: CI job "e2e-stroke-lnm" green; a run with a non-default implementation in one slot passes; provenance record lists every slot, step digest and bundle.
 
 ### 5.5 Phase 0 — lane E: deployment
 
