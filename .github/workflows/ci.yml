@@ -158,6 +158,42 @@ jobs:
       - name: Build
         run: npm run build
 
+  bids-validator:
+    name: BIDS validator on produced case trees
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      # Pinned: Deno runtime and the BIDS validator release published on JSR.
+      DENO_VERSION: "2.5.6"
+      BIDS_VALIDATOR_VERSION: "3.0.2"
+      BIDS_TREE_EXPORT: ${{ github.workspace }}/bids-export
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-python@v5.3.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
+      - uses: denoland/setup-deno@v2.0.3
+        with:
+          deno-version: ${{ env.DENO_VERSION }}
+      - name: Build a synthetic case tree (raw inputs, two step derivatives, run provenance)
+        run: PYTHONPATH=.:backend pytest tests/test_bids.py -k test_export_tree_for_bids_validator -v
+      - name: Validate the raw dataset
+        run: |
+          for d in bids-export/*/rawdata; do
+            echo "== $d"
+            deno run -A "jsr:@bids/validator@${BIDS_VALIDATOR_VERSION}" "$d"
+          done
+      - name: Validate the derivative datasets
+        run: |
+          for d in bids-export/*/runs/*/derivatives/*/; do
+            echo "== $d"
+            deno run -A "jsr:@bids/validator@${BIDS_VALIDATOR_VERSION}" "$d"
+          done
+
   repo-checks:
     name: Docs and secrets checks
     runs-on: ubuntu-24.04

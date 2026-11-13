@@ -86,3 +86,73 @@ class LocalStudyStorage:
 
     def remove_study(self, study_id: UUID) -> None:
         shutil.rmtree(self.study_dir(study_id), ignore_errors=True)
+
+    # ------------------------------------------------------------------
+    # Case store (card F0-17, ADR-0005). Per case, below ``<root>/<case id>``:
+    #
+    #   rawdata/                              BIDS raw dataset (inputs)
+    #   runs/<run id>/derivatives/<step>-<v>/ one BIDS derivative dataset per step
+    #   runs/<run id>/provenance.json         run-level RunProvenance
+    #   runs/<run id>/checksums.json          SHA-256 manifest of the run tree
+    #
+    # A back-filled legacy case has the same id as its study, so the directory is
+    # shared with the legacy layout above, which is left untouched.
+    # ------------------------------------------------------------------
+
+    def case_dir(self, case_id: UUID) -> Path:
+        return self.study_dir(case_id)
+
+    def rawdata_dir(self, case_id: UUID) -> Path:
+        return self.case_dir(case_id) / "rawdata"
+
+    def run_dir(self, case_id: UUID, run_id: UUID) -> Path:
+        return self.case_dir(case_id) / "runs" / str(run_id)
+
+    def derivatives_dir(self, case_id: UUID, run_id: UUID) -> Path:
+        return self.run_dir(case_id, run_id) / "derivatives"
+
+    def step_derivatives_dir(
+        self, case_id: UUID, run_id: UUID, step_name: str, step_version: str
+    ) -> Path:
+        return self.derivatives_dir(case_id, run_id) / f"{step_name}-{step_version}"
+
+    def run_provenance_path(self, case_id: UUID, run_id: UUID) -> Path:
+        return self.run_dir(case_id, run_id) / "provenance.json"
+
+    def run_checksums_path(self, case_id: UUID, run_id: UUID) -> Path:
+        return self.run_dir(case_id, run_id) / "checksums.json"
+
+    def relative_path(self, path: Path) -> str:
+        """Path as stored in database columns: relative to the root, '/'-separated."""
+        try:
+            rel = path.resolve().relative_to(self.root.resolve())
+        except ValueError as exc:
+            raise ValueError("Path is outside the storage root") from exc
+        return rel.as_posix()
+
+    def resolve_relative(self, relative: str) -> Path:
+        """Inverse of :meth:`relative_path`; refuses anything leaving the root."""
+        parts = relative.split("/")
+        if not relative or relative.startswith("/") or "\\" in relative or ".." in parts:
+            raise ValueError("File path not allowed")
+        return self.safe_path(self.root, relative)
+
+    def _remove_tree(self, target: Path, expected_parent: Path) -> bool:
+        """rmtree that refuses symlinks and anything not directly below ``expected_parent``."""
+        if target.is_symlink():
+            raise ValueError("Refusing to delete a symbolic link")
+        if target.parent.resolve() != expected_parent.resolve():
+            raise ValueError("Directory path not allowed")
+        if not target.exists():
+            return False
+        shutil.rmtree(target)
+        return True
+
+    def remove_run(self, case_id: UUID, run_id: UUID) -> bool:
+        """Delete one run's derivatives and provenance; the raw tree stays."""
+        runs = self.case_dir(case_id) / "runs"
+        return self._remove_tree(self.run_dir(case_id, run_id), runs)
+
+    def remove_case_store(self, case_id: UUID) -> bool:
+        """Delete the whole case directory (raw, runs and, for back-filled cases, legacy files)."""
+        return self._remove_tree(self.case_dir(case_id), self.root)
