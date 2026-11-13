@@ -23,7 +23,8 @@ RUN apt-get update \
 COPY backend/requirements.txt /app/backend/requirements.txt
 RUN /opt/fsl-6.0.7.1/bin/python -m venv /opt/platform-venv \
     && /opt/platform-venv/bin/python -m pip install --no-cache-dir -r /app/backend/requirements.txt \
-    && /opt/fsl-6.0.7.1/bin/python -c "import numpy; numpy.mat"
+    && /opt/fsl-6.0.7.1/bin/python -c "import numpy; numpy.mat" \
+    && ln -s /opt/platform-venv/bin/celery /usr/local/bin/celery
 
 COPY backend /app/backend
 COPY worker /app/worker
