@@ -3,18 +3,23 @@
     "product": "Stroke Server",
     "institution": "Biobizkaia Health Research Institute",
     "footer": "Computational Neuroimaging Lab, Biobizkaia Health Research Institute",
-    "source": "Source code"
+    "source": "Source code",
+    "alpha": "Alpha",
+    "alphaHint": "Early development version: features and results may change."
   },
   "app": {
-    "eyebrow": "Stroke · Lesion network mapping · Neurorehabilitation",
-    "title": "From a clinical scan to network-level stroke analysis",
-    "subtitle": "An open research platform that takes a stroke lesion from routine imaging and runs reproducible, versioned pipelines on it: lesion quality control, normalisation to standard space, structural and functional disconnection, and the reports built on them.",
+    "eyebrow": "Stroke research platform",
+    "title": "From a routine stroke scan to its network-level consequences",
+    "subtitle": "Upload a lesion and run reproducible, versioned analysis pipelines on it. Every result carries the exact tools, parameters and reference data that produced it.",
     "sessionActive": "Active session: {{name}} ({{role}}).",
     "loginPrompt": "Sign in with the account provided by the platform administrator.",
-    "featureLesion": "Lesion intake and quality control, from a CT scan with its mask or from a mask already in MNI space.",
-    "featureNetwork": "Lesion network mapping and tract disconnection against normative connectomes.",
-    "featureProvenance": "Every result records the exact tools, versions, parameters and reference data that produced it.",
-    "researchOnly": "Research use only. Not for clinical decisions."
+    "featureLesion": "A CT scan with its lesion mask, or a mask already in MNI space, checked and brought to standard space.",
+    "featureNetwork": "Lesion network mapping and tract-wise disconnection against normative connectomes.",
+    "featureProvenance": "Versioned steps, pinned reference data and a full provenance record for every run.",
+    "researchOnly": "Research use only. Not for clinical decisions.",
+    "featureLesionTitle": "Lesion intake and QC",
+    "featureNetworkTitle": "Network disconnection",
+    "featureProvenanceTitle": "Traceable results"
   },
   "language": {
     "label": "Language",
@@ -65,7 +70,9 @@
     "loggingIn": "Signing in...",
     "failed": "Could not sign in.",
     "loggedIn": "Signed in.",
-    "sessionExpired": "The session has expired. Please sign in again."
+    "sessionExpired": "The session has expired. Please sign in again.",
+    "emailLabel": "Email",
+    "passwordLabel": "Password"
   },
   "studies": {
     "upload": {

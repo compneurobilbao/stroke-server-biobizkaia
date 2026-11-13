@@ -526,3 +526,137 @@ th, td {
 .auth-card { max-width: 560px; }
 .auth-card form input[type="email"], .auth-card form input[type="password"] { flex: 1 1 200px; }
 .auth-card h2 { margin-top: 0; }
+
+/* Landing and header (front page refresh) */
+:root {
+  --bb-indigo: #2a2b7b;
+  --bb-indigo-soft: #d8dce9;
+  --ink: #161a3a;
+}
+
+.site-header { box-shadow: 0 1px 0 rgba(42, 43, 123, .06); }
+.institution-logo { height: 46px; border-radius: 4px; }
+.product-name { color: var(--bb-indigo); }
+
+.stage-badge {
+  text-transform: uppercase;
+  font-size: .68rem;
+  font-weight: 800;
+  letter-spacing: .1em;
+  color: #8a4b00;
+  background: #ffedc7;
+  border: 1px solid #f5c66b;
+  border-radius: 999px;
+  padding: 3px 9px;
+  cursor: help;
+}
+
+.subnav {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 18px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.subnav .main-nav { margin-top: 0; }
+.subnav .main-nav a { color: var(--bb-indigo); border-color: var(--bb-indigo-soft); }
+.subnav .main-nav a.active { background: var(--bb-indigo); color: #fff; }
+.session-info { font-size: .85rem; color: #5b6b7b; }
+
+.page-landing {
+  max-width: none;
+  padding: 0;
+  background:
+    radial-gradient(circle at 1px 1px, rgba(42, 43, 123, .09) 1px, transparent 0) 0 0 / 22px 22px,
+    linear-gradient(180deg, #f4f5fb 0%, #ffffff 100%);
+}
+
+.landing {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 64px 18px 72px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(320px, .85fr);
+  gap: 56px;
+  align-items: start;
+}
+
+.landing .eyebrow { color: var(--bb-indigo); opacity: .75; }
+
+.landing h1 {
+  color: var(--ink);
+  font-size: clamp(2rem, 3.6vw, 3.1rem);
+  line-height: 1.08;
+  letter-spacing: -.025em;
+  margin: 12px 0 18px;
+}
+
+.landing-lead {
+  font-size: 1.1rem;
+  line-height: 1.6;
+  color: #46506a;
+  max-width: 600px;
+  margin: 0 0 30px;
+}
+
+.pipeline-steps {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 14px;
+  max-width: 600px;
+}
+
+.pipeline-steps li {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, .85);
+  border: 1px solid #e3e6f2;
+  border-radius: 14px;
+}
+
+.pipeline-steps strong { color: var(--ink); }
+.pipeline-steps p { margin: 4px 0 0; color: #5b6478; line-height: 1.45; font-size: .95rem; }
+
+.step-index {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  font-size: .9rem;
+  color: #fff;
+  background: var(--bb-indigo);
+}
+
+.landing-form { position: sticky; top: 96px; }
+.landing-form .auth-card {
+  margin-top: 0;
+  max-width: none;
+  padding: 30px;
+  border: 1px solid #e3e6f2;
+  box-shadow: 0 24px 60px rgba(42, 43, 123, .14);
+}
+
+.landing-note { font-size: .88rem; color: #5b6478; margin: 14px 4px 0; }
+
+.auth-form { flex-direction: column; align-items: stretch; gap: 14px; }
+.field { display: flex; flex-direction: column; gap: 6px; font-size: .88rem; font-weight: 600; color: #3a4360; }
+.auth-form .field input { flex: none; width: 100%; box-sizing: border-box; }
+.auth-form button { margin-top: 6px; padding: 13px 18px; background: var(--bb-indigo); }
+
+@media (max-width: 860px) {
+  .landing { grid-template-columns: 1fr; gap: 32px; padding-top: 36px; }
+  .landing-form { position: static; }
+  .institution-logo { height: 38px; }
+  .session-info { display: none; }
+}

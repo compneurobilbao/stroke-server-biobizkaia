@@ -15,6 +15,39 @@ function InstitutionLogo() {
   return <img className="institution-logo" src={LOGO_SRC} alt={t('brand.institution')} onError={() => setFailed(true)} />;
 }
 
+function Landing() {
+  const { t } = useTranslation();
+  const features = [
+    { title: t('app.featureLesionTitle'), text: t('app.featureLesion') },
+    { title: t('app.featureNetworkTitle'), text: t('app.featureNetwork') },
+    { title: t('app.featureProvenanceTitle'), text: t('app.featureProvenance') },
+  ];
+  return (
+    <section className="landing">
+      <div className="landing-copy">
+        <p className="eyebrow">{t('app.eyebrow')}</p>
+        <h1>{t('app.title')}</h1>
+        <p className="landing-lead">{t('app.subtitle')}</p>
+        <ol className="pipeline-steps">
+          {features.map((feature, index) => (
+            <li key={feature.title}>
+              <span className="step-index">{index + 1}</span>
+              <div>
+                <strong>{feature.title}</strong>
+                <p>{feature.text}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </div>
+      <div className="landing-form">
+        <Outlet />
+        <p className="landing-note">{t('app.loginPrompt')}</p>
+      </div>
+    </section>
+  );
+}
+
 export function Layout() {
   const { t } = useTranslation();
   const { user, logout } = useAuth();
@@ -28,6 +61,9 @@ export function Layout() {
             <InstitutionLogo />
             <span className="brand-divider" aria-hidden="true" />
             <span className="product-name">{t('brand.product')}</span>
+            <span className="stage-badge" title={t('brand.alphaHint')}>
+              {t('brand.alpha')}
+            </span>
           </div>
           <div className="topbar-actions">
             <LanguageSwitch />
@@ -38,42 +74,34 @@ export function Layout() {
             )}
           </div>
         </div>
-      </header>
-
-      <main className="page">
-        <section className={user ? 'hero hero-compact' : 'hero'}>
-          <p className="eyebrow">{t('app.eyebrow')}</p>
-          <h1>{t('app.title')}</h1>
-          {!user && <p className="hero-lead">{t('app.subtitle')}</p>}
-          {!user && (
-            <ul className="feature-list">
-              <li>{t('app.featureLesion')}</li>
-              <li>{t('app.featureNetwork')}</li>
-              <li>{t('app.featureProvenance')}</li>
-            </ul>
-          )}
-          {user ? (
-            <div className="notice">{t('app.sessionActive', { name: user.full_name, role: user.role === 'admin' ? 'admin' : 'researcher' })}</div>
-          ) : (
-            <div className="notice">{t('app.loginPrompt')}</div>
-          )}
-          {user && (
+        {user && (
+          <div className="subnav">
             <nav className="main-nav" aria-label={t('nav.label')}>
               <NavLink to="/studies">{t('nav.studies')}</NavLink>
               <NavLink to="/notifications">{t('nav.notifications')}</NavLink>
               {user.role === 'admin' && <NavLink to="/admin">{t('nav.admin')}</NavLink>}
             </nav>
-          )}
-        </section>
-
-        {user && message && (
-          <section className="card message-card">
-            <p className="message">{message}</p>
-          </section>
+            <span className="session-info">
+              {t('app.sessionActive', { name: user.full_name, role: user.role === 'admin' ? 'admin' : 'researcher' })}
+            </span>
+          </div>
         )}
+      </header>
 
-        <Outlet />
-      </main>
+      {user ? (
+        <main className="page">
+          {message && (
+            <section className="card message-card">
+              <p className="message">{message}</p>
+            </section>
+          )}
+          <Outlet />
+        </main>
+      ) : (
+        <main className="page page-landing">
+          <Landing />
+        </main>
+      )}
 
       <footer className="site-footer">
         <p className="research-only">{t('app.researchOnly')}</p>
