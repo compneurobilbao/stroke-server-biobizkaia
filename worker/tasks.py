@@ -274,21 +274,17 @@ def _relative_paths(paths: list[Path], base_dir: Path) -> list[Path]:
 
 
 def _cancellation_requested(job: ProcessingJob) -> bool:
-    return bool(
-        job.error_message
-        and job.error_message.startswith("Cancelación solicitada por el usuario")
-    )
+    return job.cancel_requested_at is not None
 
 
 def _cancellation_requested_in_db(db, job_id: UUID) -> bool:
     with db.no_autoflush:
-        error_message = db.scalar(
-            select(ProcessingJob.error_message).where(ProcessingJob.id == job_id)
+        cancel_requested_at = db.scalar(
+            select(ProcessingJob.cancel_requested_at).where(
+                ProcessingJob.id == job_id
+            )
         )
-    return bool(
-        error_message
-        and error_message.startswith("Cancelación solicitada por el usuario")
-    )
+    return cancel_requested_at is not None
 
 
 def _mark_study_canceled(
