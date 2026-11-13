@@ -512,3 +512,23 @@ def test_read_schemas_from_orm(db, user):
     db.add(step)
     db.commit()
     assert StepRunRead.model_validate(step).status == "queued"
+
+
+def test_0011_relative_rejects_paths_escaping_the_storage_root(tmp_path):
+    import importlib.util
+    from pathlib import Path
+
+    import pytest
+
+    migration = Path(__file__).resolve().parents[1] / "backend/alembic/versions/0011_case_model.py"
+    spec = importlib.util.spec_from_file_location("migration_0011", migration)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    root = tmp_path / "studies"
+    assert module._relative(str(root / "abc" / "report.pdf"), root) == "abc/report.pdf"
+    assert module._relative(str(root / "abc" / ".." / "def" / "x.zip"), root) == "def/x.zip"
+    with pytest.raises(ValueError):
+        module._relative(str(root / "abc" / ".." / ".." / "other" / "x.pdf"), root)
+    with pytest.raises(ValueError):
+        module._relative("/elsewhere/x.pdf", root)

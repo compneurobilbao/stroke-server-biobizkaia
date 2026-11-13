@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import uuid
 from datetime import datetime, timezone
@@ -711,12 +712,17 @@ def _relative(value: str | None, root: Path) -> str | None:
     """`value` relative to the storage root, '/'-separated; ValueError if outside it."""
     if not value:
         return None
-    path = Path(value)
+    # Normalise first: relative_to() is textual, so "<root>/a/../../x" would
+    # otherwise pass and be stored with ".." in it.
+    path = Path(os.path.normpath(value))
     for base, candidate in ((root, path), (root.resolve(), path.resolve())):
         try:
-            return candidate.relative_to(base).as_posix()
+            relative = candidate.relative_to(base)
         except ValueError:
             continue
+        if ".." in relative.parts:
+            break
+        return relative.as_posix()
     raise ValueError(value)
 
 
