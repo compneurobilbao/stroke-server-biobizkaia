@@ -1,0 +1,141 @@
+contract_version: "1.0"
+kind: Step
+name: lesion-qc
+version: 1.0.0
+title: Lesion intake and QC
+description: >-
+  Checks a lesion mask before it enters the pipeline and measures it. Two modes, chosen by
+  the inputs present. MNI mode (lesion_mni): the mask is in MNI152NLin6Asym on any voxel
+  grid; the step checks that it is a valid single-volume binary non-empty NIfTI whose
+  declared space and extent are compatible with MNI152, resamples it to the 2 mm working
+  grid and writes it as lesion_mask_mni. CT mode (lesion_native, optionally ct): the mask is
+  on the CT voxel grid; QC runs on the native mask and no resampling happens. In both modes
+  it writes lesion_qc (volume, hemisphere, connected components, bounding box, grid,
+  warnings; schema in lesion_qc.schema.json) and a PNG QC figure. Hemisphere is assessed in
+  MNI mode only.
+provides: lesion-intake
+image:
+  repository: docker.io/example/lesion-qc-step
+licence:
+  spdx: MIT
+  third_party:
+    - {name: nibabel, version: 5.3.2, spdx: MIT}
+    - {name: numpy, version: 2.2.6, spdx: BSD-3-Clause}
+    - {name: scipy, version: 1.14.1, spdx: BSD-3-Clause}
+    - {name: matplotlib, version: 3.9.2, spdx: LicenseRef-Matplotlib}
+
+inputs:
+  - name: ct
+    type: ct_native
+    required: false
+    description: Head CT (CT mode); only used as background of the QC figure.
+  - name: lesion_native
+    type: lesion_mask_native
+    required: false
+    description: Binary lesion mask on the CT voxel grid (CT mode).
+  - name: lesion_mni
+    type: lesion_mask_mni_any
+    required: false
+    description: Binary lesion mask in MNI152NLin6Asym on any voxel grid (MNI mode).
+
+outputs:
+  - name: lesion_qc
+    type: lesion_qc
+    description: JSON with volume, hemisphere, components, bounding box, grid and warnings.
+  - name: lesion_mask_mni
+    type: lesion_mask_mni
+    required: false
+    description: The mask on the working grid (MNI mode only).
+  - name: qc_figure
+    type: qc_figure
+    description: Orthogonal views of the lesion with the measurements.
+
+parameters:
+  type: object
+  additionalProperties: false
+  properties:
+    warn_below_ml:
+      description: A small_lesion warning is recorded below this volume (ml).
+      type: number
+      minimum: 0
+      default: 0.5
+    max_volume_ml:
+      description: The run is rejected (lesion_too_large) above this volume (ml).
+      type: number
+      exclusiveMinimum: 0
+      default: 800.0
+    reject_bilateral:
+      description: Reject lesions involving both hemispheres instead of only warning.
+      type: boolean
+      default: false
+    bilateral_min_fraction:
+      description: >-
+        A lesion is bilateral when the minority hemisphere holds at least this fraction of
+        the lateralised voxels (MNI mode).
+      type: number
+      minimum: 0
+      maximum: 0.5
+      default: 0.05
+
+resources:
+  cpus: 1
+  memory_mb: 1536
+  wall_time_minutes: 10
+  scratch_mb: 128
+
+errors:
+  - code: input_missing
+    category: input_rejected
+    description: A required input was not provided.
+  - code: input_format_invalid
+    category: input_rejected
+    description: An input is not a gzip NIfTI image, or the mask contains values other than 0 and 1.
+  - code: invalid_parameters
+    category: input_rejected
+    description: The parameters do not satisfy the parameter schema of the step.
+  - code: lesion_input_missing
+    category: input_rejected
+    description: Neither an MNI-space mask nor a native mask was provided.
+  - code: conflicting_inputs
+    category: input_rejected
+    description: An MNI-space mask was provided together with a CT or native mask.
+  - code: mask_not_3d
+    category: input_rejected
+    description: The mask has more than three dimensions (a single trailing volume is accepted).
+  - code: affine_invalid
+    category: input_rejected
+    description: The voxel-to-world matrix of the mask is singular or not finite.
+  - code: mask_empty
+    category: input_rejected
+    description: The lesion mask has no voxels set.
+  - code: mask_empty_after_resampling
+    category: input_rejected
+    description: The lesion is too small to survive resampling to the working grid.
+  - code: space_not_declared
+    category: input_rejected
+    description: The header declares no coordinate system, so MNI152 space cannot be confirmed.
+  - code: space_mismatch
+    category: input_rejected
+    description: The header declares native space, the axes are oblique, or the lesion lies outside the MNI152 extent.
+  - code: ct_grid_mismatch
+    category: input_rejected
+    description: The CT and the native lesion mask are not on the same voxel grid.
+  - code: lesion_too_large
+    category: qc_failed
+    description: The lesion volume exceeds the configured maximum.
+  - code: bilateral_lesion
+    category: qc_failed
+    description: The lesion involves both hemispheres and reject_bilateral is set.
+
+reference_test:
+  description: >-
+    A synthetic ball in the left hemisphere on the 2 mm working grid, generated by
+    tests/make_reference.py (not committed); the expected JSON is computed independently with numpy.
+  inputs:
+    lesion_mni: tests/reference/lesion_mni.nii.gz
+  expected:
+    lesion_qc:
+      compare: json
+      file: tests/reference/expected/lesion_qc.json
+      rtol: 0.000001
+      atol: 0.0001
