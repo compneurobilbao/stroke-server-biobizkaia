@@ -92,9 +92,12 @@ The multi-user tests do not require the real `compneuro` flow; they use a tempor
 GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and on pushes to `develop` and `main`. The jobs are:
 
 - `backend`: `make lint` (ruff) and `make test` (pytest). The suite uses SQLite and in-memory Celery, so no Postgres or Redis service is needed.
+- `migrations-postgres`: starts a `postgres:16-alpine` service container (same major version as `docker-compose.yml`), runs `alembic upgrade head`, `alembic downgrade base` and `alembic upgrade head` again from `backend/`, publishes the output in the job summary, then runs `pytest tests -m postgres`. Tests that need PostgreSQL carry the `postgres` marker and read the connection URL from `TEST_POSTGRES_URL`; without that variable they are skipped, so `make test` stays SQLite-only. New migration tests go in `tests/test_migrations_postgres.py` (or other tests with the marker) and run in this job. To run locally, start any PostgreSQL 16 instance and `export TEST_POSTGRES_URL=postgresql+psycopg://user:pass@localhost:5432/db`; the tests reset the `public` schema, so use a scratch database.
 - `frontend`: `npm ci`, `npm run lint` and `npm run build` in `frontend/`.
 - `repo-checks`: `make check-docs` and `make check-secrets`.
 - `gitleaks`: scan of the full git history with a pinned gitleaks release binary (checksum verified) and `.gitleaks.toml`.
 - `docker-build`: builds the backend and frontend images without pushing. The compneuro worker image is not built in CI because it needs a large external base image.
+
+The step SDK and template tests (`steps/`) are not part of `make test`: they use their own pinned dependencies (`steps/sdk/requirements-image.txt`, e.g. a different numpy pin than `backend/requirements.txt`) and need the SDK installed. Run them with `make test-steps` in a separate virtualenv; CI runs them in `.github/workflows/steps.yml`. Synthetic fixtures are already checked by `tests/test_fixtures.py`, which `make test` collects.
 
 All of these can be reproduced locally with the make targets above. Third-party actions are pinned to exact versions.
