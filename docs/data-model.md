@@ -938,13 +938,15 @@ Also recorded in [ADR-0016](adr/0016-data-model-design.md).
 16. Reserved roles added to a `CHECK` on `users.role` now; enforcement from F1-03.
 17. Models are bundles; `ModelVersion` is a one-to-one extension of a model bundle.
 
-## 12. Open points for the project owner
+## 12. Owner decisions on the open points (13 Nov 2026)
 
-1. **Top age band.** Bands run to `100-104`. Collapsing ages of 90 and above into one band would reduce re-identification risk but changes what the ventricle template binding receives. Keep, or collapse to `90-104`?
-2. **Researcher-supplied pseudonym.** Researchers may need their own study code to find cases. This design allows none, because such codes are often hospital record numbers. Allow a constrained code (pattern, uniqueness per owner, warning in the UI), or keep none?
-3. **PostgreSQL in CI.** The migration test of F0-12 needs PostgreSQL; the CI workflow currently runs tests on SQLite only and is outside F0-12's touch list. Extend F0-12's touch list to `.github/workflows/ci.yml`, or add a separate small card?
-4. **Quota scope.** Quota keeps counting only input files. Should derivatives count too once runs produce large outputs?
-5. **Free text in reviews.** `ReviewRecord` has no comment field. Clinicians may want one; free text can carry identifiers.
-6. **Legacy audit details.** Old `study_uploaded` audit events contain upload file names. Redact them in migration 0013, or keep audit records unaltered?
-7. **Who reads sealed content after opening.** This design allows only the coordinator. Should the case owner (researcher) also read it once opened?
-8. **Admin and sealed content.** Admins are refused sealed content at the API level. Confirm that this separation is wanted.
+These decisions are binding for F0-12. Where they change a rule stated earlier in this document, this section wins, and F0-12 updates the earlier section in the same pull request.
+
+1. **Top age band: collapse.** Ages of 90 and above form one band, `90-104`. Valid bands are the 5-year bands `0-4` … `85-89` plus `90-104`. The normalisation step's template binding uses the midpoint rule unchanged (the `90-104` band selects the oldest ventricle template).
+2. **Researcher-supplied pseudonym: none.** Cases are found by the platform-generated subject label and by metadata; no free researcher code is stored.
+3. **PostgreSQL in CI: separate card.** A CI job running Alembic migrations against PostgreSQL is being added independently (`tests/test_migrations_postgres.py`, enabled by `TEST_POSTGRES_URL`); F0-12 adds its migration tests there and does not edit the workflow.
+4. **Quota scope: inputs and derivatives.** Storage quota counts input files and every stored artefact of the owner's cases.
+5. **Free text in reviews: allowed, limited.** `ReviewRecord.comment` is an optional text column, at most 500 characters; the UI shows a warning not to enter identifying information.
+6. **Legacy audit details: redact.** Migration 0013 replaces upload file names in legacy `study_uploaded` audit events with a fixed placeholder.
+7. **Sealed content after opening: coordinator and case owner.** Once a sealed report is opened, the coordinator and the case owner may read it; nobody else.
+8. **Admin and sealed content: confirmed.** Admins are refused sealed content at the API level.

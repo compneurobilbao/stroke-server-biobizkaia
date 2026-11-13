@@ -1,6 +1,6 @@
 # ADR-0016: Detailed data model design for cases, runs, step attempts and artefacts
 
-- Status: proposed
+- Status: accepted (owner decisions on the open points are recorded in docs/data-model.md section 12)
 - Date: 2026-11-13
 - Plan reference: decision D4 (with D5, D8, D9, D10, D14, D15), card F0-11; implemented by F0-12, F0-15, F0-30
 
