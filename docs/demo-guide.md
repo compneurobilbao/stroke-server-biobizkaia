@@ -1,35 +1,37 @@
-# Guía De Demostración Para Tribunal
+# Demonstration Guide For The Thesis Committee (Historical Note)
 
-Esta guía está pensada como apoyo operativo durante la defensa. No sustituye a la memoria: ordena qué mostrar, qué decir y qué evitar para demostrar el sistema en directo sin depender de que un procesamiento largo termine durante la sesión.
+> Historical note: this was the live-demo script for the master's thesis defence of the prototype. It is kept for reference only; the thesis framing no longer applies to the project.
 
-## Objetivo De La Demo
+This guide was meant as operational support during the defence. It does not replace the thesis report: it orders what to show, what to say and what to avoid in order to demonstrate the system live without depending on a long processing run finishing during the session.
 
-Demostrar que el proyecto no es solo una interfaz de subida, sino una plataforma trazable para procesamiento asíncrono de neuroimagen:
+## Goal Of The Demo
 
-- GUI web para usuarios investigadores y administración.
-- API FastAPI con permisos, validación y trazabilidad.
-- Cola Celery/Redis para trabajos largos fuera del ciclo HTTP.
-- Frontera `processor_adapter` con el procesador externo.
-- Persistencia en PostgreSQL y `data/studies`.
-- Artefactos técnicos: PDF, PNG renderizados y ZIP.
-- Operación: dashboard, logs, backup, retención por CLI y notificaciones.
+Demonstrate that the project is not just an upload interface but a traceable platform for asynchronous neuroimaging processing:
 
-Mensaje central:
+- Web GUI for research users and administration.
+- FastAPI API with permissions, validation and traceability.
+- Celery/Redis queue for long jobs outside the HTTP cycle.
+- `processor_adapter` boundary with the external processor.
+- Persistence in PostgreSQL and `data/studies`.
+- Technical artefacts: PDF, rendered PNGs and ZIP.
+- Operation: dashboard, logs, backup, retention via CLI and notifications.
 
-> El valor del TFM está en integrar, aislar y operar un pipeline externo de forma reproducible y trazable, no en reimplementar un algoritmo clínico.
+Central message:
 
-## Límites Que Conviene Aclarar
+> The value of the work lies in integrating, isolating and operating an external pipeline in a reproducible and traceable way, not in reimplementing a clinical algorithm.
 
-- No usar datos reales ni identificativos durante la demo.
-- El PDF generado es técnico, no clínico.
-- La plataforma no es un producto sanitario certificado.
-- La revisión `Solo técnico` / `Revisado` / `Validado` es trazabilidad interna, no validación clínica formal.
-- La retención tiene dry-run disponible, pero el borrado real está desactivado por defecto con `RETENTION_ENABLED=false`.
-- La ejecución real con `compneuro` puede tardar demasiado para una defensa; conviene tener un estudio ya completado.
+## Limits Worth Clarifying
 
-## Preparación Previa
+- Do not use real or identifying data during the demo.
+- The generated PDF is technical, not clinical.
+- The platform is not a certified medical product.
+- The `Technical only` / `Reviewed` / `Validated` review is internal traceability, not formal clinical validation.
+- Retention has a dry run available, but real deletion is disabled by default with `RETENTION_ENABLED=false`.
+- The real run with `compneuro` may take too long for a defence; it is advisable to have an already completed study.
 
-Ejecutar antes de la sesión:
+## Preparation
+
+Run before the session:
 
 ```bash
 make up
@@ -37,215 +39,215 @@ make migrate
 make smoke
 ```
 
-Comprobar accesos:
+Check access:
 
 - GUI: `http://localhost`
 - Swagger/OpenAPI: `http://localhost/api/docs`
 - Mailpit: `http://localhost:8025`
 
-Preparar datos y usuarios:
+Prepare data and users:
 
-- Un usuario `admin` funcional.
-- Un usuario `researcher` funcional.
-- Un fichero `.nii.gz` anonimizado de prueba.
-- Un estudio ya completado con PDF técnico disponible.
-- Un estudio fallido o cancelable si se quiere enseñar retry/cancelación.
-- Mailpit abierto si se van a enseñar correos locales.
+- A working `admin` user.
+- A working `researcher` user.
+- An anonymised test `.nii.gz` file.
+- An already completed study with the technical PDF available.
+- A failed or cancellable study if retry/cancellation is to be shown.
+- Mailpit open if local emails are to be shown.
 
-Si falta el admin inicial:
+If the initial admin is missing:
 
 ```bash
 make create-admin EMAIL=admin@example.org
 ```
 
-## Guion Corto De 10-15 Minutos
+## Short Script (10-15 Minutes)
 
-### 1. Apertura
+### 1. Opening
 
-Explicación breve:
+Brief explanation:
 
-> Esta plataforma permite a un investigador subir un estudio anatómico T1w anonimizado, lanzarlo a una cola de procesamiento, aislar la ejecución del pipeline externo, registrar trazabilidad y descargar resultados técnicos. La administración puede supervisar usuarios, estado operativo, almacenamiento y mantenimiento.
+> This platform allows a researcher to upload an anonymised T1w anatomical study, send it to a processing queue, isolate the execution of the external pipeline, record traceability and download technical results. Administration can supervise users, operational state, storage and maintenance.
 
-Mostrar rápidamente:
+Quickly show:
 
 - GUI.
 - Swagger.
-- Dashboard admin si ya está abierto en otra pestaña.
+- Admin dashboard if already open in another tab.
 
-### 2. Login Y Separación De Roles
+### 2. Login And Role Separation
 
-Entrar como `researcher`.
+Log in as `researcher`.
 
-Mostrar:
+Show:
 
-- Login local.
-- Historial de estudios propio.
-- Acciones disponibles para investigador.
+- Local login.
+- Own study history.
+- Actions available to the researcher.
 
-Frase útil:
+Useful phrase:
 
-> Los estudios tienen propietario. Un investigador trabaja sobre su historial, mientras que administración tiene visión global.
+> Studies have an owner. A researcher works on their own history, while administration has a global view.
 
-Después entrar como `admin` o reservarlo para el bloque de administración.
+Then log in as `admin` or keep that for the administration block.
 
-### 3. Subida De Estudio
+### 3. Study Upload
 
-Como `researcher`, subir un `.nii.gz` anonimizado.
+As `researcher`, upload an anonymised `.nii.gz`.
 
-Mostrar:
+Show:
 
-- Selección de fichero.
-- Identificador BIDS, por ejemplo `sub-O01`.
-- Envío a procesamiento.
-- Estado inicial `queued` o `processing`.
+- File selection.
+- BIDS identifier, for example `sub-O01`.
+- Submission for processing.
+- Initial state `queued` or `processing`.
 
-Explicación:
+Explanation:
 
-> La API valida permisos, extensión, cuota, sanitiza el nombre, guarda el fichero, crea un `Study`, crea un `ProcessingJob`, registra auditoría y encola una tarea Celery. La petición HTTP no queda bloqueada por el procesamiento.
+> The API validates permissions, extension and quota, sanitises the name, stores the file, creates a `Study`, creates a `ProcessingJob`, records an audit event and enqueues a Celery task. The HTTP request is not blocked by the processing.
 
-### 4. Cola Y Procesamiento Asíncrono
+### 4. Queue And Asynchronous Processing
 
-Mostrar el cambio de estado o un estudio ya en procesamiento.
+Show the state change or a study already processing.
 
-Explicación:
+Explanation:
 
-> Redis actúa como broker de cola. Celery ejecuta el trabajo en un worker separado. El worker llama al `processor_adapter`, que es la frontera obligatoria con el procesador externo.
+> Redis acts as the queue broker. Celery runs the job in a separate worker. The worker calls `processor_adapter`, which is the mandatory boundary with the external processor.
 
-Frase clave:
+Key phrase:
 
-> FastAPI no conoce los detalles internos del algoritmo. Solo coordina trazabilidad, permisos y artefactos.
+> FastAPI does not know the internal details of the algorithm. It only coordinates traceability, permissions and artefacts.
 
-### 5. Detalle Técnico, Logs Y Jobs
+### 5. Technical Detail, Logs And Jobs
 
-Abrir el detalle de un estudio.
+Open the detail of a study.
 
-Mostrar:
+Show:
 
-- Datos del estudio.
-- Lista de jobs.
-- Logs truncados.
-- Estado final o error.
-- Retry si el estudio está fallido.
-- Cancelación si el estudio está en cola o procesamiento.
+- Study data.
+- List of jobs.
+- Truncated logs.
+- Final state or error.
+- Retry if the study is failed.
+- Cancellation if the study is queued or processing.
 
-Explicación:
+Explanation:
 
-> La trazabilidad permite saber qué se intentó ejecutar, cuándo, con qué estado y qué logs produjo. Esto es esencial para investigación reproducible y mantenimiento.
+> Traceability makes it possible to know what was attempted, when, with what state and which logs it produced. This is essential for reproducible research and maintenance.
 
-### 6. Artefactos De Salida
+### 6. Output Artefacts
 
-Abrir un estudio completado.
+Open a completed study.
 
-Mostrar:
+Show:
 
-- PDF técnico.
-- ZIP de resultados si está disponible.
-- PNG renderizados desde NIfTI.
+- Technical PDF.
+- Results ZIP if available.
+- PNGs rendered from NIfTI.
 
-Explicación:
+Explanation:
 
-> El PDF resume artefactos técnicos y metadatos de procesamiento. No interpreta la imagen ni emite diagnóstico.
+> The PDF summarises technical artefacts and processing metadata. It does not interpret the image or give a diagnosis.
 
-### 7. Revisión Técnica
+### 7. Technical Review
 
-Mostrar el cambio de estado de revisión si está disponible.
+Show the change of review state if available.
 
-Estados:
+States:
 
-- `Solo técnico`.
-- `Revisado`.
-- `Validado`.
+- `Technical only`.
+- `Reviewed`.
+- `Validated`.
 
-Explicación:
+Explanation:
 
-> Esta marca no sustituye la revisión clínica formal. Sirve para trazabilidad interna del resultado dentro de la plataforma.
+> This mark does not replace formal clinical review. It serves for internal traceability of the result within the platform.
 
-### 8. Compartición Temporal De PDF
+### 8. Temporary PDF Sharing
 
-En un estudio completado, crear un enlace temporal.
+On a completed study, create a temporary link.
 
-Mostrar:
+Show:
 
-- Creación del enlace.
-- Apertura en ventana privada o pestaña nueva.
-- Descarga del PDF sin iniciar sesión.
-- Revocación si se quiere mostrar.
+- Creation of the link.
+- Opening it in a private window or a new tab.
+- Downloading the PDF without logging in.
+- Revocation if desired.
 
-Explicación:
+Explanation:
 
-> La compartición usa tokens opacos temporales. Solo comparte el PDF técnico, no el ZIP ni los logs.
+> Sharing uses temporary opaque tokens. It only shares the technical PDF, not the ZIP or the logs.
 
-### 9. Notificaciones
+### 9. Notifications
 
-Mostrar:
+Show:
 
-- Notificaciones internas en la GUI.
-- Preferencias de notificación si están visibles.
-- Mailpit en `http://localhost:8025`.
+- Internal notifications in the GUI.
+- Notification preferences if visible.
+- Mailpit at `http://localhost:8025`.
 
-Explicación:
+Explanation:
 
-> Los correos no adjuntan ficheros pesados ni datos clínicos. Informan del resultado y enlazan a la plataforma. Si SMTP falla, el procesamiento principal no se marca como fallido.
+> Emails do not attach heavy files or clinical data. They report the result and link to the platform. If SMTP fails, the main processing is not marked as failed.
 
-### 10. Dashboard Admin
+### 10. Admin Dashboard
 
-Entrar como `admin`.
+Log in as `admin`.
 
-Mostrar:
+Show:
 
-- Estado de cola.
-- Jobs activos y fallidos.
-- Estado de PostgreSQL, Redis y worker.
-- Uso de disco.
-- Usuarios.
-- Estudios por estado.
-- Alertas básicas.
+- Queue state.
+- Active and failed jobs.
+- State of PostgreSQL, Redis and worker.
+- Disk usage.
+- Users.
+- Studies by status.
+- Basic alerts.
 
-Explicación:
+Explanation:
 
-> El dashboard da visibilidad operativa sin convertir el panel admin en un lugar desde el que ejecutar pipelines manualmente.
+> The dashboard gives operational visibility without turning the admin panel into a place from which to run pipelines manually.
 
-### 11. Gestión De Usuarios Y Cuotas
+### 11. User And Quota Management
 
-Desde admin, mostrar:
+From admin, show:
 
-- Creación de usuario.
-- Rol `admin` o `researcher`.
-- Cuota de almacenamiento.
-- Activación/desactivación o borrado lógico si se usa usuario de prueba.
+- User creation.
+- `admin` or `researcher` role.
+- Storage quota.
+- Activation/deactivation or soft deletion if a test user is used.
 
-Explicación:
+Explanation:
 
-> Las cuotas y roles preparan la plataforma para un uso compartido más controlado, aunque sin entrar todavía en identidad institucional OIDC/ORCID.
+> Quotas and roles prepare the platform for more controlled shared use, although without yet entering OIDC/ORCID institutional identity.
 
-### 12. API Documentada
+### 12. Documented API
 
-Abrir `http://localhost/api/docs`.
+Open `http://localhost/api/docs`.
 
-Mostrar:
+Show:
 
-- Endpoints principales.
-- Esquemas de entrada/salida.
-- Endpoints protegidos.
+- Main endpoints.
+- Input/output schemas.
+- Protected endpoints.
 
-Explicación:
+Explanation:
 
-> La API queda documentada de forma automática con OpenAPI. Esto ayuda a validar contratos y facilita mantenimiento o integración futura.
+> The API is documented automatically with OpenAPI. This helps validate contracts and eases maintenance or future integration.
 
-### 13. Operación: Backup Y Retención
+### 13. Operation: Backup And Retention
 
-Mostrar comandos, no ejecutar restore en vivo.
+Show commands, do not run a restore live.
 
 ```bash
 make backup
 make retention-dry-run DAYS=90
 ```
 
-Explicación:
+Explanation:
 
-> El backup considera PostgreSQL y `data/studies` como unidad lógica. La retención se prueba primero en dry-run. El borrado real requiere activación explícita con `RETENTION_ENABLED=true`.
+> The backup treats PostgreSQL and `data/studies` as a logical unit. Retention is tried first in dry-run mode. Real deletion requires explicit activation with `RETENTION_ENABLED=true`.
 
-No ejecutar en directo salvo entorno descartable:
+Do not run live unless on a disposable environment:
 
 ```bash
 make restore BACKUP_DIR=backups/<timestamp> CONFIRM_RESTORE=YES_I_UNDERSTAND
@@ -253,79 +255,79 @@ make retention-execute DAYS=90
 make clean
 ```
 
-## Plan B Si Algo Falla
+## Plan B If Something Fails
 
-Si el procesamiento no termina:
+If processing does not finish:
 
-- Usar un estudio ya completado.
-- Explicar que el valor arquitectónico está en la cola asíncrona y trazabilidad.
-- Mostrar logs y estado del job.
+- Use an already completed study.
+- Explain that the architectural value lies in the asynchronous queue and traceability.
+- Show logs and job state.
 
-Si Docker va lento:
+If Docker is slow:
 
-- Enseñar Swagger, dashboard y estudio precalculado.
-- Evitar reconstrucciones o comandos largos.
+- Show Swagger, the dashboard and a precomputed study.
+- Avoid rebuilds or long commands.
 
-Si Mailpit no muestra correo:
+If Mailpit does not show an email:
 
-- Mostrar notificaciones internas.
-- Explicar que SMTP es auxiliar y no bloquea el procesamiento.
+- Show internal notifications.
+- Explain that SMTP is auxiliary and does not block processing.
 
-Si el fichero de prueba falla:
+If the test file fails:
 
-- Mostrar el estado `failed`.
-- Abrir logs.
-- Enseñar retry.
-- Usar esa situación como ejemplo de trazabilidad de incidencias.
+- Show the `failed` state.
+- Open the logs.
+- Show retry.
+- Use that situation as an example of incident traceability.
 
-Si preguntan por diagnóstico clínico:
+If asked about clinical diagnosis:
 
-> El sistema no diagnostica. Genera artefactos técnicos trazables de procesamiento. La validación clínica formal queda fuera del alcance del TFM y requeriría profesionales, protocolo y análisis normativo.
+> The system does not diagnose. It generates traceable technical processing artefacts. Formal clinical validation is outside the scope of the thesis and would require professionals, a protocol and a regulatory analysis.
 
-## Preguntas Probables Del Tribunal
+## Likely Committee Questions
 
-### ¿Por qué usar Celery y Redis?
+### Why use Celery and Redis?
 
-Porque el procesamiento puede tardar minutos u horas. Sacarlo del ciclo HTTP evita timeouts, permite reintentos, cancelación, trazabilidad y escalado de workers.
+Because processing can take minutes or hours. Taking it out of the HTTP cycle avoids timeouts and allows retries, cancellation, traceability and scaling of workers.
 
-### ¿Por qué existe `processor_adapter`?
+### Why does `processor_adapter` exist?
 
-Para desacoplar la plataforma del procesador externo. La API y el worker no dependen de detalles clínicos o scripts concretos.
+To decouple the platform from the external processor. The API and the worker do not depend on clinical details or specific scripts.
 
-### ¿Por qué filesystem local y no S3/MinIO?
+### Why local filesystem and not S3/MinIO?
 
-Para el alcance del TFM reduce complejidad operativa. El diseño documenta esa limitación y deja S3/MinIO como evolución futura.
+For the scope of the thesis it reduces operational complexity. The design documents that limitation and leaves S3/MinIO as a future evolution.
 
-### ¿Qué pasa con datos sensibles?
+### What about sensitive data?
 
-La versión asume estudios anonimizados. No se deben usar datos identificativos. El sistema añade permisos, trazabilidad y retención operativa, pero no sustituye una política institucional completa de seguridad.
+The version assumes anonymised studies. Identifying data must not be used. The system adds permissions, traceability and operational retention, but does not replace a complete institutional security policy.
 
-### ¿Por qué la retención no está en GUI?
+### Why is retention not in the GUI?
 
-Porque borrar datos es una operación sensible. Se dejó por CLI/configuración, con dry-run y borrado real desactivado por defecto, para evitar ejecuciones accidentales desde una pantalla web.
+Because deleting data is a sensitive operation. It was left to CLI/configuration, with a dry run and real deletion disabled by default, to avoid accidental executions from a web screen.
 
-### ¿Cómo se integraría otro pipeline?
+### How would another pipeline be integrated?
 
-Cambiando o extendiendo la configuración y el adaptador, manteniendo la frontera en `processor_adapter` y sin acoplar FastAPI al algoritmo.
+By changing or extending the configuration and the adapter, keeping the boundary in `processor_adapter` and without coupling FastAPI to the algorithm.
 
-### ¿Qué aporta frente a ejecutar el script manualmente?
+### What does it add compared with running the script manually?
 
-Propiedad de estudios, cola asíncrona, auditoría, logs, artefactos descargables, permisos, notificaciones, dashboard, backup, retención y documentación operativa.
+Study ownership, asynchronous queue, audit, logs, downloadable artefacts, permissions, notifications, dashboard, backup, retention and operational documentation.
 
-## Checklist Rápida Antes De Empezar
+## Quick Checklist Before Starting
 
-- Servicios levantados con `make up`.
-- Migraciones aplicadas con `make migrate`.
-- `make smoke` correcto.
-- Admin y researcher creados.
-- Estudio completado preparado.
-- Fichero `.nii.gz` anonimizado listo.
-- Mailpit abierto si se enseña correo.
-- Swagger abierto.
-- No tener que ejecutar `make clean`, `restore` ni procesamiento largo en directo.
+- Services up with `make up`.
+- Migrations applied with `make migrate`.
+- `make smoke` passes.
+- Admin and researcher created.
+- Completed study prepared.
+- Anonymised `.nii.gz` file ready.
+- Mailpit open if email is shown.
+- Swagger open.
+- No need to run `make clean`, `restore` or a long processing run live.
 
-## Cierre Recomendado
+## Recommended Closing
 
-Frase final:
+Final phrase:
 
-> La plataforma demuestra una base transferible para integrar procesamiento de neuroimagen en un entorno web trazable: separa responsabilidades, evita bloquear la API, conserva auditoría, protege acceso por roles y documenta claramente qué está implementado y qué queda para una fase posterior.
+> The platform demonstrates a transferable base for integrating neuroimaging processing in a traceable web environment: it separates responsibilities, avoids blocking the API, keeps an audit trail, protects access by roles and documents clearly what is implemented and what is left for a later phase.

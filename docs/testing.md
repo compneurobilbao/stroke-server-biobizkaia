@@ -1,59 +1,59 @@
 # Testing
 
-Tests actuales:
+Current tests:
 
-- healthcheck API.
-- creación de estudio mediante subida.
-- validación de extensión.
-- adapter con procesador dummy.
-- detección de PDF generado.
-- fallo de script externo.
-- salida sin PDF.
-- validación y generación de sujeto BIDS.
-- preparación BIDS para un único T1w.
-- adapter compneuro en modo simulado.
-- búsqueda de `.nii` y `.nii.gz` en `Preproc`.
-- generación de comandos FSL `slicer` sin ejecutar FSL real.
-- generación de PDF técnico con PNG dummy y nombres de NIfTI.
-- descarga del PDF técnico desde API.
-- comportamiento sin NIfTI y con fallo de renderizado.
-- generación de PDF técnico y ZIP.
-- login correcto e incorrecto.
-- protección de endpoints para usuario no autenticado.
-- permisos `admin`/`researcher`.
-- historial filtrado por propietario.
-- descarga permitida para propietario y bloqueada para no propietario.
-- auditoría de login y upload con usuario actor.
-- detalle de estudio con jobs.
-- logs truncados.
-- cancelación de jobs en cola.
-- cancelación de jobs en procesamiento con terminación de tarea Celery.
-- la cancelación se detecta solo por `cancel_requested_at`, nunca por el texto de `error_message`.
-- retry de jobs fallidos.
-- soft delete y borrado físico de carpeta de estudio.
-- bloqueo de borrado para estudios en procesamiento.
-- dashboard admin con resumen operativo.
-- bloqueo de dashboard admin para `researcher`.
-- enlaces compartidos de PDF con creación, revocación, caducidad y auditoría.
-- cuotas de almacenamiento por usuario.
-- preferencias de notificación, listado y marcado de notificaciones propias.
-- revisión técnica `technical_only`/`reviewed`/`validated` según permisos.
-- worker ante cancelación de procesador en ejecución.
-- SMTP con STARTTLS antes de autenticación.
+- API healthcheck.
+- study creation through upload.
+- extension validation.
+- adapter with the dummy processor.
+- detection of the generated PDF.
+- external script failure.
+- output without PDF.
+- validation and generation of the BIDS subject.
+- BIDS preparation for a single T1w.
+- compneuro adapter in simulated mode.
+- search for `.nii` and `.nii.gz` in `Preproc`.
+- generation of FSL `slicer` commands without running real FSL.
+- generation of the technical PDF with dummy PNGs and NIfTI names.
+- download of the technical PDF from the API.
+- behaviour without NIfTI and with a rendering failure.
+- generation of the technical PDF and ZIP.
+- correct and incorrect login.
+- endpoint protection for unauthenticated users.
+- `admin`/`researcher` permissions.
+- history filtered by owner.
+- download allowed for the owner and blocked for non-owners.
+- audit of login and upload with the acting user.
+- study detail with jobs.
+- truncated logs.
+- cancellation of queued jobs.
+- cancellation of running jobs with Celery task termination.
+- cancellation is detected only through `cancel_requested_at`, never through the text of `error_message`.
+- retry of failed jobs.
+- soft delete and physical deletion of the study folder.
+- deletion blocked for studies being processed.
+- admin dashboard with operational summary.
+- admin dashboard blocked for `researcher`.
+- shared PDF links with creation, revocation, expiry and auditing.
+- per-user storage quotas.
+- notification preferences, listing and marking of one's own notifications.
+- technical review `technical_only`/`reviewed`/`validated` according to permissions.
+- worker behaviour when a running processor is cancelled.
+- SMTP with STARTTLS before authentication.
 
-Ejecutar:
+Run:
 
 ```bash
 make test
 ```
 
-Lint Python:
+Python lint:
 
 ```bash
 make lint
 ```
 
-Validación frontend:
+Frontend validation:
 
 ```bash
 cd frontend
@@ -61,13 +61,13 @@ npm install
 npm run lint
 ```
 
-El lint frontend usa `frontend/eslint.config.js`, compatible con ESLint 9. `package-lock.json` debe mantenerse actualizado cuando cambien dependencias frontend.
+The frontend lint uses `frontend/eslint.config.js`, compatible with ESLint 9. `package-lock.json` must be kept up to date when frontend dependencies change.
 
-No se ejecuta build automáticamente por decisión del proyecto. Si se necesita comprobar el bundle frontend manualmente, usar `npm run build` desde `frontend/`; si se usa Docker/Nginx, reconstruir con `make frontend-rebuild`.
+The build is not run automatically by project decision. If the frontend bundle needs to be checked manually, use `npm run build` from `frontend/`; if Docker/Nginx is used, rebuild with `make frontend-rebuild`.
 
-## Test Manual Lento
+## Slow Manual Test
 
-La ejecución real de `compneuro-anatproc` con `sub-O01_T1w.nii.gz` no forma parte de `make test`, porque puede tardar muchos minutos y requiere la imagen pesada. Debe probarse manualmente con:
+The real run of `compneuro-anatproc` with `sub-O01_T1w.nii.gz` is not part of `make test`, because it can take many minutes and requires the heavy image. It must be tested manually with:
 
 ```env
 PROCESSOR_BACKEND=compneuro
@@ -77,15 +77,15 @@ WORKER_REPLICAS=2
 MAX_CONCURRENT_PROCESSING_JOBS=1
 ```
 
-Fichero de referencia local: `compneuro-anatproc/data/sub-O01/anat/sub-O01_T1w.nii.gz`.
+Local reference file: `compneuro-anatproc/data/sub-O01/anat/sub-O01_T1w.nii.gz`.
 
-Si esa carpeta local no existe, usar cualquier T1w `.nii.gz` anonimizado disponible. `compneuro-anatproc/` no es una dependencia permanente del proyecto; la integración real usa la imagen Docker configurada.
+If that local folder does not exist, use any anonymised T1w `.nii.gz` available. `compneuro-anatproc/` is not a permanent dependency of the project; the real integration uses the configured Docker image.
 
-## Prueba Manual Realizada
+## Manual Test Performed
 
-En una prueba local con el worker compneuro reconstruido se procesó un T1w `.nii.gz` de ejemplo. El estudio terminó en estado `completed`, generó `output/Preproc`, 18 PNG en `output/rendered_png/`, `output/reports/technical_report.pdf` y `output/outputs.zip`, sin avisos de renderizado registrados.
+In a local test with the rebuilt compneuro worker, an example T1w `.nii.gz` was processed. The study ended in `completed` state and produced `output/Preproc`, 18 PNGs in `output/rendered_png/`, `output/reports/technical_report.pdf` and `output/outputs.zip`, with no rendering warnings recorded.
 
-Los tests de multiusuario no requieren el flujo real `compneuro`; usan SQLite temporal, procesador dummy y tareas Celery simuladas.
+The multi-user tests do not require the real `compneuro` flow; they use a temporary SQLite database, the dummy processor and simulated Celery tasks.
 
 ## Continuous integration
 

@@ -1,23 +1,23 @@
 # Infra
 
-Esta carpeta contiene configuración de infraestructura local del proyecto.
+This folder contains the project's local infrastructure configuration.
 
-## Responsabilidad
+## Responsibility
 
-- Configurar el reverse proxy.
-- Separar infraestructura de código de aplicación.
-- Documentar decisiones de despliegue reproducible con Docker Compose.
+- Configure the reverse proxy.
+- Keep infrastructure separate from application code.
+- Document reproducible deployment decisions with Docker Compose.
 
-## Estructura Del Código
+## Code Layout
 
-- `reverse-proxy/nginx.conf`: configuración de Nginx usada por el servicio `reverse-proxy`.
+- `reverse-proxy/nginx.conf`: Nginx configuration used by the `reverse-proxy` service.
 
-## Flujo Del Proxy
+## Proxy Flow
 
-- Las rutas `/api/` se envían al servicio `api:8000`.
-- El resto de rutas se envían al servicio `frontend:80`.
-- `client_max_body_size` permite subidas grandes configuradas para estudios de neuroimagen.
+- `/api/` routes are forwarded to the `api:8000` service.
+- All other routes are forwarded to the `frontend:80` service.
+- `client_max_body_size` allows the large uploads configured for neuroimaging studies.
 
-## Futuro
+## Future
 
-En una fase hospitalaria habría que añadir TLS real, cabeceras de seguridad, límites más finos, logs de acceso controlados y hardening.
+A hospital phase would need real TLS, security headers, finer limits, controlled access logs and hardening.

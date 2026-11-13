@@ -1,37 +1,37 @@
 # Worker
 
-Esta carpeta contiene el proceso asíncrono Celery. Su trabajo es ejecutar procesamiento largo fuera del ciclo petición-respuesta HTTP.
+This folder contains the asynchronous Celery process. Its job is to run long processing outside the HTTP request-response cycle.
 
-## Responsabilidad
+## Responsibility
 
-- Consumir tareas desde Redis.
-- Cambiar estados de `Study` y `ProcessingJob`.
-- Invocar `processor_adapter`.
-- Renderizar resultados NIfTI a PNG con FSL `slicer` cuando el backend es `compneuro`.
-- Guardar ruta de PDF, ZIP, PNG y logs técnicos.
-- Marcar fallos de forma controlada.
-- Responder a cancelaciones de tareas en ejecución y propagar la señal al procesador externo.
-- Registrar notificaciones internas y enviar correos opcionales al cerrar un procesamiento.
+- Consume tasks from Redis.
+- Change the states of `Study` and `ProcessingJob`.
+- Invoke `processor_adapter`.
+- Render NIfTI results to PNG with FSL `slicer` when the backend is `compneuro`.
+- Store the paths of the PDF, ZIP, PNGs and technical logs.
+- Mark failures in a controlled way.
+- Respond to cancellation of running tasks and propagate the signal to the external processor.
+- Record internal notifications and send optional emails when a processing run closes.
 
-## Estructura Del Código
+## Code Layout
 
-- `celery_app.py`: crea la aplicación Celery usando `CELERY_BROKER_URL` y `CELERY_RESULT_BACKEND`.
-- `tasks.py`: define la tarea `process_study`.
-- `__init__.py`: marca el directorio como paquete Python.
+- `celery_app.py`: creates the Celery application using `CELERY_BROKER_URL` and `CELERY_RESULT_BACKEND`.
+- `tasks.py`: defines the `process_study` task.
+- `__init__.py`: marks the directory as a Python package.
 
-## Flujo De La Tarea `process_study`
+## `process_study` Task Flow
 
-1. Recibe `study_id` y `job_id`.
-2. Recupera registros desde PostgreSQL.
-3. Marca el estudio como `processing`.
-4. Construye rutas `input`, `output` y `logs` con `LocalStudyStorage`.
-5. Ejecuta `ProcessorAdapter.run(...)`.
-6. Para `compneuro`, busca NIfTI en `output/Preproc`, genera PNG, PDF técnico y ZIP si están habilitados.
-7. Si hay PDF, marca `completed` y guarda `pdf_path`.
-8. Si falla, marca `failed` y guarda un mensaje técnico resumido.
-9. Si recibe una cancelación, marca `canceled` y conserva la trazabilidad del intento.
-10. Registra eventos de auditoría y notificaciones de cierre.
+1. Receives `study_id` and `job_id`.
+2. Fetches the records from PostgreSQL.
+3. Marks the study as `processing`.
+4. Builds the `input`, `output` and `logs` paths with `LocalStudyStorage`.
+5. Runs `ProcessorAdapter.run(...)`.
+6. For `compneuro`, looks for NIfTI files in `output/Preproc` and generates PNGs, the technical PDF and the ZIP if enabled.
+7. If there is a PDF, marks `completed` and stores `pdf_path`.
+8. On failure, marks `failed` and stores a short technical message.
+9. On cancellation, marks `canceled` and keeps the traceability of the attempt.
+10. Records audit events and closing notifications.
 
-## Límite Crítico
+## Critical Limit
 
-El worker no debe implementar análisis de imagen ni interpretación médica. Solo coordina ejecución, estados, logs y persistencia. El procesador externo entra por `processor_adapter`.
+The worker must not implement image analysis or medical interpretation. It only coordinates execution, states, logs and persistence. The external processor is entered through `processor_adapter`.

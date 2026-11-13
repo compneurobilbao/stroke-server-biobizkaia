@@ -1,14 +1,14 @@
 # Changelog
 
-Todas las versiones siguen versionado semántico y Conventional Commits.
+All versions follow semantic versioning and Conventional Commits.
 
-## 0.1.0 - Inicial
+## 0.1.0 - Initial
 
-- Estructura base del repositorio.
-- API FastAPI con subida, listado, estado y descarga de PDF.
-- Worker Celery con Redis.
-- Adaptador CLI para procesador externo.
-- Procesador dummy de desarrollo.
-- GUI web sencilla en castellano.
-- Docker Compose con PostgreSQL, Redis, API, worker, frontend y Nginx.
-- Documentación técnica para TFM.
+- Base repository structure.
+- FastAPI API with upload, listing, status and PDF download.
+- Celery worker with Redis.
+- CLI adapter for an external processor.
+- Development dummy processor.
+- Simple web GUI in Spanish.
+- Docker Compose with PostgreSQL, Redis, API, worker, frontend and Nginx.
+- Technical documentation for the master's thesis prototype.
