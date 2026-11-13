@@ -1,0 +1,13 @@
+{
+  "contract_version": "1.0",
+  "kind": "StepProvenance",
+  "step": { "name": "ct-lesion-to-mni152", "version": "1.0.0" },
+  "status": "succeeded",
+  "started_at": "2026-11-13T10:02:11+01:00",
+  "finished_at": "2026-11-13T10:09:47Z",
+  "parameters": {},
+  "inputs": [ { "port": "ct", "type": "ct_native", "sha256": "md5:0cc175b9c0f1b6a831c399e269772661", "size_bytes": 1 } ],
+  "outputs": [],
+  "bundles": [],
+  "software": []
+}

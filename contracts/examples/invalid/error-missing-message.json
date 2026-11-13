@@ -1,0 +1,7 @@
+{
+  "contract_version": "1.0",
+  "kind": "StepError",
+  "step": { "name": "ct-lesion-to-mni152", "version": "1.0.0" },
+  "category": "fatal",
+  "code": "Mask-Not-Binary"
+}

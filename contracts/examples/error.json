@@ -1,0 +1,10 @@
+{
+  "contract_version": "1.0",
+  "kind": "StepError",
+  "step": { "name": "ct-lesion-to-mni152", "version": "1.0.0" },
+  "category": "input_rejected",
+  "code": "mask_not_binary",
+  "message": "The lesion mask must contain only the values 0 and 1; it contains 14 distinct values.",
+  "port": "lesion_mask",
+  "details": { "distinct_values": 14, "min_value": 0.0, "max_value": 255.0 }
+}

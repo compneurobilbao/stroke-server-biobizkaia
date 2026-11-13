@@ -1,0 +1,68 @@
+# Worked example: the CI stub that fills the functional-disconnection slot
+# (card F0-24). Same interface as the real step will have; synthetic output.
+contract_version: "1.0"
+kind: Step
+name: fdisconnection-stub
+version: 0.1.0
+title: Functional disconnection (stub)
+description: >-
+  CI fixture and placeholder. Produces a deterministic synthetic map on the
+  working grid from the lesion mask, the seed and the connectome bundle's
+  parcellation. Never offered to users as a real analysis.
+provides: functional-disconnection
+stub: true
+image:
+  repository: docker.io/compneurobilbaolab/step-fdisconnection-stub
+source_url: https://github.com/compneurobilbao/stroke-server-biobizkaia
+licence:
+  spdx: MIT
+
+inputs:
+  - name: lesion_mask
+    type: lesion_mask_mni
+
+outputs:
+  - name: fdisconnection_map
+    type: fdisconnection_map
+
+parameters:
+  type: object
+  additionalProperties: false
+  properties:
+    sex_subset:
+      description: Normative participants to use (mirrors the real step's parameter).
+      enum: [all, female, male]
+      default: all
+    seed:
+      description: Seed for the synthetic map.
+      type: integer
+      minimum: 0
+      default: 0
+
+bundles:
+  - name: connectome
+    type: normative-connectome
+    version: ">=1.0.0, <2.0.0"
+    description: Any normative connectome bundle; the stub only reads its parcellation.
+
+resources:
+  cpus: 1
+  memory_mb: 512
+  wall_time_minutes: 5
+
+errors:
+  - code: mask_empty
+    category: input_rejected
+    description: The lesion mask has no voxels set.
+
+reference_test:
+  inputs:
+    lesion_mask: tests/reference/sub-synth01_space-MNI152NLin6Asym_res-2_label-lesion_mask.nii.gz
+  parameters:
+    seed: 42
+  bundles:
+    connectome: {id: toy-normative-connectome, version: 1.0.0}
+  expected:
+    fdisconnection_map:
+      compare: sha256
+      file: tests/reference/expected/fdisconnection_map.nii.gz

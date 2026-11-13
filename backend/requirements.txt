@@ -10,3 +10,5 @@ ruff==0.6.8
 SQLAlchemy==2.0.35
 uvicorn[standard]==0.30.6
 pytest==8.3.3
+jsonschema==4.23.0
+PyYAML==6.0.2

@@ -1,0 +1,297 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/compneurobilbao/stroke-server-biobizkaia/contracts/schemas/v1/provenance.schema.json",
+  "title": "Provenance record (provenance.json)",
+  "description": "Two kinds share this file: StepProvenance (written by a step to /out/provenance.json) and RunProvenance (written by the platform for a pipeline run). Normative text: docs/contracts/provenance.md. References error.schema.json by relative URI.",
+  "type": "object",
+  "required": ["kind"],
+  "properties": {
+    "kind": { "enum": ["StepProvenance", "RunProvenance"] }
+  },
+  "if": { "properties": { "kind": { "const": "StepProvenance" } } },
+  "then": { "$ref": "#/$defs/step_provenance" },
+  "else": { "$ref": "#/$defs/run_provenance" },
+  "$defs": {
+    "contract_version": { "type": "string", "pattern": "^1\\.(0|[1-9][0-9]*)$" },
+    "kebab_id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$", "maxLength": 64 },
+    "snake_id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*$", "maxLength": 64 },
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$"
+    },
+    "timestamp": {
+      "description": "RFC 3339 timestamp in UTC with a literal Z.",
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,6})?Z$"
+    },
+    "sha256_hex": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "image_digest_ref": {
+      "type": "string",
+      "pattern": "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]+)?(/[a-z0-9]+([._-][a-z0-9]+)*)+@sha256:[a-f0-9]{64}$",
+      "maxLength": 340
+    },
+    "step_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "$ref": "#/$defs/kebab_id" },
+        "version": { "$ref": "#/$defs/semver" }
+      }
+    },
+    "file_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["port", "type", "sha256", "size_bytes"],
+      "properties": {
+        "port": { "$ref": "#/$defs/snake_id" },
+        "type": { "$ref": "#/$defs/snake_id" },
+        "sha256": { "$ref": "#/$defs/sha256_hex" },
+        "size_bytes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "bundle_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "id", "version", "content_digest"],
+      "properties": {
+        "name": { "$ref": "#/$defs/snake_id" },
+        "id": { "$ref": "#/$defs/kebab_id" },
+        "version": { "$ref": "#/$defs/semver" },
+        "content_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "warning": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message"],
+      "properties": {
+        "code": { "$ref": "#/$defs/snake_id" },
+        "message": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "port": { "$ref": "#/$defs/snake_id" }
+      }
+    },
+    "step_provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_version",
+        "kind",
+        "step",
+        "status",
+        "started_at",
+        "finished_at",
+        "parameters",
+        "inputs",
+        "outputs",
+        "bundles",
+        "software"
+      ],
+      "properties": {
+        "contract_version": { "$ref": "#/$defs/contract_version" },
+        "kind": { "const": "StepProvenance" },
+        "step": { "$ref": "#/$defs/step_ref" },
+        "status": { "enum": ["succeeded", "rejected", "failed"] },
+        "started_at": { "$ref": "#/$defs/timestamp" },
+        "finished_at": { "$ref": "#/$defs/timestamp" },
+        "parameters": { "type": "object" },
+        "inputs": { "type": "array", "items": { "$ref": "#/$defs/file_record" } },
+        "outputs": { "type": "array", "items": { "$ref": "#/$defs/file_record" } },
+        "bundles": { "type": "array", "items": { "$ref": "#/$defs/bundle_record" } },
+        "software": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "version"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+              "version": { "type": "string", "minLength": 1, "maxLength": 64 }
+            }
+          }
+        },
+        "warnings": { "type": "array", "items": { "$ref": "#/$defs/warning" } }
+      }
+    },
+    "accounting": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["submitted_by", "submit_as"],
+      "properties": {
+        "submitted_by": {
+          "description": "Opaque platform identity: user:<id> or service:<id>. Never an e-mail address or a name.",
+          "type": "string",
+          "pattern": "^(user|service):[A-Za-z0-9-]{1,64}$"
+        },
+        "submit_as": { "enum": ["service-account", "per-user", "chargeback"] },
+        "billing_account": { "type": ["string", "null"], "pattern": "^[A-Za-z0-9_.-]{1,64}$" }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["executor", "runtime", "attempt", "exit_code", "outcome", "resources"],
+      "properties": {
+        "executor": { "enum": ["subprocess", "docker", "slurm", "external"] },
+        "runtime": { "enum": ["docker", "apptainer", "none"] },
+        "image": { "$ref": "#/$defs/image_digest_ref" },
+        "sif_sha256": { "$ref": "#/$defs/sha256_hex" },
+        "external_job_id": { "type": "string", "maxLength": 128 },
+        "attempt": { "type": "integer", "minimum": 1 },
+        "queued_at": { "$ref": "#/$defs/timestamp" },
+        "started_at": { "$ref": "#/$defs/timestamp" },
+        "finished_at": { "$ref": "#/$defs/timestamp" },
+        "exit_code": { "type": ["integer", "null"] },
+        "outcome": {
+          "enum": ["succeeded", "rejected", "failed", "canceled", "timed_out", "contract_violation"]
+        },
+        "resources": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["cpus", "memory_mb", "gpus", "wall_time_minutes"],
+          "properties": {
+            "cpus": { "type": "integer", "minimum": 1 },
+            "memory_mb": { "type": "integer", "minimum": 1 },
+            "gpus": { "type": "integer", "minimum": 0 },
+            "wall_time_minutes": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "usage": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "wall_seconds": { "type": "number", "minimum": 0 },
+            "cpu_core_hours": { "type": "number", "minimum": 0 },
+            "gpu_hours": { "type": "number", "minimum": 0 },
+            "max_rss_mb": { "type": "number", "minimum": 0 }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "executor": { "enum": ["docker", "slurm"] } } },
+          "then": { "required": ["image"] }
+        }
+      ]
+    },
+    "slot_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["slot", "status"],
+      "properties": {
+        "slot": { "$ref": "#/$defs/kebab_id" },
+        "status": { "enum": ["selected", "skipped", "unavailable"] },
+        "reason": { "enum": ["condition_false", "upstream_absent", "no_implementation"] },
+        "implementation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "step", "image", "stub", "chosen_by"],
+          "properties": {
+            "id": { "$ref": "#/$defs/kebab_id" },
+            "step": { "$ref": "#/$defs/step_ref" },
+            "image": { "$ref": "#/$defs/image_digest_ref" },
+            "stub": { "type": "boolean" },
+            "chosen_by": { "enum": ["user", "deployment_default", "pipeline_default"] }
+          }
+        },
+        "bundles": { "type": "array", "items": { "$ref": "#/$defs/bundle_record" } }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "selected" } } },
+          "then": { "required": ["implementation"], "not": { "required": ["reason"] } },
+          "else": { "required": ["reason"], "not": { "required": ["implementation"] } }
+        }
+      ]
+    },
+    "run_provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_version",
+        "kind",
+        "run_id",
+        "case_id",
+        "pipeline",
+        "platform",
+        "status",
+        "created_at",
+        "seed",
+        "input_set",
+        "inputs",
+        "slots",
+        "steps"
+      ],
+      "properties": {
+        "contract_version": { "$ref": "#/$defs/contract_version" },
+        "kind": { "const": "RunProvenance" },
+        "run_id": { "$ref": "#/$defs/uuid" },
+        "case_id": { "$ref": "#/$defs/uuid" },
+        "pipeline": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "version", "sha256"],
+          "properties": {
+            "id": { "$ref": "#/$defs/kebab_id" },
+            "version": { "$ref": "#/$defs/semver" },
+            "sha256": { "$ref": "#/$defs/sha256_hex" }
+          }
+        },
+        "platform": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["version", "artefact_types_version"],
+          "properties": {
+            "version": { "type": "string", "minLength": 1, "maxLength": 64 },
+            "artefact_types_version": { "$ref": "#/$defs/semver" }
+          }
+        },
+        "status": { "enum": ["running", "succeeded", "failed", "canceled"] },
+        "created_at": { "$ref": "#/$defs/timestamp" },
+        "finished_at": { "$ref": "#/$defs/timestamp" },
+        "seed": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "input_set": { "$ref": "#/$defs/kebab_id" },
+        "inputs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "type", "sha256", "size_bytes"],
+            "properties": {
+              "name": { "$ref": "#/$defs/snake_id" },
+              "type": { "$ref": "#/$defs/snake_id" },
+              "sha256": { "$ref": "#/$defs/sha256_hex" },
+              "size_bytes": { "type": "integer", "minimum": 0 }
+            }
+          }
+        },
+        "accounting": { "$ref": "#/$defs/accounting" },
+        "slots": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/slot_record" } },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["slot", "execution", "provenance", "error"],
+            "properties": {
+              "slot": { "$ref": "#/$defs/kebab_id" },
+              "execution": { "$ref": "#/$defs/execution" },
+              "provenance": {
+                "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/step_provenance" }]
+              },
+              "error": {
+                "oneOf": [{ "type": "null" }, { "$ref": "error.schema.json" }]
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

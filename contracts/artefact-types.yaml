@@ -1,0 +1,128 @@
+# Artefact type registry. Normative text: docs/contracts/artefact-types.md.
+# Adding a type or a grid is a minor version bump of this registry; changing or
+# removing one is a major bump (see docs/contracts/versioning.md).
+contract_version: "1.0"
+kind: ArtefactTypeRegistry
+version: 1.0.0
+
+grids:
+  MNI152NLin6Asym-res2:
+    space: MNI152NLin6Asym
+    shape: [91, 109, 91]
+    affine:
+      - [-2, 0, 0, 90]
+      - [0, 2, 0, -126]
+      - [0, 0, 2, -72]
+      - [0, 0, 0, 1]
+    description: >-
+      Pipeline working grid: the 2 mm MNI152 grid distributed with FSL
+      (MNI152_T1_2mm). Every MNI-space voxel map exchanged between steps uses it.
+  MNI152NLin6Asym-res1:
+    space: MNI152NLin6Asym
+    shape: [182, 218, 182]
+    affine:
+      - [-1, 0, 0, 90]
+      - [0, 1, 0, -126]
+      - [0, 0, 1, -72]
+      - [0, 0, 0, 1]
+    description: The 1 mm MNI152 grid distributed with FSL (MNI152_T1_1mm). Used for QC images.
+
+types:
+  ct_native:
+    description: Non-contrast head CT in the scanner's native space, in Hounsfield units.
+    format: nifti
+    extension: .nii.gz
+    bids: {datatype: ct, suffix: ct}
+
+  lesion_mask_native:
+    description: Binary lesion mask in the voxel grid of the accompanying ct_native image.
+    format: nifti
+    extension: .nii.gz
+    bids: {datatype: ct, suffix: mask, entities: {label: lesion}}
+    nifti: {binary: true}
+
+  lesion_mask_mni_any:
+    description: >-
+      User-supplied binary lesion mask already in MNI152NLin6Asym space, on any
+      voxel grid. Only intake steps consume it; they resample it to the working grid.
+    format: nifti
+    extension: .nii.gz
+    bids: {datatype: anat, suffix: mask, entities: {space: MNI152NLin6Asym, label: lesion}}
+    nifti: {binary: true, space: MNI152NLin6Asym}
+
+  lesion_mask_mni:
+    description: Binary lesion mask on the pipeline working grid (MNI152NLin6Asym, 2 mm).
+    format: nifti
+    extension: .nii.gz
+    bids: {datatype: anat, suffix: mask, entities: {space: MNI152NLin6Asym, res: "2", label: lesion}}
+    nifti: {binary: true, space: MNI152NLin6Asym, grid: MNI152NLin6Asym-res2}
+
+  ct_mni:
+    description: The input CT resampled to MNI152NLin6Asym 1 mm by the normalisation, for visual QC only.
+    format: nifti
+    extension: .nii.gz
+    bids: {datatype: ct, suffix: ct, entities: {space: MNI152NLin6Asym, res: "1"}}
+    nifti: {space: MNI152NLin6Asym, grid: MNI152NLin6Asym-res1}
+
+  qc_figure:
+    description: A PNG figure for visual quality control of the producing step.
+    format: png
+    extension: .png
+    bids: {suffix: qc, entities: {desc: figure}}
+
+  lesion_qc:
+    description: >-
+      Machine-readable lesion intake checks (volume, hemisphere, connected
+      components, flags). The JSON schema is added by the lesion intake card.
+    format: json
+    extension: .json
+    bids: {suffix: qc, entities: {label: lesion}}
+
+  fdisconnection_map:
+    description: >-
+      Voxel-wise functional disconnection map on the working grid, float32,
+      larger values meaning more disconnection. The statistic is fixed by the
+      functional-disconnection step card once the method source is available.
+    format: nifti
+    extension: .nii.gz
+    bids: {datatype: anat, suffix: statmap, entities: {space: MNI152NLin6Asym, res: "2", desc: fdisconnection}}
+    nifti: {space: MNI152NLin6Asym, grid: MNI152NLin6Asym-res2}
+
+  tract_disconnection:
+    description: >-
+      One row per tract of the tract atlas bundle used. Column tract: tract
+      name as in the bundle; column disconnection: fraction in [0, 1] of the
+      tract's streamlines that intersect the lesion.
+    format: tsv
+    extension: .tsv
+    bids: {suffix: disconnection, entities: {desc: tracts}}
+    tsv_columns: [tract, disconnection]
+
+  cognet_profile:
+    description: >-
+      Cognitive disconnection profile (score and p-value per concept and
+      domain). The JSON schema is added by the COGNET-STROKE step card.
+    format: json
+    extension: .json
+    bids: {suffix: profile, entities: {desc: cognet}}
+
+  report_pdf:
+    description: Human-readable research report. Every page carries the research-use-only banner.
+    format: pdf
+    extension: .pdf
+    bids: {suffix: report}
+
+  report_json:
+    description: Canonical machine-readable content of the report, the basis for later sealing.
+    format: json
+    extension: .json
+    bids: {suffix: report}
+
+  run_provenance:
+    description: >-
+      The RunProvenance record of the current run as it stands when the
+      consuming step is staged. Only the pseudo-source run.provenance produces it.
+    format: json
+    extension: .json
+    bids: {suffix: provenance}
+    json_schema: schemas/v1/provenance.schema.json

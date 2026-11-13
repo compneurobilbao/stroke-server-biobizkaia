@@ -1,0 +1,22 @@
+# Invalid (schema): implementations must be pinned by digest, not by tag, and
+# the reserved name "run" cannot be a slot name.
+contract_version: "1.0"
+kind: Pipeline
+id: tagged
+version: 0.1.0
+title: Tagged images
+inputs:
+  - {name: lesion_mni, type: lesion_mask_mni_any}
+input_sets:
+  - {name: mni-mask, inputs: [lesion_mni]}
+slots:
+  - name: run
+    consumes:
+      - {port: lesion_mni, type: lesion_mask_mni_any, from: inputs.lesion_mni}
+    produces:
+      - {port: lesion_qc, type: lesion_qc}
+    implementations:
+      allowed:
+        - id: lesion-qc
+          step: {name: lesion-qc, version: 1.0.0}
+          image: docker.io/compneurobilbaolab/step-lesion-qc:1.0.0

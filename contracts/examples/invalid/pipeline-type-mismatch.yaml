@@ -1,0 +1,33 @@
+# Schema-valid but rejected by the wiring checks of validate.py: the tract
+# slot consumes the user's any-grid MNI mask as if it were on the working grid
+# (type mismatch), and the report takes its mask from a slot that does not exist.
+contract_version: "1.0"
+kind: Pipeline
+id: mismatch
+version: 0.1.0
+title: Type mismatch
+inputs:
+  - {name: lesion_mni, type: lesion_mask_mni_any}
+input_sets:
+  - {name: mni-mask, inputs: [lesion_mni]}
+slots:
+  - name: tract-disconnection
+    consumes:
+      - {port: lesion_mask, type: lesion_mask_mni, from: inputs.lesion_mni}
+    produces:
+      - {port: tract_disconnection, type: tract_disconnection}
+    implementations:
+      allowed:
+        - id: lnm-tracts
+          step: {name: lnm-tracts, version: 1.0.0}
+          image: docker.io/compneurobilbaolab/step-lnm-tracts@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  - name: report
+    consumes:
+      - {port: lesion_mask, type: lesion_mask_mni, from: normalisation.lesion_mask_mni}
+    produces:
+      - {port: report_pdf, type: report_pdf}
+    implementations:
+      allowed:
+        - id: research-report
+          step: {name: research-report, version: 0.1.0}
+          image: docker.io/compneurobilbaolab/step-research-report@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb

@@ -1,0 +1,111 @@
+# Worked example: the step manifest that wraps CTLesion2MNI152 (card F0-23).
+# The wrapper is illustrative; the card that builds it may refine error codes
+# and parameters, but must keep the slot interface (provides/inputs/outputs).
+contract_version: "1.0"
+kind: Step
+name: ct-lesion-to-mni152
+version: 1.0.0
+title: CT lesion mask to MNI152
+description: >-
+  Registers a non-contrast head CT to the MNI152 template (skull-based affine
+  with FSL flirt, then B-spline with elastix) and carries the lesion mask with
+  it. Optionally removes the overlap with an age-matched ventricle template.
+  Writes the mask on the pipeline working grid, the registered CT on the 1 mm
+  grid for QC, and a registration overlay figure. The CT template and the
+  ventricle templates are small, method-specific files shipped inside the image.
+provides: normalisation
+image:
+  repository: docker.io/compneurobilbaolab/ct-lesion-to-mni152-step
+source_url: https://github.com/compneurobilbao/CTLesion2MNI152
+licence:
+  spdx: MIT
+  third_party:
+    - {name: FSL, version: 6.0.7.6, spdx: LicenseRef-FSL}
+    - {name: ITK, version: 5.4.0, spdx: Apache-2.0}
+    - {name: itk-elastix, version: 0.20.0, spdx: Apache-2.0}
+    - {name: nibabel, version: 5.2.1, spdx: MIT}
+    - {name: nilearn, version: 0.10.4, spdx: BSD-3-Clause}
+
+inputs:
+  - name: ct
+    type: ct_native
+    description: Head CT including the skull (skull stripping is not expected).
+  - name: lesion_mask
+    type: lesion_mask_native
+    description: Binary lesion mask on the CT voxel grid.
+
+outputs:
+  - name: lesion_mask_mni
+    type: lesion_mask_mni
+  - name: ct_mni
+    type: ct_mni
+  - name: qc_figure
+    type: qc_figure
+    description: CT in MNI space with the template brain outline and the lesion overlaid.
+
+parameters:
+  type: object
+  additionalProperties: false
+  properties:
+    age_band:
+      description: >-
+        Age band in years ("lo-hi"); selects the ventricle template whose band
+        contains the midpoint. null skips ventricle removal.
+      type: [string, "null"]
+      pattern: "^[0-9]{1,3}-[0-9]{1,3}$"
+      default: null
+    skull_threshold_hu:
+      description: Intensity threshold (HU) used to isolate the skull cluster.
+      type: number
+      minimum: 0
+      maximum: 3000
+      default: 100
+    mask_threshold:
+      description: Threshold applied to the warped mask before binarisation.
+      type: number
+      exclusiveMinimum: 0
+      exclusiveMaximum: 1
+      default: 0.5
+
+resources:
+  cpus: 2
+  memory_mb: 4096
+  wall_time_minutes: 60
+  scratch_mb: 2048
+
+errors:
+  - code: ct_not_3d
+    category: input_rejected
+    description: The CT image is not a 3-D volume.
+  - code: mask_grid_mismatch
+    category: input_rejected
+    description: The lesion mask does not share the CT voxel grid.
+  - code: mask_not_binary
+    category: input_rejected
+    description: The lesion mask contains values other than 0 and 1.
+  - code: mask_empty
+    category: input_rejected
+    description: The lesion mask has no voxels set.
+  - code: skull_not_found
+    category: qc_failed
+    description: No skull cluster above the threshold was found; the image may not be a head CT.
+  - code: lesion_outside_brain
+    category: qc_failed
+    description: After registration, most of the lesion lies outside the template brain.
+
+reference_test:
+  description: Synthetic CT and ellipsoid lesion with a known MNI-space ground truth (fixture generator, card F0-20).
+  inputs:
+    ct: tests/reference/sub-synth01_ct.nii.gz
+    lesion_mask: tests/reference/sub-synth01_label-lesion_mask.nii.gz
+  parameters:
+    age_band: null
+  expected:
+    lesion_mask_mni:
+      compare: dice
+      file: tests/reference/expected/sub-synth01_space-MNI152NLin6Asym_res-2_label-lesion_mask.nii.gz
+      min: 0.6
+    ct_mni:
+      compare: exists
+    qc_figure:
+      compare: exists

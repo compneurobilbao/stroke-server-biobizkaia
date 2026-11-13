@@ -13,6 +13,7 @@ Esta carpeta contiene la documentación técnica, operativa y de defensa del TFM
 
 - `plan/IMPLEMENTATION_PLAN.md`: plan de implementación de la plataforma y los pipelines (en inglés).
 - `adr/`: registros de decisiones de arquitectura (en inglés).
+- `contracts/`: normative step contract specification (step, pipeline, provenance, bundles, artefact types, versioning).
 - `architecture.md`: arquitectura, componentes, ER y estados.
 - `processing-pipeline.md`: flujo API, Redis, worker, adapter, script y PDF.
 - `roadmap.md`: estado actual y roadmap de evolución funcional por fases.

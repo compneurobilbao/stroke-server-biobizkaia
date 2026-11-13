@@ -1,0 +1,10 @@
+# Invalid (schema): no licence, and a file path escapes the bundle directory.
+contract_version: "1.0"
+kind: Bundle
+id: no-licence
+version: 1.0.0
+type: tract-atlas
+title: Bundle without licence
+content_digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+files:
+  - {path: ../outside.tck, sha256: "0000000000000000000000000000000000000000000000000000000000000000", size_bytes: 1}

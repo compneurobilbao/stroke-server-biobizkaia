@@ -1,0 +1,266 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/compneurobilbao/stroke-server-biobizkaia/contracts/schemas/v1/step.schema.json",
+  "title": "Step manifest (step.yaml)",
+  "description": "Normative text: docs/contracts/step-contract.md. Cross-file rules that a schema cannot express are checked by contracts/validate.py.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "kind",
+    "name",
+    "version",
+    "title",
+    "provides",
+    "image",
+    "licence",
+    "inputs",
+    "outputs",
+    "parameters",
+    "resources"
+  ],
+  "properties": {
+    "contract_version": { "$ref": "#/$defs/contract_version" },
+    "kind": { "const": "Step" },
+    "name": { "$ref": "#/$defs/kebab_id" },
+    "version": { "$ref": "#/$defs/semver" },
+    "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "description": { "type": "string", "maxLength": 4000 },
+    "provides": { "$ref": "#/$defs/kebab_id" },
+    "stub": { "type": "boolean", "default": false },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository"],
+      "properties": {
+        "repository": { "$ref": "#/$defs/image_repository" }
+      }
+    },
+    "source_url": { "type": "string", "pattern": "^https://[^\\s]+$" },
+    "licence": { "$ref": "#/$defs/licence" },
+    "inputs": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/port" }
+    },
+    "outputs": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/port" }
+    },
+    "parameters": { "$ref": "#/$defs/parameters_schema" },
+    "bundles": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/bundle_requirement" }
+    },
+    "resources": { "$ref": "#/$defs/resources" },
+    "errors": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/error_code" }
+    },
+    "reference_test": { "$ref": "#/$defs/reference_test" }
+  },
+  "$defs": {
+    "contract_version": { "type": "string", "pattern": "^1\\.(0|[1-9][0-9]*)$" },
+    "kebab_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+      "maxLength": 64
+    },
+    "snake_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*$",
+      "maxLength": 64
+    },
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$"
+    },
+    "version_range": {
+      "type": "string",
+      "pattern": "^\\s*(==|>=|>|<=|<|\\^)?\\s*(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\s*(,\\s*(==|>=|>|<=|<|\\^)?\\s*(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\s*)*$"
+    },
+    "image_repository": {
+      "description": "Fully qualified repository without tag or digest, e.g. docker.io/org/name.",
+      "type": "string",
+      "pattern": "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]+)?(/[a-z0-9]+([._-][a-z0-9]+)*)+$",
+      "maxLength": 255
+    },
+    "licence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["spdx"],
+      "properties": {
+        "spdx": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "third_party": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "spdx"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+              "version": { "type": "string", "maxLength": 64 },
+              "spdx": { "type": "string", "minLength": 1, "maxLength": 200 }
+            }
+          }
+        }
+      }
+    },
+    "port": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type"],
+      "properties": {
+        "name": {
+          "allOf": [
+            { "$ref": "#/$defs/snake_id" },
+            { "not": { "enum": ["params", "provenance", "error", "extra"] } }
+          ]
+        },
+        "type": { "$ref": "#/$defs/snake_id" },
+        "required": { "type": "boolean", "default": true },
+        "description": { "type": "string", "maxLength": 1000 }
+      }
+    },
+    "parameters_schema": {
+      "description": "An embedded JSON Schema (draft 2020-12) for the parameters object. Every property MUST declare a default (checked by validate.py).",
+      "type": "object",
+      "required": ["type", "properties", "additionalProperties"],
+      "properties": {
+        "type": { "const": "object" },
+        "properties": {
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/snake_id" },
+          "additionalProperties": {
+            "type": "object",
+            "required": ["default"]
+          }
+        },
+        "additionalProperties": { "const": false },
+        "required": { "type": "array", "maxItems": 0 }
+      }
+    },
+    "bundle_requirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type"],
+      "properties": {
+        "name": { "$ref": "#/$defs/snake_id" },
+        "type": { "$ref": "#/$defs/kebab_id" },
+        "id": { "$ref": "#/$defs/kebab_id" },
+        "version": { "$ref": "#/$defs/version_range" },
+        "required": { "type": "boolean", "default": true },
+        "description": { "type": "string", "maxLength": 1000 }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cpus", "memory_mb", "wall_time_minutes"],
+      "properties": {
+        "cpus": { "type": "integer", "minimum": 1, "maximum": 256 },
+        "memory_mb": { "type": "integer", "minimum": 64 },
+        "wall_time_minutes": { "type": "integer", "minimum": 1, "maximum": 10080 },
+        "scratch_mb": { "type": "integer", "minimum": 0, "default": 1024 },
+        "gpu": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode"],
+          "properties": {
+            "mode": { "enum": ["none", "optional", "required"] },
+            "count": { "type": "integer", "minimum": 1, "maximum": 16, "default": 1 },
+            "memory_mb": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "error_code": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "category", "description"],
+      "properties": {
+        "code": { "$ref": "#/$defs/snake_id" },
+        "category": { "enum": ["input_rejected", "qc_failed"] },
+        "description": { "type": "string", "minLength": 1, "maxLength": 500 }
+      }
+    },
+    "relative_path": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$))[^\\\\]+$",
+      "maxLength": 500
+    },
+    "reference_test": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["inputs", "expected"],
+      "properties": {
+        "description": { "type": "string", "maxLength": 1000 },
+        "inputs": {
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/snake_id" },
+          "additionalProperties": { "$ref": "#/$defs/relative_path" }
+        },
+        "parameters": { "type": "object" },
+        "bundles": {
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/snake_id" },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "version"],
+            "properties": {
+              "id": { "$ref": "#/$defs/kebab_id" },
+              "version": { "$ref": "#/$defs/semver" }
+            }
+          }
+        },
+        "expected": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": { "$ref": "#/$defs/snake_id" },
+          "additionalProperties": { "$ref": "#/$defs/comparison" }
+        }
+      }
+    },
+    "comparison": {
+      "type": "object",
+      "required": ["compare"],
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "required": ["compare", "file"],
+          "properties": {
+            "compare": { "const": "sha256" },
+            "file": { "$ref": "#/$defs/relative_path" }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["compare", "file", "min"],
+          "properties": {
+            "compare": { "const": "dice" },
+            "file": { "$ref": "#/$defs/relative_path" },
+            "min": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["compare", "file"],
+          "properties": {
+            "compare": { "enum": ["allclose", "json"] },
+            "file": { "$ref": "#/$defs/relative_path" },
+            "rtol": { "type": "number", "minimum": 0, "default": 0 },
+            "atol": { "type": "number", "minimum": 0, "default": 0 }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["compare"],
+          "properties": {
+            "compare": { "const": "exists" }
+          }
+        }
+      ]
+    }
+  }
+}

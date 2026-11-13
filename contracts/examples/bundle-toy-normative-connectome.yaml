@@ -1,0 +1,40 @@
+# Worked example: the toy normative connectome bundle produced by the fixture
+# generator (card F0-20). File layout is a placeholder until the flnm-fast
+# input format is known; checksums here are illustrative but consistent.
+contract_version: "1.0"
+kind: Bundle
+id: toy-normative-connectome
+version: 1.0.0
+type: normative-connectome
+title: Toy normative connectome (synthetic)
+description: >-
+  Public parcellation plus random low-rank connectivity matrices for 20
+  synthetic participants with sex and age labels. For CI and demos only.
+synthetic: true
+licence:
+  spdx: CC0-1.0
+  redistributable: true
+  notes: Generated data; the parcellation's own licence is recorded in fixtures/LICENCES.md.
+metadata:
+  n_participants: 20
+  n_female: 10
+  n_male: 10
+  age_range: "45-85"
+  n_parcels: 100
+content_digest: "sha256:dd625c79ae75f2bf5f6f94aa3edf4f6fb4d874a7e65c0c92c6e4d019cc9d3a70"
+files:
+  - path: README.md
+    sha256: "f86b9c2ce729c5945cb459943fd3d14bd1645d1b2058df19e3aa93fe333c430c"
+    size_bytes: 1412
+  - path: connectomes.npz
+    sha256: "1a59eb218c749046e8f9a7492278e6a21ab68a23097f79bb9897d44179b07b48"
+    size_bytes: 815236
+  - path: parcellation/atlas.nii.gz
+    sha256: "2f38ea3baaddee4bba20969c015958ff63a3e921789a2b63c4679726129e28fe"
+    size_bytes: 104857
+  - path: parcellation/labels.tsv
+    sha256: "085c99a4ab405ae663557bbee993462421f7fb2411456d395d6b2102cffcacea"
+    size_bytes: 3120
+  - path: participants.tsv
+    sha256: "ac07cb480fd9a0d5338ba30a2f2216e97224f967a72e505f2df2a1668967f364"
+    size_bytes: 402
