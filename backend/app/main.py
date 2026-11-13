@@ -3,17 +3,20 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router
 from app.core.config import get_settings
+from app.core.errors import ApiError, api_error_handler
 
 settings = get_settings()
 settings.validate_api_auth_settings()
 
 app = FastAPI(
     title=settings.app_name,
-    description="API para integración de procesamiento asíncrono de neuroimagen y generación de informes PDF.",
+    description="API for asynchronous neuroimaging processing and PDF report generation.",
     version="0.1.0",
     openapi_url=f"{settings.api_prefix}/openapi.json",
     docs_url=f"{settings.api_prefix}/docs",
 )
+
+app.add_exception_handler(ApiError, api_error_handler)
 
 app.add_middleware(
     CORSMiddleware,

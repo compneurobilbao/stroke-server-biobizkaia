@@ -10,16 +10,16 @@ from app.services.auth import get_user_by_email, hash_password, normalize_email
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Crear o actualizar el usuario admin inicial"
+        description="Create or update the initial admin user"
     )
     parser.add_argument("--email", required=True)
-    parser.add_argument("--full-name", default="Administrador")
+    parser.add_argument("--full-name", default="Administrator")
     parser.add_argument("--password")
     args = parser.parse_args()
 
     password = args.password or getpass.getpass("Password: ")
     if len(password) < 8:
-        raise SystemExit("La contraseña debe tener al menos 8 caracteres")
+        raise SystemExit("The password must be at least 8 characters long")
 
     db = SessionLocal()
     try:
@@ -30,19 +30,19 @@ def main() -> None:
             user.hashed_password = hash_password(password)
             user.role = UserRole.admin.value
             user.is_active = True
-            action = "actualizado"
+            action = "updated"
         else:
             user = User(
                 email=email,
-                full_name=args.full_name.strip() or "Administrador",
+                full_name=args.full_name.strip() or "Administrator",
                 hashed_password=hash_password(password),
                 role=UserRole.admin.value,
                 is_active=True,
             )
             db.add(user)
-            action = "creado"
+            action = "created"
         db.commit()
-        print(f"Usuario admin {action}: {email}")
+        print(f"Admin user {action}: {email}")
     finally:
         db.close()
 

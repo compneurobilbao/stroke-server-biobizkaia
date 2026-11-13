@@ -11,24 +11,24 @@ from app.services.storage import LocalStudyStorage
 def main() -> None:
     settings = get_settings()
     parser = argparse.ArgumentParser(
-        description="Aplicar la política de retención de estudios"
+        description="Apply the study retention policy"
     )
     parser.add_argument(
         "--days",
         type=int,
         default=settings.retention_days,
-        help="Días mínimos de conservación antes de considerar borrado",
+        help="Minimum retention days before a study is considered for deletion",
     )
     parser.add_argument(
         "--execute",
         action="store_true",
-        help="Ejecuta el borrado. Sin este flag solo hace dry-run.",
+        help="Perform the deletion. Without this flag it only does a dry run.",
     )
     args = parser.parse_args()
     if args.execute and not settings.retention_enabled:
         raise SystemExit(
-            "La retención está desactivada. Configurá RETENTION_ENABLED=true "
-            "para permitir borrados."
+            "Retention is disabled. Set RETENTION_ENABLED=true "
+            "to allow deletions."
         )
 
     db = SessionLocal()
@@ -44,8 +44,8 @@ def main() -> None:
 
     mode = "dry-run" if result.dry_run else "execute"
     print(
-        f"Retención {mode}: {len(result.candidates)} candidato(s), "
-        f"{len(result.deleted)} borrado(s), cutoff={result.cutoff.isoformat()}"
+        f"Retention {mode}: {len(result.candidates)} candidate(s), "
+        f"{len(result.deleted)} deleted, cutoff={result.cutoff.isoformat()}"
     )
     for candidate in result.candidates:
         print(
