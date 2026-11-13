@@ -1,24 +1,24 @@
 ---
 name: safe-change
-description: Protocolo para cambios pequeños, reversibles y validados en este proyecto.
+description: Protocol for small, reversible and validated changes in this project.
 compatibility: opencode
 ---
 
-## Uso
+## When to use
 
-Cargá esta skill antes de modificar código, configuración o flujo de agentes.
+Load this skill before changing code, configuration or the agent workflow.
 
-## Protocolo
+## Protocol
 
-1. Entendé el estado actual leyendo los archivos mínimos necesarios.
-2. Tocá la menor cantidad de archivos posible.
-3. No reviertas cambios ajenos del working tree.
-4. No leas `.env`, credenciales ni datos reales.
-5. No ejecutes comandos destructivos, deploys, pushes, migraciones ni limpiezas sin permiso explícito.
-6. Después de editar, revisá `git diff`.
-7. Ejecutá validaciones enfocadas: `make test`, `make lint`, `make check-docs`, `make check-secrets` según el cambio.
-8. Explicá qué se validó y qué queda pendiente.
+1. Read the card and the minimal set of files needed to understand the current state.
+2. Touch as few files as possible, all inside the card's "Touches" list.
+3. Do not revert changes made by others in the working tree.
+4. Do not read `.env`, credentials or any real data; use synthetic fixtures.
+5. Do not run destructive commands, deployments, pushes to `develop` or `main`, merges, migrations or clean-ups without explicit permission.
+6. After editing, review `git diff`.
+7. Run the focused checks from `AGENTS.md` ("Validation before closing a task") for the areas you changed.
+8. Explain what was checked, with real results, and what is still pending; CI on the PR is the source of truth.
 
-## Criterio
+## Criterion
 
-Si una solución requiere compatibilidad hacia atrás, nuevas abstracciones o mucho código nuevo, primero justificá la necesidad con evidencia.
+If a solution needs backwards-compatibility layers, new abstractions or a lot of new code, first justify the need with evidence from the card or the code.

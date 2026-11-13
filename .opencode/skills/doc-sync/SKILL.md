@@ -1,21 +1,22 @@
 ---
 name: doc-sync
-description: Mantener AGENTS.md, README y docs alineados con cambios reales sin crear documentación de relleno.
+description: Keep AGENTS.md, README and docs aligned with real changes without filler documentation.
 compatibility: opencode
 ---
 
-## Uso
+## When to use
 
-Cargá esta skill cuando cambien arquitectura, API, despliegue, configuración, seguridad, pipeline, agentes, skills, comandos o permisos.
+Load this skill when architecture, API, deployment, configuration, security, pipeline, agents, skills, commands or permissions change.
 
-## Reglas
+## Rules
 
-- `AGENTS.md` es la fuente principal para agentes.
-- `CLAUDE.md` es puente de compatibilidad y no debe contradecir `AGENTS.md`.
-- `README.md` debe describir el uso principal y estructura real.
-- `docs/architecture.md` y `docs/processing-pipeline.md` deben reflejar el flujo técnico actual.
-- `docs/agentic-workflow-audit.md` registra decisiones sobre OpenCode, agentes, skills, comandos y plugins.
+- `AGENTS.md` is the main source for agents; `CLAUDE.md`, `.claude/`, `.opencode/` and `docs/ai-development-rules.md` must not contradict it.
+- The plan (`docs/plan/IMPLEMENTATION_PLAN.md`), the step contract (`docs/contracts/`) and the ADRs (`docs/adr/`) are normative; change them only through a card and with owner approval.
+- `README.md` describes the main use and the real structure.
+- `docs/architecture.md` and `docs/processing-pipeline.md` reflect the current technical flow; `docs/testing.md` lists the tests and how to run them.
+- `docs/agentic-workflow-audit.md` records decisions about agents, skills, commands, plugins and permissions.
+- English only; no people's names, host or institution details, or grant references.
 
-## Anti-relleno
+## No filler
 
-No agregues docs nuevas si una sección corta en un documento existente alcanza. Si creás un archivo nuevo, explicá por qué existe.
+Do not add new documents when a short section in an existing one is enough. If you create a new file, explain why it exists.
