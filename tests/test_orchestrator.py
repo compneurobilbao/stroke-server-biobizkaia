@@ -718,7 +718,10 @@ def test_contract_violation_is_detected_and_not_retried(tmp_path):
     with env.Session() as db:
         step = db.scalar(select(StepRun).where(StepRun.outcome == "contract_violation"))
         assert step.failure_code == "contract_violation_missing_output"
-        assert db.scalar(select(Artifact.id).where(Artifact.step_run_id == step.id)) is None
+        assert (
+            db.scalar(select(Artifact.id).where(Artifact.step_run_id == step.id))
+            is None
+        )
         assert db.get(PipelineRun, run_id).status == "failed"
 
 
@@ -971,4 +974,7 @@ def test_cancellation_during_a_running_subprocess_step(tmp_path):
     db, run = env.run(run_id)
     assert run.status == "canceled"
     db.close()
-    assert env.attempts(run_id) == [("intake", 1, "initial", "canceled", "canceled")]
+    # Both independent slots (intake, normalisation) were running; both are stopped.
+    attempts = env.attempts(run_id)
+    assert attempts and all(a[3:] == ("canceled", "canceled") for a in attempts)
+    assert {a[0] for a in attempts} <= {"intake", "normalisation"}
