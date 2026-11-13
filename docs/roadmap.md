@@ -1,421 +1,423 @@
 # Roadmap
 
-Este roadmap ordena la evolución funcional de la plataforma desde el estado actual del TFM hacia una base realista para uso investigador u hospitalario futuro. No implica que las fases estén implementadas: documenta prioridad, dependencias, riesgos y criterios de aceptación antes de construir nuevas capacidades.
+> **Superseded.** This phase-based roadmap is superseded by [`plan/IMPLEMENTATION_PLAN.md`](plan/IMPLEMENTATION_PLAN.md), which is now the single source of truth for planned work. This document is kept as a historical record of the prototype's phases.
 
-## Estado Del Proyecto
+This roadmap orders the functional evolution of the platform from the current state of the prototype towards a realistic base for future research or hospital use. It does not imply that the phases are implemented: it documents priority, dependencies, risks and acceptance criteria before building new capabilities.
 
-La plataforma actual permite login local, roles básicos `admin`/`researcher`, propietario por estudio, subida de un T1w `.nii.gz`, preparación BIDS, encolado con Celery/Redis, worker `compneuro`, renderizado NIfTI a PNG con FSL `slicer`, artefactos técnicos, descarga de resultados según permisos, gestión básica de jobs, dashboard operativo para admin, backup/restore local por CLI, compartición temporal de PDF técnicos, notificaciones internas/correo electrónico y cuotas básicas por usuario.
+## Project State
 
-Todavía no existen flujos seleccionables desde GUI, pantalla admin avanzada de retención ni revisión clínica formal con revisor, fecha y comentarios.
+The current platform supports local login, basic `admin`/`researcher` roles, a per-study owner, upload of a T1w `.nii.gz`, BIDS preparation, enqueueing with Celery/Redis, a `compneuro` worker, NIfTI-to-PNG rendering with FSL `slicer`, technical artefacts, result download according to permissions, basic job management, an operational dashboard for admins, local backup/restore via CLI, temporary sharing of technical PDFs, internal/email notifications and basic per-user quotas.
 
-## Roadmap de evolución funcional
+There are not yet flows selectable from the GUI, an advanced admin retention screen or a formal clinical review with reviewer, date and comments.
 
-### Fase 0 — Estado Actual Consolidado
+## Functional Evolution Roadmap
 
-Funcionalidades disponibles:
+### Phase 0 — Consolidated Current State
 
-- Subida manual de T1w `.nii.gz`.
-- Preparación BIDS para un sujeto por estudio.
-- Procesamiento asíncrono con Celery/Redis.
-- Worker basado en `compneuro-anatproc`.
-- Renderizado PNG desde NIfTI.
-- PDF técnico y ZIP de resultados.
-- Descarga de resultados desde la GUI.
-- Auditoría básica asociada al estudio.
+Available functionality:
 
-Criterios de aceptación ya cubiertos:
+- Manual upload of a T1w `.nii.gz`.
+- BIDS preparation for one subject per study.
+- Asynchronous processing with Celery/Redis.
+- Worker based on `compneuro-anatproc`.
+- PNG rendering from NIfTI.
+- Technical PDF and results ZIP.
+- Result download from the GUI.
+- Basic audit associated with the study.
 
-- La API no ejecuta procesamiento largo dentro del ciclo HTTP.
-- `processor_adapter` sigue siendo la frontera con el procesador externo.
-- Los estudios quedan trazados en PostgreSQL y filesystem local.
-- `make test`, `make lint`, `make check-docs` y `make check-secrets` son los controles principales del proyecto.
+Acceptance criteria already covered:
 
-### Fase 1 — Multiusuario Básico
+- The API does not run long processing inside the HTTP cycle.
+- `processor_adapter` remains the boundary with the external processor.
+- Studies are traced in PostgreSQL and the local filesystem.
+- `make test`, `make lint`, `make check-docs` and `make check-secrets` are the project's main controls.
 
-Estado: implementada como base funcional.
+### Phase 1 — Basic Multi-User Support
 
-Objetivo: introducir identidad, propiedad de estudios y permisos mínimos sin cambiar el flujo de procesamiento.
+Status: implemented as a functional base.
 
-Alcance implementado:
+Goal: introduce identity, study ownership and minimum permissions without changing the processing flow.
 
-- Login local.
-- Usuarios creados por admin; sin registro público abierto.
-- Roles iniciales `admin` y `researcher`.
-- Sesión segura con expiración.
-- Protección de endpoints sensibles.
-- `owner_user_id` en `Study`.
-- Historial de estudios por usuario.
-- Migración de estudios existentes a usuario `system` o `admin`.
-- Auditoría básica de login, upload, download y delete.
+Implemented scope:
 
-Dependencias:
+- Local login.
+- Users created by an admin; no open public registration.
+- Initial roles `admin` and `researcher`.
+- Secure session with expiry.
+- Protection of sensitive endpoints.
+- `owner_user_id` on `Study`.
+- Per-user study history.
+- Migration of existing studies to the `system` or `admin` user.
+- Basic audit of login, upload, download and delete.
 
-- Modelo `User` y migración Alembic.
-- Hash robusto de contraseñas.
-- Decisión documentada de cookie session o JWT simple.
-- Definición de permisos por endpoint antes de tocar la GUI.
+Dependencies:
 
-Riesgos:
+- `User` model and Alembic migration.
+- Robust password hashing.
+- Documented decision between cookie session or simple JWT.
+- Definition of permissions per endpoint before touching the GUI.
 
-- Fuga de estudios si algún endpoint no filtra por propietario.
-- Migración incompleta de estudios previos.
-- Sesiones mal configuradas en navegador si se elige JWT sin política clara de expiración y almacenamiento.
-- Mezclar auth con lógica de procesamiento en lugar de mantenerla en la capa API.
+Risks:
 
-Criterios de aceptación:
+- Leakage of studies if some endpoint does not filter by owner.
+- Incomplete migration of previous studies.
+- Badly configured browser sessions if JWT is chosen without a clear expiry and storage policy.
+- Mixing auth with processing logic instead of keeping it in the API layer.
 
-- Existe login local funcional.
-- Existe al menos un usuario admin inicial.
-- Los estudios tienen propietario.
-- `researcher` solo ve sus propios estudios.
-- `admin` ve todos los estudios.
-- Los endpoints sensibles están protegidos.
-- La GUI muestra historial por usuario.
-- La documentación explica creación de usuarios, roles y permisos.
-- Tests básicos de permisos pasan.
-- Se mantiene compatibilidad técnica con el flujo `compneuro`.
+Acceptance criteria:
 
-### Fase 2 — Gestión De Jobs Y Trazabilidad
+- A working local login exists.
+- At least one initial admin user exists.
+- Studies have an owner.
+- `researcher` only sees their own studies.
+- `admin` sees all studies.
+- Sensitive endpoints are protected.
+- The GUI shows per-user history.
+- The documentation explains user creation, roles and permissions.
+- Basic permission tests pass.
+- Technical compatibility with the `compneuro` flow is kept.
 
-Estado: implementada como base funcional.
+### Phase 2 — Job Management And Traceability
 
-Objetivo: mejorar control operativo de jobs sin introducir todavía administración avanzada.
+Status: implemented as a functional base.
 
-Alcance implementado:
+Goal: improve operational control of jobs without yet introducing advanced administration.
 
-- Estados de job más detallados, sin porcentajes falsos.
-- Logs visibles en GUI con truncado.
-- Logs finales descargables o visibles de forma segura.
-- Cancelación de jobs en cola y solicitud de cancelación de procesamientos en ejecución.
-- Retry de jobs fallidos.
-- Soft delete en base de datos.
-- Borrado físico controlado de input, BIDS, output, PNG, PDF, ZIP y logs.
-- Auditoría ampliada.
-- Vista detalle de job.
+Implemented scope:
 
-Riesgos:
+- More detailed job states, without fake percentages.
+- Logs visible in the GUI with truncation.
+- Final logs downloadable or viewable safely.
+- Cancellation of queued jobs and cancellation requests for running processing.
+- Retry of failed jobs.
+- Soft delete in the database.
+- Controlled physical deletion of input, BIDS, output, PNG, PDF, ZIP and logs.
+- Extended audit.
+- Job detail view.
 
-- Exponer rutas internas sensibles en logs.
-- Romper trazabilidad si el borrado físico elimina toda evidencia operativa.
-- Reintentos no idempotentes si no se limpian resultados parciales.
+Risks:
 
-Criterios de aceptación:
+- Exposing sensitive internal paths in logs.
+- Breaking traceability if physical deletion removes all operational evidence.
+- Non-idempotent retries if partial results are not cleaned up.
 
-- El usuario propietario y el admin pueden ver detalle de job según permisos.
-- Los logs se muestran truncados y sin rutas internas innecesarias.
-- Los jobs en cola pueden cancelarse antes de entrar en ejecución y los jobs en procesamiento pueden recibir una solicitud de terminación trazable.
-- El borrado conserva auditoría mínima.
-- El retry de un job fallido deja trazabilidad del intento anterior.
+Acceptance criteria:
 
-### Fase 3 — Admin Dashboard
+- The owner and the admin can view job details according to permissions.
+- Logs are shown truncated and without unnecessary internal paths.
+- Queued jobs can be cancelled before they start running and running jobs can receive a traceable termination request.
+- Deletion keeps a minimal audit record.
+- Retrying a failed job leaves traceability of the previous attempt.
 
-Objetivo: dar al administrador visibilidad operativa mínima.
+### Phase 3 — Admin Dashboard
 
-Estado implementado: dashboard básico accesible solo para `admin` mediante la GUI y `GET /api/admin/dashboard`.
+Goal: give the administrator minimum operational visibility.
 
-Alcance implementado:
+Implemented status: basic dashboard accessible only to `admin` through the GUI and `GET /api/admin/dashboard`.
 
-- Estado de cola.
-- Jobs activos y fallidos.
-- Uso de disco.
+Implemented scope:
+
+- Queue state.
+- Active and failed jobs.
+- Disk usage.
 - Healthchecks.
-- Estado worker, Redis y PostgreSQL.
-- Usuarios.
-- Estudios por estado.
-- Alertas básicas.
+- Worker, Redis and PostgreSQL state.
+- Users.
+- Studies by status.
+- Basic alerts.
 
-Dependencias:
+Dependencies:
 
-- Fase 1 para rol admin.
-- Fase 2 para estados y trazabilidad más útiles.
+- Phase 1 for the admin role.
+- Phase 2 for more useful states and traceability.
 
-Criterios de aceptación:
+Acceptance criteria:
 
-- El dashboard solo es accesible para admin.
-- Muestra datos globales sin consultar manualmente la base de datos.
-- Las alertas no bloquean el procesamiento.
+- The dashboard is only accessible to admins.
+- It shows global data without manually querying the database.
+- Alerts do not block processing.
 
-### Fase 4 — Backups Y Mantenimiento
+### Phase 4 — Backups And Maintenance
 
-Objetivo: documentar y automatizar una recuperación local razonable para TFM sin infraestructura externa compleja.
+Goal: document and automate a reasonable local recovery for the prototype without complex external infrastructure.
 
-Estado: implementada como operación CLI mediante `make backup` y `make restore`, sin endpoints ni GUI.
+Status: implemented as a CLI operation through `make backup` and `make restore`, without endpoints or GUI.
 
-Alcance implementado:
+Implemented scope:
 
-- Script local de backup PostgreSQL.
-- Script local de backup de `data/studies`.
-- Script de restore documentado.
-- Smoke test tras restore.
-- Comandos Makefile.
-- Documentación de operación.
-- Política manual de mantenimiento.
+- Local PostgreSQL backup script.
+- Local backup script for `data/studies`.
+- Documented restore script.
+- Smoke test after restore.
+- Makefile commands.
+- Operations documentation.
+- Manual maintenance policy.
 
-Decisiones cubiertas:
+Decisions covered:
 
-- La unidad restaurable es base de datos + `data/studies`.
-- Los backups se guardan por defecto en `backups/`, fuera de Git, y deben copiarse fuera del servidor para protección real ante pérdida de disco.
+- The restorable unit is database + `data/studies`.
+- Backups are stored by default in `backups/`, outside Git, and must be copied off the server for real protection against disk loss.
 
-Criterios de aceptación:
+Acceptance criteria:
 
-- Un operador puede hacer backup y restore siguiendo la documentación.
-- Tras restore, `make smoke` o check equivalente confirma que la API responde.
-- La documentación advierte que DB y filesystem deben restaurarse juntos.
+- An operator can back up and restore by following the documentation.
+- After a restore, `make smoke` or an equivalent check confirms that the API responds.
+- The documentation warns that the DB and the filesystem must be restored together.
 
-### Fase 5 — Compartición Segura De Informes
+### Phase 5 — Secure Report Sharing
 
-Objetivo: compartir resultados sin crear cuentas completas para receptores externos.
+Goal: share results without creating full accounts for external recipients.
 
-Estado: implementada para descarga de PDF técnico mediante token temporal opaco, con caducidad, revocación y auditoría. No comparte ZIP ni logs.
+Status: implemented for technical PDF download through a temporary opaque token, with expiry, revocation and auditing. It does not share the ZIP or logs.
 
-Alcance recomendado:
+Recommended scope:
 
-- Enlaces temporales opacos.
-- Caducidad configurable.
-- Revocación.
-- Auditoría de acceso.
-- Descarga PDF mediante token.
-- Descarga ZIP opcional si la política lo permite en una fase posterior.
-- Viewer externo sin cuenta completa o rol `viewer` futuro queda fuera.
+- Temporary opaque links.
+- Configurable expiry.
+- Revocation.
+- Access audit.
+- PDF download through a token.
+- Optional ZIP download if the policy allows it in a later phase.
+- External viewer without a full account or a future `viewer` role is out of scope.
 
-Dependencias:
+Dependencies:
 
-- Fase 1 para propietario y permisos.
-- Fase 2 para auditoría ampliada.
+- Phase 1 for owner and permissions.
+- Phase 2 for extended audit.
 
-Riesgos:
+Risks:
 
-- Tokens demasiado largos de vida.
-- Enlaces no revocables.
-- Compartición de ZIP con más datos de los necesarios.
+- Tokens with too long a lifetime.
+- Non-revocable links.
+- Sharing the ZIP with more data than necessary.
 
-Criterios de aceptación:
+Acceptance criteria:
 
-- El propietario o admin puede crear y revocar enlaces.
-- Los enlaces caducan.
-- Cada descarga queda auditada.
-- El endpoint por token no permite enumerar estudios.
+- The owner or admin can create and revoke links.
+- Links expire.
+- Every download is audited.
+- The token endpoint does not allow enumerating studies.
 
-### Fase 6 — Notificaciones
+### Phase 6 — Notifications
 
-Objetivo: avisar de finalización o fallo sin adjuntar datos pesados.
+Goal: notify about completion or failure without attaching heavy data.
 
-Estado: implementada con notificaciones internas, preferencias por usuario y SMTP configurable; Docker Compose usa Mailpit local por defecto.
+Status: implemented with internal notifications, per-user preferences and configurable SMTP; Docker Compose uses a local Mailpit by default.
 
-Alcance implementado:
+Implemented scope:
 
-- SMTP configurable.
-- Correo electrónico al completar o fallar.
-- Solo enlaces; sin adjuntar PDF, ZIP ni datos pesados.
-- Preferencias de notificación.
-- Notificación a admin en errores críticos.
-- Notificaciones internas en UI.
+- Configurable SMTP.
+- Email on completion or failure.
+- Links only; no PDF, ZIP or heavy data attached.
+- Notification preferences.
+- Notification to admins on critical errors.
+- Internal notifications in the UI.
 
-Dependencias:
+Dependencies:
 
-- Fase 1 para correo electrónico institucional de usuario.
-- Fase 5 si los correos enlazan a recursos compartidos temporales.
+- Phase 1 for the user's institutional email.
+- Phase 5 if emails link to temporary shared resources.
 
-Criterios de aceptación:
+Acceptance criteria:
 
-- El sistema no envía adjuntos pesados.
-- Los errores de SMTP no marcan como fallido el procesamiento principal.
-- Las notificaciones quedan registradas para diagnóstico.
+- The system does not send heavy attachments.
+- SMTP errors do not mark the main processing as failed.
+- Notifications are recorded for diagnostics.
 
-### Fase 7 — Subida Múltiple Y Lotes
+### Phase 7 — Multiple Upload And Batches
 
-Objetivo: permitir cargar varios estudios sin cambiar la interfaz de procesamiento esperada por fichero.
+Goal: allow uploading several studies without changing the per-file processing interface.
 
-Alcance recomendado:
+Recommended scope:
 
-- Subida múltiple de `.nii.gz`.
-- Un job por fichero.
-- Entidad `BatchUpload` opcional para agrupar el lote.
-- Tabla filename -> subject ID.
-- Resultado parcial si algunos fallan.
-- Descarga agregada opcional.
+- Multiple upload of `.nii.gz`.
+- One job per file.
+- Optional `BatchUpload` entity to group the batch.
+- Filename -> subject ID table.
+- Partial result if some fail.
+- Optional aggregated download.
 
-Decisión recomendada:
+Recommended decision:
 
-- Mantener un job por fichero. El lote agrupa trazabilidad y experiencia de usuario, no fusiona procesamiento.
+- Keep one job per file. The batch groups traceability and user experience; it does not merge processing.
 
-Riesgos:
+Risks:
 
-- Que un fallo parcial bloquee todo el lote.
-- Saturar disco o cola sin límites.
-- Ambigüedad entre nombre de fichero y sujeto BIDS.
+- A partial failure blocking the whole batch.
+- Saturating disk or queue without limits.
+- Ambiguity between file name and BIDS subject.
 
-Criterios de aceptación:
+Acceptance criteria:
 
-- Cada fichero produce un estudio/job independiente.
-- El usuario puede ver éxito/fallo por fichero.
-- El lote no oculta errores individuales.
+- Each file produces an independent study/job.
+- The user can see success/failure per file.
+- The batch does not hide individual errors.
 
-### Fase 8 — Retención, Cuotas Y Control De Almacenamiento
+### Phase 8 — Retention, Quotas And Storage Control
 
-Objetivo: controlar crecimiento de datos y costes operativos.
+Goal: control data growth and operating costs.
 
-Estado: cuota básica por usuario implementada; retención inicial por CLI/configuración implementada con `keep_forever`, dry-run, auditoría y borrado físico, pero desactivada por defecto para ejecución real. Quedan pendientes una pantalla admin avanzada y limpieza manual guiada.
+Status: basic per-user quota implemented; initial retention via CLI/configuration implemented with `keep_forever`, dry run, audit and physical deletion, but disabled by default for real execution. An advanced admin screen and guided manual cleanup are still pending.
 
-Alcance recomendado:
+Recommended scope:
 
-- Política de retención por CLI/configuración.
-- Recomendación inicial: 90 días.
-- Flag `keep_forever`.
-- Dry-run por defecto.
-- Auditoría de borrado automático.
-- Evolución de cuota por usuario ya implementada como límite básico de subida.
-- Alerta de uso de disco.
-- Limpieza manual controlada.
+- Retention policy via CLI/configuration.
+- Initial recommendation: 90 days.
+- `keep_forever` flag.
+- Dry run by default.
+- Audit of automatic deletion.
+- Per-user quota evolution already implemented as a basic upload limit.
+- Disk usage alert.
+- Controlled manual cleanup.
 
-Dependencias:
+Dependencies:
 
-- Fase 1 para cuotas por usuario.
-- Fase 2 para borrado seguro y auditoría.
-- Fase 3 para alertas de disco.
+- Phase 1 for per-user quotas.
+- Phase 2 for safe deletion and audit.
+- Phase 3 for disk alerts.
 
-Criterios de aceptación:
+Acceptance criteria:
 
-- El dry-run muestra qué se borraría sin eliminar datos.
-- `keep_forever` excluye estudios de retención automática.
-- Todo borrado automático genera evento de auditoría.
+- The dry run shows what would be deleted without removing data.
+- `keep_forever` excludes studies from automatic retention.
+- Every automatic deletion generates an audit event.
 
-### Fase 9 — Flujos Configurables
+### Phase 9 — Configurable Flows
 
-Objetivo: preparar la selección de flujos de procesamiento sin convertir la plataforma en un gestor dinámico complejo de herramientas.
+Goal: prepare the selection of processing flows without turning the platform into a complex dynamic tool manager.
 
-Alcance recomendado:
+Recommended scope:
 
-- Selección de flujo de procesamiento por subida.
-- Registro de `pipeline_name` y `pipeline_version`.
-- Habilitar/deshabilitar flujos por configuración.
-- Mantener `compneuro` como flujo principal.
-- Mantener `dummy` como flujo de desarrollo.
-- Gestión avanzada de herramientas solo como futuro lejano.
+- Selection of the processing flow per upload.
+- Recording of `pipeline_name` and `pipeline_version`.
+- Enabling/disabling flows by configuration.
+- Keep `compneuro` as the main flow.
+- Keep `dummy` as the development flow.
+- Advanced tool management only as a distant future.
 
-Decisión recomendada:
+Recommended decision:
 
-- Preparar modelo/configuración antes de UI avanzada.
-- Seguir usando `processor_adapter` como frontera obligatoria.
+- Prepare the model/configuration before an advanced UI.
+- Keep using `processor_adapter` as the mandatory boundary.
 
-Riesgos:
+Risks:
 
-- Acoplar API o worker a detalles internos de cada flujo.
-- Permitir combinaciones de entradas y flujos no validadas.
+- Coupling the API or worker to the internal details of each flow.
+- Allowing unvalidated combinations of inputs and flows.
 
-Criterios de aceptación:
+Acceptance criteria:
 
-- Cada estudio registra el flujo usado y su versión.
-- La selección no rompe el flujo compneuro actual.
-- Los flujos deshabilitados no aparecen en la GUI.
+- Each study records the flow used and its version.
+- The selection does not break the current compneuro flow.
+- Disabled flows do not appear in the GUI.
 
-### Fase 10 — Integración Institucional
+### Phase 10 — Institutional Integration
 
-Objetivo: preparar el sistema para usuarios institucionales e investigadores con seguridad reforzada.
+Goal: prepare the system for institutional users and researchers with reinforced security.
 
-Alcance recomendado:
+Recommended scope:
 
 - Google login/OIDC.
-- Restricción por dominio institucional.
-- ORCID login para investigadores.
-- DICOM anonymization check.
-- Preparación para datos reales.
-- Hardening de despliegue.
-- TLS real.
-- Auditoría reforzada.
+- Restriction by institutional domain.
+- ORCID login for researchers.
+- DICOM anonymisation check.
+- Preparation for real data.
+- Deployment hardening.
+- Real TLS.
+- Reinforced auditing.
 
-Decisión recomendada:
+Recommended decision:
 
-- Login local primero, OIDC después. Ambos deben poder convivir.
-- Google/OIDC es deseable para entorno institucional.
-- ORCID solo gana prioridad si el uso investigador pesa más que el hospitalario.
+- Local login first, OIDC later. Both must be able to coexist.
+- Google/OIDC is desirable for an institutional environment.
+- ORCID only gains priority if research use weighs more than hospital use.
 
-Riesgos:
+Risks:
 
-- Complejidad de identidad externa antes de tener permisos internos sólidos.
-- Confundir check de anonimización con anonimización garantizada.
+- Complexity of external identity before having solid internal permissions.
+- Confusing an anonymisation check with guaranteed anonymisation.
 
-Criterios de aceptación:
+Acceptance criteria:
 
-- Los proveedores externos se vinculan a usuarios internos.
-- La restricción de dominio se configura fuera del código.
-- La auditoría diferencia login local y login externo.
+- External providers are linked to internal users.
+- The domain restriction is configured outside the code.
+- Auditing distinguishes local login from external login.
 
-### Fase 11 — Revisión Clínica
+### Phase 11 — Clinical Review
 
-Objetivo: separar resultados técnicos de una eventual validación profesional.
+Goal: separate technical results from an eventual professional validation.
 
-Alcance recomendado:
+Recommended scope:
 
-- Flag `technical_only`.
-- Estado `reviewed`.
-- Estado `validated`.
-- Usuario revisor.
-- Fecha de revisión.
-- Comentarios.
+- `technical_only` flag.
+- `reviewed` state.
+- `validated` state.
+- Reviewer user.
+- Review date.
+- Comments.
 
-Dependencias:
+Dependencies:
 
-- Fase 1 para identidad de revisores.
-- Fase 2 para trazabilidad.
-- Definición clínica/legal externa al desarrollo software.
+- Phase 1 for reviewer identity.
+- Phase 2 for traceability.
+- Clinical/legal definition external to software development.
 
-Criterios de aceptación:
+Acceptance criteria:
 
-- Solo usuarios autorizados pueden marcar revisión o validación.
-- La revisión no modifica resultados originales.
-- El historial de cambios queda auditado.
+- Only authorised users can mark review or validation.
+- The review does not modify original results.
+- The change history is audited.
 
-## Priorización Recomendada
+## Recommended Prioritisation
 
-La próxima fase óptima es **Fase 7 — Subida Múltiple Y Lotes**.
+The optimal next phase is **Phase 7 — Multiple Upload And Batches**.
 
-Justificación:
+Rationale:
 
-- La Fase 1 ya establece identidad, roles, propietario por estudio e historial básico.
-- La Fase 2 ya añade detalle de trabajo, logs truncados, cancelación de trabajos en cola o en ejecución, reintento y borrado seguro.
-- La Fase 3 ya aporta visibilidad operativa global para admin.
-- Backup y restore local ya están cubiertos como operación CLI antes de avanzar a lotes, retención o integración institucional.
-- La Fase 5 ya permite compartir PDF técnicos con enlaces temporales, revocables y auditados.
+- Phase 1 already establishes identity, roles, per-study owner and basic history.
+- Phase 2 already adds job detail, truncated logs, cancellation of queued or running jobs, retry and safe deletion.
+- Phase 3 already provides global operational visibility for admins.
+- Local backup and restore are already covered as a CLI operation before moving on to batches, retention or institutional integration.
+- Phase 5 already allows sharing technical PDFs with temporary, revocable and audited links.
 
-Orden óptimo de implementación tras cerrar este roadmap:
+Optimal implementation order after closing this roadmap:
 
-1. Fase 7: subida múltiple y lotes.
-2. Fase 8: retención, cuotas y almacenamiento.
-3. Fase 9: flujos configurables.
-4. Fase 10: integración institucional.
-5. Fase 11: revisión clínica.
+1. Phase 7: multiple upload and batches.
+2. Phase 8: retention, quotas and storage.
+3. Phase 9: configurable flows.
+4. Phase 10: institutional integration.
+5. Phase 11: clinical review.
 
-## Histórico Implementado
+## Implemented History
 
-Las fases 1, 2, 3, 4, 5 y 6 ya están implementadas como base funcional y operativa:
+Phases 1, 2, 3, 4, 5 and 6 are already implemented as a functional and operational base:
 
-- Fase 1: login local, roles `admin`/`researcher`, propietario por estudio, creación de usuarios por admin y permisos por endpoint.
-- Fase 2: detalle de trabajos, logs truncados, cancelación de trabajos en cola o en ejecución, reintento de fallidos, soft delete, borrado físico controlado y auditoría mínima.
-- Fase 3: dashboard admin con cola, trabajos activos/fallidos, uso de disco, healthchecks, usuarios, estudios por estado y alertas no bloqueantes.
-- Fase 4: backup/restore local por CLI de PostgreSQL y `data/studies`, con confirmación fuerte para restore y smoke test posterior.
-- Fase 5: enlaces temporales y revocables para descargar PDF técnicos sin cuenta completa, con hash de token y auditoría de accesos.
-- Fase 6: notificaciones internas, preferencias por usuario y correo electrónico SMTP configurable.
+- Phase 1: local login, `admin`/`researcher` roles, per-study owner, user creation by admins and permissions per endpoint.
+- Phase 2: job detail, truncated logs, cancellation of queued or running jobs, retry of failed ones, soft delete, controlled physical deletion and minimal audit.
+- Phase 3: admin dashboard with queue, active/failed jobs, disk usage, healthchecks, users, studies by status and non-blocking alerts.
+- Phase 4: local backup/restore via CLI of PostgreSQL and `data/studies`, with strong confirmation for restore and a subsequent smoke test.
+- Phase 5: temporary, revocable links to download technical PDFs without a full account, with token hashing and access audit.
+- Phase 6: internal notifications, per-user preferences and configurable SMTP email.
 
-Los detalles técnicos vivos están en `docs/architecture.md`, `docs/api.md`, `docs/developer-manual.md` y los tests.
+Living technical details are in `docs/architecture.md`, `docs/api.md`, `docs/developer-manual.md` and the tests.
 
-## No Implementar Todavía
+## Do Not Implement Yet
 
 - Google login.
 - ORCID login.
-- Rol `viewer` completo.
-- Compartición de ZIP por enlace.
-- Correo electrónico institucional avanzado.
-- Retención automática.
-- Subida múltiple.
-- Pipeline manager avanzado.
+- Complete `viewer` role.
+- ZIP sharing by link.
+- Advanced institutional email.
+- Automatic retention.
+- Multiple upload.
+- Advanced pipeline manager.
 - 2FA.
-- Retención avanzada con `keep_forever`, dry-run y limpieza automática.
-- Anonimización DICOM real.
+- Advanced retention with `keep_forever`, dry run and automatic cleanup.
+- Real DICOM anonymisation.
 
-## Decisiones Pendientes
+## Pending Decisions
 
-- Evaluar si conviene migrar de JWT en localStorage a cookie `HttpOnly` antes de exposición real.
-- Definir si `AuditEvent.actor` textual se conserva como compatibilidad o se elimina en una migración futura.
-- Decidir si el usuario `system` debe ocultarse del dashboard admin.
-- Definir política de retención antes de usar datos sensibles.
+- Evaluate whether to migrate from JWT in localStorage to an `HttpOnly` cookie before real exposure.
+- Define whether the textual `AuditEvent.actor` is kept for compatibility or removed in a future migration.
+- Decide whether the `system` user should be hidden from the admin dashboard.
+- Define a retention policy before using sensitive data.

@@ -1,6 +1,6 @@
-# Manual De Desarrollo
+# Developer Manual
 
-## Entorno Local
+## Local Environment
 
 ```bash
 cp .env.example .env
@@ -8,105 +8,105 @@ make up
 make test
 ```
 
-El significado de cada variable de `.env` está documentado en `docs/configuration.md`.
+The meaning of each `.env` variable is documented in `docs/configuration.md`.
 
 ## Backend
 
-- FastAPI en `backend/app`.
-- Modelos en `backend/app/models`.
-- Esquemas Pydantic en `backend/app/schemas`.
-- Migraciones Alembic en `backend/alembic`.
-- El endpoint `GET /api/admin/dashboard` agrega estado operativo para admin sin tocar el flujo de procesamiento.
+- FastAPI in `backend/app`.
+- Models in `backend/app/models`.
+- Pydantic schemas in `backend/app/schemas`.
+- Alembic migrations in `backend/alembic`.
+- The `GET /api/admin/dashboard` endpoint aggregates operational state for admins without touching the processing flow.
 
 ## Worker
 
-- Celery en `worker/`.
-- No añadir análisis de imagen ni interpretación médica al worker; usar `processor_adapter`.
-- `worker/Dockerfile.compneuro` construye el worker real sobre la imagen de `compneuro-anatproc` y añade dependencias de la plataforma.
-- El post-procesado técnico corre en el mismo worker: renderiza NIfTI con FSL `slicer`, genera PDF y empaqueta resultados.
-- La concurrencia recomendada para `compneuro` es `1`, porque el flujo usa `/project` como ruta fija.
+- Celery in `worker/`.
+- Do not add image analysis or medical interpretation to the worker; use `processor_adapter`.
+- `worker/Dockerfile.compneuro` builds the real worker on top of the `compneuro-anatproc` image and adds the platform's dependencies.
+- Technical post-processing runs in the same worker: it renders NIfTI with FSL `slicer`, generates the PDF and packages results.
+- The recommended concurrency for `compneuro` is `1`, because the flow uses `/project` as a fixed path.
 
 ## Processor Adapter
 
-- `processor_adapter.adapter.DummyProcessorAdapter`: mantiene el procesador de desarrollo con PDF.
-- `processor_adapter.adapter.CompneuroAnatprocAdapter`: prepara `/project`, ejecuta `src/apreproc_launcher.sh` y valida `Preproc/BET` y `Preproc/ProbTissue`.
-- `processor_adapter.nifti_renderer`: encuentra `.nii`/`.nii.gz` en `Preproc` y ejecuta `slicer input -a output.png`.
-- `processor_adapter.technical_pdf_report`: genera el PDF técnico con metadatos, listado de resultados y PNG renderizados.
-- `processor_adapter.output_packager`: genera el ZIP de resultados con rutas relativas.
-- `processor_adapter.artifacts`: puente de compatibilidad para imports existentes.
+- `processor_adapter.adapter.DummyProcessorAdapter`: keeps the development processor with a PDF.
+- `processor_adapter.adapter.CompneuroAnatprocAdapter`: prepares `/project`, runs `src/apreproc_launcher.sh` and validates `Preproc/BET` and `Preproc/ProbTissue`.
+- `processor_adapter.nifti_renderer`: finds `.nii`/`.nii.gz` in `Preproc` and runs `slicer input -a output.png`.
+- `processor_adapter.technical_pdf_report`: generates the technical PDF with metadata, list of results and rendered PNGs.
+- `processor_adapter.output_packager`: generates the results ZIP with relative paths.
+- `processor_adapter.artifacts`: compatibility bridge for existing imports.
 
 ## BIDS
 
-- `backend/app/services/bids.py` prepara BIDS para un único T1w por estudio.
-- No se usan sesiones BIDS en esta fase.
-- `bids_subject_id` debe tener formato `sub-XXXX`; ejemplo: `sub-O01`.
+- `backend/app/services/bids.py` prepares BIDS for a single T1w per study.
+- BIDS sessions are not used in this phase.
+- `bids_subject_id` must have the format `sub-XXXX`; example: `sub-O01`.
 
 ## Frontend
 
-- React/Vite en `frontend/`.
-- UI sencilla, castellano, clara y sin flujos de revisión médica no implementados.
-- Instalar dependencias con `npm install` desde `frontend/`; el `package-lock.json` fija las versiones resueltas para reproducibilidad.
-- Validar cambios frontend con `npm run lint`; la configuración vive en `frontend/eslint.config.js` y usa el formato flat config de ESLint 9.
-- Si se despliega con Docker/Nginx y cambia el frontend, reconstruir el contenedor con `make frontend-rebuild`.
+- React/Vite in `frontend/`.
+- Simple, clear UI (currently in Spanish) with no medical review flows that are not implemented.
+- Install dependencies with `npm install` from `frontend/`; `package-lock.json` pins the resolved versions for reproducibility.
+- Validate frontend changes with `npm run lint`; the configuration lives in `frontend/eslint.config.js` and uses the ESLint 9 flat config format.
+- If deployed with Docker/Nginx and the frontend changes, rebuild the container with `make frontend-rebuild`.
 
-## Convenciones
+## Conventions
 
 - Conventional Commits.
-- Actualizar tests ante cambios funcionales.
-- Actualizar docs si cambia arquitectura, API, despliegue o flujo de procesamiento.
-- Documentar cambios de tooling frontend cuando afecten instalación, lint o estructura de componentes.
+- Update tests on functional changes.
+- Update docs if architecture, API, deployment or processing flow change.
+- Document frontend tooling changes when they affect installation, lint or component structure.
 
-## Multiusuario Básico
+## Basic Multi-User Support
 
-La plataforma incluye login local con JWT, roles `admin`/`researcher`, propietario por estudio e historial filtrado por permisos.
+The platform includes local login with JWT, `admin`/`researcher` roles, a per-study owner and a history filtered by permissions.
 
-Puntos principales:
+Main points:
 
-- `backend/app/models/user.py`: modelo `User`, roles y usuario `system`.
-- `backend/app/services/auth.py`: hash PBKDF2, JWT, dependencias de usuario actual y admin.
-- `backend/app/cli/create_admin.py`: creación o actualización del admin inicial.
-- `backend/app/cli/retention.py`: dry-run y ejecución explícita de retención de estudios.
-- `backend/alembic/versions/0004_multiuser_auth.py`: tabla `users`, `owner_user_id` y `actor_user_id`.
-- `frontend/src/main.jsx`: login, sesión, “Mis estudios” y gestión básica de usuarios admin.
+- `backend/app/models/user.py`: `User` model, roles and the `system` user.
+- `backend/app/services/auth.py`: PBKDF2 hashing, JWT, current-user and admin dependencies.
+- `backend/app/cli/create_admin.py`: creation or update of the initial admin.
+- `backend/app/cli/retention.py`: dry run and explicit execution of study retention.
+- `backend/alembic/versions/0004_multiuser_auth.py`: `users` table, `owner_user_id` and `actor_user_id`.
+- `frontend/src/main.jsx`: login, session, "my studies" view and basic admin user management.
 
-Crear el primer admin:
+Create the first admin:
 
 ```bash
 make create-admin EMAIL=admin@example.org
 ```
 
-La gestión básica de trabajos incluye logs truncados, cancelación de trabajos en cola o en ejecución, reintento de fallidos y borrado seguro. El dashboard admin ya muestra estado global de cola, trabajos, almacenamiento, servicios, usuarios y estudios por estado. Backup y restore local, compartición segura de informes PDF, notificaciones, cuotas por usuario, revisión técnica de resultados y retención inicial por CLI ya están disponibles. La siguiente fase recomendada es subida múltiple y lotes.
+Basic job management includes truncated logs, cancellation of queued or running jobs, retry of failed ones and safe deletion. The admin dashboard already shows the global state of the queue, jobs, storage, services, users and studies by status. Local backup and restore, secure sharing of PDF reports, notifications, per-user quotas, technical review of results and initial retention via CLI are already available. The next recommended phase is multiple upload and batches.
 
-Permisos mínimos esperados:
+Minimum expected permissions:
 
-- `admin`: puede ver todos los estudios, gestionar usuarios y acceder a vista administrativa.
-- `researcher`: puede subir, listar, ver y descargar solo estudios propios.
-- Usuario no autenticado: no puede acceder a endpoints sensibles.
+- `admin`: can see all studies, manage users and access the administrative view.
+- `researcher`: can upload, list, view and download only their own studies.
+- Unauthenticated user: cannot access sensitive endpoints.
 
-Fuera de la implementación actual:
+Outside the current implementation:
 
 - Google/OIDC.
 - ORCID.
-- Rol `viewer` completo.
-- Compartición de ZIP mediante enlaces.
-- Correo electrónico institucional avanzado.
-- Retención automática.
-- Subida múltiple.
+- Complete `viewer` role.
+- ZIP sharing through links.
+- Advanced institutional email.
+- Automatic retention.
+- Multiple upload.
 - 2FA.
-- Revisión clínica formal con revisor, fecha, comentarios y criterios externos validados.
+- Formal clinical review with reviewer, date, comments and validated external criteria.
 
-## Cómo Hacer Cambios
+## How To Make Changes
 
-Usa esta tabla antes de modificar el sistema. La idea es cambiar lo mínimo correcto y dejar código, tests y docs alineados.
+Use this table before modifying the system. The idea is to change the minimum that is correct and keep code, tests and docs aligned.
 
-| Cambio | Revisar | Validar |
+| Change | Review | Validate |
 | --- | --- | --- |
-| Endpoint API, permisos o respuesta JSON | `backend/app/api/routes.py`, `backend/app/schemas/`, `docs/api.md`, tests en `tests/test_api.py` | `make test`, `make lint` |
-| Modelo persistente | `backend/app/models/`, migración Alembic, `docs/architecture.md`, tests | `make test`, `make lint` |
-| Worker o estados de procesamiento | `worker/tasks.py`, `processor_adapter/`, `docs/processing-pipeline.md`, `docs/operations-manual.md` | `make test`, `make lint` |
-| Procesador externo o Dockerfile del worker | `processor_adapter/`, `worker/Dockerfile.compneuro`, `docs/configuration.md`, `docs/deployment.md` | `make test`, `make lint`, prueba manual si usa `compneuro` real |
-| Frontend | `frontend/src/main.jsx`, `frontend/src/styles.css`, `frontend/README.md`, manual de usuario si cambia el flujo | `npm run lint` desde `frontend/` |
-| Configuración o variables `.env` | `.env.example`, `docker-compose.yml`, `backend/app/core/config.py`, `docs/configuration.md` | `make check-secrets`, `make check-docs` |
-| Documentación pura | README/doc afectado y enlaces cruzados | `make check-docs` |
+| API endpoint, permissions or JSON response | `backend/app/api/routes.py`, `backend/app/schemas/`, `docs/api.md`, tests in `tests/test_api.py` | `make test`, `make lint` |
+| Persistent model | `backend/app/models/`, Alembic migration, `docs/architecture.md`, tests | `make test`, `make lint` |
+| Worker or processing states | `worker/tasks.py`, `processor_adapter/`, `docs/processing-pipeline.md`, `docs/operations-manual.md` | `make test`, `make lint` |
+| External processor or worker Dockerfile | `processor_adapter/`, `worker/Dockerfile.compneuro`, `docs/configuration.md`, `docs/deployment.md` | `make test`, `make lint`, manual test if using the real `compneuro` |
+| Frontend | `frontend/src/main.jsx`, `frontend/src/styles.css`, `frontend/README.md`, user manual if the flow changes | `npm run lint` from `frontend/` |
+| Configuration or `.env` variables | `.env.example`, `docker-compose.yml`, `backend/app/core/config.py`, `docs/configuration.md` | `make check-secrets`, `make check-docs` |
+| Documentation only | affected README/doc and cross-links | `make check-docs` |
 
-No leas ni pegues `.env` en conversaciones o commits. No uses datos reales identificativos en fixtures, ejemplos o capturas.
+Do not read or paste `.env` in conversations or commits. Do not use real identifying data in fixtures, examples or screenshots.

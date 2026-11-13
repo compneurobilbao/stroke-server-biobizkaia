@@ -1,15 +1,17 @@
-# Resumen Técnico Para TFM
+# Technical Summary (Historical Note)
 
-Este proyecto implementa una plataforma web containerizada para integrar procesamiento de neuroimagen por lotes con generación automática de resúmenes técnicos PDF y descarga de resultados.
+> Historical note: this summary was written for the master's thesis prototype and is kept for reference only. The current plan is `plan/IMPLEMENTATION_PLAN.md`.
 
-La contribución principal no es el algoritmo de procesamiento, sino la capa software que permite operarlo de forma controlada, trazable y desacoplada. La arquitectura separa interfaz, API, persistencia, cola, worker y adaptador CLI, reduciendo acoplamiento y facilitando sustitución futura del procesador.
+This project implements a containerised web platform that integrates batch neuroimaging processing with automatic generation of technical PDF summaries and result download.
 
-La integración con `compneuro-anatproc` prepara automáticamente BIDS para un T1w `.nii.gz`, ejecuta el flujo anatómico desde un worker basado en su imagen Docker, valida resultados `Preproc/BET` y `Preproc/ProbTissue`, renderiza NIfTI a PNG con FSL `slicer` y genera artefactos técnicos propios de la plataforma. El PDF resultante resume los resultados generados y no realiza interpretación clínica. El sistema no es todavía un producto sanitario completo y requiere validación clínica, autenticación institucional o política de sesión reforzada, hardening y políticas de datos antes de uso hospitalario real.
+The main contribution is not the processing algorithm but the software layer that allows it to be operated in a controlled, traceable and decoupled way. The architecture separates interface, API, persistence, queue, worker and CLI adapter, reducing coupling and making a future replacement of the processor easier.
 
-La decisión clave es mantener una API ligera y un worker especializado: FastAPI no procesa neuroimagen, Celery ejecuta tareas largas y `processor_adapter` encapsula el flujo externo.
+The integration with `compneuro-anatproc` automatically prepares BIDS for a T1w `.nii.gz`, runs the anatomical flow from a worker based on its Docker image, validates `Preproc/BET` and `Preproc/ProbTissue` results, renders NIfTI to PNG with FSL `slicer` and generates the platform's own technical artefacts. The resulting PDF summarises the generated results and performs no clinical interpretation. The system is not yet a complete medical product and requires clinical validation, institutional authentication or a hardened session policy, hardening and data policies before real hospital use.
 
-## Evolución Planificada
+The key decision is to keep a lightweight API and a specialised worker: FastAPI does not process neuroimaging, Celery runs long tasks and `processor_adapter` encapsulates the external flow.
 
-El roadmap plantea una evolución incremental: primero identidad y permisos, después trazabilidad operativa, dashboard admin, backups/restore local, compartición segura, notificaciones, lotes, retención, flujos configurables, integración institucional y revisión clínica.
+## Planned Evolution
 
-La plataforma incorpora una primera capa multiusuario con login local, roles `admin`/`researcher`, propietario por estudio, protección de endpoints, cuotas básicas por usuario y compartición temporal de PDF técnicos. Esto desbloquea historial por usuario, control de acceso, auditoría real, administración y entrega controlada de informes sin modificar la frontera con el procesador externo. Integraciones como Google/OIDC, ORCID, correo electrónico institucional avanzado, retención automática o revisión clínica formal quedan justificadas como fases posteriores porque dependen de identidad, permisos y trazabilidad previas.
+The roadmap proposes an incremental evolution: first identity and permissions, then operational traceability, admin dashboard, local backups/restore, secure sharing, notifications, batches, retention, configurable flows, institutional integration and clinical review.
+
+The platform includes a first multi-user layer with local login, `admin`/`researcher` roles, an owner per study, endpoint protection, basic per-user quotas and temporary sharing of technical PDFs. This unlocks per-user history, access control, real auditing, administration and controlled delivery of reports without modifying the boundary with the external processor. Integrations such as Google/OIDC, ORCID, advanced institutional email, automatic retention or formal clinical review are justified as later phases because they depend on prior identity, permissions and traceability.
