@@ -8,7 +8,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    app_name: str = "Neuroimagen Server Biocruces"
+    app_name: str = "Stroke Server"
     environment: str = "development"
     api_prefix: str = "/api"
     database_url: str = Field(
@@ -82,7 +82,7 @@ class Settings(BaseSettings):
             or len(self.auth_secret_key) < 32
         ):
             raise RuntimeError(
-                "AUTH_SECRET_KEY debe configurarse con una clave propia fuera de development"
+                "AUTH_SECRET_KEY must be set to a custom key outside development"
             )
 
 

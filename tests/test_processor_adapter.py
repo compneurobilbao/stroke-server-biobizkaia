@@ -38,7 +38,7 @@ def test_adapter_reports_failed_script(tmp_path):
 
     assert result.success is False
     assert result.exit_code != 0
-    assert result.error_message == "El procesador externo terminó con error"
+    assert result.error_message == "The external processor finished with an error"
 
 
 def test_adapter_fails_without_pdf(tmp_path):
@@ -51,7 +51,7 @@ def test_adapter_fails_without_pdf(tmp_path):
     result = adapter.run(input_dir, output_dir, "abc", logs_dir)
 
     assert result.success is False
-    assert result.error_message == "El procesador no generó ningún PDF"
+    assert result.error_message == "The processor did not generate any PDF"
 
 
 def test_compneuro_adapter_detects_preproc_outputs(tmp_path):
@@ -106,7 +106,7 @@ def test_compneuro_adapter_fails_if_project_mount_is_not_managed(tmp_path):
     )
 
     assert result.success is False
-    assert result.error_message == "No se pudo preparar el entorno /project"
+    assert result.error_message == "Could not prepare the /project environment"
 
 
 def test_technical_pdf_and_zip_are_generated(tmp_path):
@@ -180,7 +180,7 @@ def test_render_nifti_outputs_records_failed_render(tmp_path):
     rendered = render_nifti_outputs(preproc_dir, tmp_path / "rendered_png", runner=fake_runner)
 
     assert rendered[0].success is False
-    assert rendered[0].error_message == "slicer terminó con código 2"
+    assert rendered[0].error_message == "slicer exited with code 2"
 
 
 def test_technical_pdf_report_contains_nifti_names_and_png(tmp_path):
@@ -238,7 +238,7 @@ def test_technical_pdf_report_handles_no_nifti(tmp_path):
         output_files=[],
     )
 
-    assert b"No se encontraron ficheros NIfTI" in pdf_path.read_bytes()
+    assert b"No renderable NIfTI files found" in pdf_path.read_bytes()
 
 
 def _png_bytes() -> bytes:

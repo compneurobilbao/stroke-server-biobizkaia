@@ -47,6 +47,24 @@ def test_login_returns_token_and_records_audit_event(client):
     db.close()
 
 
+def test_unauthenticated_request_returns_error_code(client):
+    response = client.get("/api/auth/me")
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Not authenticated", "code": "not_authenticated"}
+
+
+def test_unknown_study_returns_error_code(client):
+    headers, _ = auth_headers(client, "researcher@example.org", "secret-pass")
+
+    response = client.get(
+        "/api/studies/00000000-0000-0000-0000-000000000000", headers=headers
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Study not found", "code": "study_not_found"}
+
+
 def test_login_rejects_invalid_password(client):
     create_test_user(client, "researcher@example.org", "secret-pass")
 
@@ -56,7 +74,10 @@ def test_login_rejects_invalid_password(client):
     )
 
     assert response.status_code == 401
-    assert response.json()["detail"] == "Credenciales no válidas"
+    assert response.json() == {
+        "detail": "Invalid credentials",
+        "code": "invalid_credentials",
+    }
 
 
 def test_unauthenticated_user_cannot_access_protected_studies(client):
@@ -102,7 +123,8 @@ def test_upload_rejects_invalid_extension(client):
     )
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Extensión de fichero no permitida"
+    assert response.json()["detail"] == "File extension not allowed"
+    assert response.json()["code"] == "file_extension_not_allowed"
 
 
 def test_upload_accepts_optional_bids_subject_id(client):
@@ -421,7 +443,7 @@ def test_cancel_processing_study_terminates_celery_task(client, monkeypatch):
 
     assert cancel.status_code == 200
     assert cancel.json()["status"] == "processing"
-    assert cancel.json()["message"] == "Cancelación solicitada"
+    assert cancel.json()["message"] == "Cancellation requested"
     assert revoked == [
         ("celery-task-id", {"terminate": True, "signal": "SIGTERM"})
     ]
@@ -430,9 +452,9 @@ def test_cancel_processing_study_terminates_celery_task(client, monkeypatch):
     study = db.get(Study, UUID(study_id))
     job = study.jobs[0]
     assert study.status == StudyStatus.processing
-    assert study.error_message == "Cancelación solicitada por el usuario"
+    assert study.error_message == "Cancellation requested by the user"
     assert job.status == StudyStatus.processing.value
-    assert job.error_message == "Cancelación solicitada por el usuario"
+    assert job.error_message == "Cancellation requested by the user"
     assert job.cancel_requested_at is not None
     db.close()
 
@@ -599,7 +621,7 @@ def test_admin_can_create_researcher_user(client):
         "/api/users",
         json={
             "email": "new@example.org",
-            "full_name": "Nuevo Usuario",
+            "full_name": "New User",
             "password": "new-secret",
             "role": "researcher",
             "storage_quota_bytes": 2048,
@@ -631,7 +653,7 @@ def test_admin_can_update_user_quota_and_delete_user_logically(client):
     assert updated.json()["storage_quota_bytes"] == 1024
     assert updated.json()["is_active"] is False
     assert deleted.status_code == 200
-    assert deleted.json()["message"] == "Usuario borrado"
+    assert deleted.json()["message"] == "User deleted"
     assert all(item["id"] != str(user_id) for item in listed.json())
 
     db = client.app.state.testing_session_local()
@@ -655,7 +677,7 @@ def test_admin_can_create_clean_user_after_logical_delete(client):
         "/api/users",
         json={
             "email": "researcher@example.org",
-            "full_name": "Nuevo Usuario",
+            "full_name": "New User",
             "password": "new-secret",
             "role": "researcher",
         },
@@ -723,7 +745,10 @@ def test_upload_rejects_user_storage_quota_exceeded(client):
     )
 
     assert response.status_code == 413
-    assert response.json()["detail"] == "La subida supera la cuota de almacenamiento del usuario"
+    assert response.json()["code"] == "storage_quota_exceeded"
+    assert (
+        response.json()["detail"] == "The upload exceeds the storage quota of the user"
+    )
     assert client.get("/api/studies", headers=headers).json() == []
 
 
@@ -842,15 +867,15 @@ def test_user_lists_and_marks_own_notifications(client):
     own = Notification(
         recipient_user_id=user_id,
         event_type="processing_completed",
-        title="Listo",
-        message="Tu estudio terminó",
+        title="Done",
+        message="Your study finished",
         email_status="disabled",
     )
     other = Notification(
         recipient_user_id=other_id,
         event_type="processing_failed",
-        title="Fallido",
-        message="Otro estudio falló",
+        title="Failed",
+        message="Another study failed",
         email_status="disabled",
     )
     db.add_all([own, other])
@@ -877,7 +902,7 @@ def test_researcher_cannot_create_users(client):
         "/api/users",
         json={
             "email": "new@example.org",
-            "full_name": "Nuevo Usuario",
+            "full_name": "New User",
             "password": "new-secret",
             "role": "researcher",
         },
@@ -953,7 +978,7 @@ def test_admin_dashboard_returns_operational_summary(client, monkeypatch):
     assert payload["storage"]["exists"] is True
     assert payload["storage"]["studies_bytes"] > 0
     assert payload["recent_failed_jobs"][0]["study_id"] == failed["id"]
-    assert "Hay 1 job(s) fallidos que requieren revisión" in payload["alerts"]
+    assert "1 failed job(s) require review" in payload["alerts"]
     assert UUID(queued["id"])
 
 
@@ -974,10 +999,8 @@ def test_compneuro_upload_rejects_non_nifti_gz(compneuro_client):
     )
 
     assert response.status_code == 400
-    assert (
-        response.json()["detail"]
-        == "Para compneuro-anatproc se espera un fichero .nii.gz"
-    )
+    assert response.json()["code"] == "nifti_gz_required"
+    assert response.json()["detail"] == "compneuro-anatproc expects a .nii.gz file"
 
 
 def test_compneuro_upload_generates_bids_subject(compneuro_client):

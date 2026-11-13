@@ -65,7 +65,7 @@ class LocalStudyStorage:
     def safe_path(self, base: Path, filename: str) -> Path:
         target = (base / filename).resolve()
         if base.resolve() not in target.parents and target != base.resolve():
-            raise ValueError("Ruta de fichero no permitida")
+            raise ValueError("File path not allowed")
         return target
 
     def save_upload(self, study_id: UUID, upload: UploadFile, safe_filename: str) -> tuple[Path, int, str]:
