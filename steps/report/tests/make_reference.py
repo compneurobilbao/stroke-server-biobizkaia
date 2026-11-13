@@ -13,10 +13,11 @@ matter, and nothing depends on the clock.
 
 from __future__ import annotations
 
-import gzip
 import json
 import shutil
+import struct
 import sys
+import zlib
 from pathlib import Path
 
 import nibabel as nib
@@ -109,16 +110,30 @@ def lesion_qc_for(mask: np.ndarray, affine: np.ndarray) -> dict:
     }
 
 
+def gzip_stored(payload: bytes) -> bytes:
+    """gzip container with stored (uncompressed) deflate blocks and a fixed header.
+
+    gzip.compress writes the OS byte and (before 3.12) the header differently across
+    platforms and Python versions; the bytes of this file are hashed, so build it by hand.
+    """
+    header = bytes([0x1F, 0x8B, 0x08, 0, 0, 0, 0, 0, 0, 0xFF])  # fixed: no name, mtime 0, OS unknown
+    co = zlib.compressobj(0, zlib.DEFLATED, -15)
+    body = co.compress(payload) + co.flush()
+    return header + body + struct.pack("<II", zlib.crc32(payload) & 0xFFFFFFFF, len(payload))
+
+
 def write_nifti_gz(path: Path, data: np.ndarray, affine: np.ndarray) -> None:
     img = nib.Nifti1Image(data, affine)
     img.set_qform(affine, code=4)
     img.set_sform(affine, code=4)
-    path.write_bytes(gzip.compress(img.to_bytes(), compresslevel=0, mtime=0))
+    path.write_bytes(gzip_stored(img.to_bytes()))
 
 
 def disconnection_map(mask: np.ndarray, affine: np.ndarray) -> np.ndarray:
     """A float32 map that falls off linearly with the distance from the lesion centroid."""
-    centre = np.argwhere(mask).mean(axis=0)
+    # integer sums divided once: the same float64 on every platform and numpy build
+    idx = np.argwhere(mask)
+    centre = idx.sum(axis=0) / len(idx)
     ii, jj, kk = np.indices(mask.shape)
     dist = np.sqrt((ii - centre[0]) ** 2 + (jj - centre[1]) ** 2 + (kk - centre[2]) ** 2)
     return np.maximum(0.0, 1.0 - dist / 14.0).astype(np.float32)
