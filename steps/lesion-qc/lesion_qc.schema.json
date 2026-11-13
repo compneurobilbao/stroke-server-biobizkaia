@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/schemas/lesion_qc/1.0",
+  "title": "lesion_qc 1.0",
+  "description": "Content of the lesion_qc artefact written by the lesion-qc step. Volumes are in millilitres, coordinates in millimetres, all floats rounded to 4 decimals. Failures never produce this file (the step exits with code 10 and error.json).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "mode", "input_space", "grid", "n_voxels", "volume_ml", "hemisphere", "components", "bounding_box", "centroid_mm", "warnings", "thresholds"],
+  "$defs": {
+    "vec3_int": {"type": "array", "items": {"type": "integer"}, "minItems": 3, "maxItems": 3},
+    "vec3_num": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
+    "box": {
+      "type": "object", "additionalProperties": false, "required": ["min", "max"],
+      "properties": {"min": {"$ref": "#/$defs/vec3_num"}, "max": {"$ref": "#/$defs/vec3_num"}}
+    }
+  },
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "mode": {"enum": ["mni_mask", "ct_native"], "description": "mni_mask: user mask in MNI152NLin6Asym, resampled to the working grid. ct_native: mask on the CT voxel grid, QC on the native mask."},
+    "input_space": {"enum": ["MNI152NLin6Asym", "native"]},
+    "grid": {
+      "type": "object", "additionalProperties": false,
+      "required": ["name", "shape", "voxel_size_mm", "source_shape", "source_voxel_size_mm", "resampled"],
+      "description": "Grid on which all measurements below were made. In mni_mask mode it is the working grid; in ct_native mode it is the CT grid (name null).",
+      "properties": {
+        "name": {"type": ["string", "null"]},
+        "shape": {"$ref": "#/$defs/vec3_int"},
+        "voxel_size_mm": {"$ref": "#/$defs/vec3_num"},
+        "source_shape": {"$ref": "#/$defs/vec3_int"},
+        "source_voxel_size_mm": {"$ref": "#/$defs/vec3_num"},
+        "resampled": {"type": "boolean"}
+      }
+    },
+    "n_voxels": {"type": "integer", "minimum": 1},
+    "volume_ml": {"type": "number", "exclusiveMinimum": 0},
+    "volume_source_ml": {"type": "number", "description": "Volume on the input grid before resampling (equals volume_ml when not resampled)."},
+    "hemisphere": {
+      "type": "object", "additionalProperties": false, "required": ["label", "left_voxels", "right_voxels", "midline_voxels"],
+      "description": "Side of the lesion from the sign of the MNI x coordinate (negative = left). Voxels with |x| < 1 mm are counted as midline. label is bilateral when the minority side holds at least bilateral_min_fraction of the lateralised voxels; midline when no lateralised voxel exists; not_assessed in ct_native mode (counts null).",
+      "properties": {
+        "label": {"enum": ["left", "right", "bilateral", "midline", "not_assessed"]},
+        "left_voxels": {"type": ["integer", "null"], "minimum": 0},
+        "right_voxels": {"type": ["integer", "null"], "minimum": 0},
+        "midline_voxels": {"type": ["integer", "null"], "minimum": 0}
+      }
+    },
+    "components": {
+      "type": "object", "additionalProperties": false, "required": ["count", "connectivity", "volumes_ml", "largest_fraction"],
+      "properties": {
+        "count": {"type": "integer", "minimum": 1},
+        "connectivity": {"const": 26},
+        "volumes_ml": {"type": "array", "items": {"type": "number"}, "minItems": 1, "maxItems": 20, "description": "Volumes of the largest components, descending (at most 20)."},
+        "largest_fraction": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "bounding_box": {
+      "type": "object", "additionalProperties": false, "required": ["voxel", "world_mm"],
+      "description": "Inclusive voxel index range on the QC grid and the extent of the voxel centres in world coordinates (MNI mm in mni_mask mode, scanner mm in ct_native mode).",
+      "properties": {
+        "voxel": {
+          "type": "object", "additionalProperties": false, "required": ["min", "max"],
+          "properties": {"min": {"$ref": "#/$defs/vec3_int"}, "max": {"$ref": "#/$defs/vec3_int"}}
+        },
+        "world_mm": {"$ref": "#/$defs/box"}
+      }
+    },
+    "centroid_mm": {"$ref": "#/$defs/vec3_num"},
+    "warnings": {
+      "type": "array",
+      "items": {"type": "object", "additionalProperties": false, "required": ["code", "message"],
+        "properties": {"code": {"type": "string"}, "message": {"type": "string"}}}
+    },
+    "thresholds": {
+      "type": "object", "additionalProperties": false,
+      "required": ["warn_below_ml", "max_volume_ml", "reject_bilateral", "bilateral_min_fraction"],
+      "properties": {
+        "warn_below_ml": {"type": "number"}, "max_volume_ml": {"type": "number"},
+        "reject_bilateral": {"type": "boolean"}, "bilateral_min_fraction": {"type": "number"}
+      }
+    }
+  }
+}
