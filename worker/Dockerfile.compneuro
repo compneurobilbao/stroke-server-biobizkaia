@@ -29,6 +29,8 @@ RUN /opt/fsl-6.0.7.1/bin/python -m venv /opt/platform-venv \
 COPY backend /app/backend
 COPY worker /app/worker
 COPY processor_adapter /app/processor_adapter
+COPY orchestrator /app/orchestrator
+COPY contracts /app/contracts
 COPY external_processor /app/external_processor
 
 ENV PYTHONPATH=/app:/app/backend

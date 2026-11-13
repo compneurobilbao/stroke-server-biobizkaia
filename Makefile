@@ -37,10 +37,10 @@ test-steps:
 	python -m pytest steps -q
 
 lint:
-	ruff check backend worker processor_adapter tests
+	ruff check backend worker processor_adapter orchestrator tests
 
 format:
-	ruff format backend worker processor_adapter tests
+	ruff format backend worker processor_adapter orchestrator tests
 
 migrate:
 	docker compose exec api alembic upgrade head

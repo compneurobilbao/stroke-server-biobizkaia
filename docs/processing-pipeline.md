@@ -1,6 +1,6 @@
 # Processing Pipeline
 
-Processing takes between minutes and an hour, so it is never run inside the HTTP request. The API prepares data and enqueues; the worker runs the configured processor.
+Processing takes between minutes and an hour, so it is never run inside the HTTP request. The API prepares data and enqueues; the worker runs the configured processor (legacy studies, diagram below) or the pipeline orchestrator (pipeline runs, [Pipeline Orchestrator](#pipeline-orchestrator)).
 
 ```mermaid
 sequenceDiagram
@@ -82,7 +82,7 @@ For another script or container, the minimum interface expected by the platform 
 
 ## Executor Interface
 
-`orchestrator/executors/` defines how one step attempt runs on a backend ([ADR-0003](adr/0003-executors.md)). The worker does not use it yet; the pipeline orchestrator (card F0-15) will. Every backend implements `Executor` (`orchestrator/executors/base.py`):
+`orchestrator/executors/` defines how one step attempt runs on a backend ([ADR-0003](adr/0003-executors.md)). The pipeline orchestrator (next section) uses it for pipeline runs. Every backend implements `Executor` (`orchestrator/executors/base.py`):
 
 | Method | Does |
 |---|---|
@@ -120,6 +120,100 @@ if executor.poll(handle).finished:
 **`subprocess` executor.** Runs a local command (a step installed on the worker host, or a legacy adapter) on POSIX hosts. Contract paths are per-attempt directories under `work_dir` (`in/`, `out/`, `ref/`, `tmp/`, `logs/`); placeholders `{in_dir}`, `{out_dir}`, `{params}`, `{ref_dir}`, `{tmp_dir}` in the command are replaced by them, and without a command the contract command `/usr/local/bin/run --in … --out … --params …` is used. The environment is clean: `PATH` plus the contract variables (`HOME` and `TMPDIR` pointing to the attempt's `tmp/`, `TZ=UTC`, `STEP_CPUS` and the thread variables, `STEP_MEMORY_MB`, `STEP_GPUS`). Each attempt runs under a small supervisor process in its own session that starts the command in a new process group, writes stdout and stderr in order to `logs/step.log`, enforces the timeout, sends `SIGTERM` then `SIGKILL` to the whole group, kills anything left in the group when the command exits, and writes `.executor/status.json` with exit code and usage. `poll` reads that file, so it works from a persisted handle after the worker process restarts; if the host or container restarts, the attempt is lost and reported as `terminated`. No container isolation is applied (read-only root, network, UID, memory limit): steps that need it run under the docker or slurm executors.
 
 **Legacy adapters.** `processor_adapter/executor_bridge.py` runs the unchanged `DummyProcessorAdapter` and `CompneuroAnatprocAdapter` through this executor: `legacy_invocation(...)` builds the invocation, `run_legacy(executor, invocation)` returns the usual `ProcessorResult`. Legacy commands see the worker's environment minus secrets (`*PASSWORD*`, `*SECRET*`, `*TOKEN*`, `*_KEY`, `DATABASE_URL`, `CELERY_*`, `SMTP_*`, `AUTH_*`, `REDIS_*`), plus the contract variables; the anatproc lock and `/project` symlink behave as before. Timeouts and cancellation are owned by the executor.
+
+## Pipeline Orchestrator
+
+`orchestrator/` runs declarative pipelines (`pipeline.yaml`, [docs/contracts/pipeline.md](contracts/pipeline.md), [ADR-0002](adr/0002-declarative-pipelines-own-orchestrator.md)) over the run tables of [docs/data-model.md](data-model.md) (`pipeline_runs`, `run_slots`, `run_slot_bundles`, `step_runs`, `artifacts`, `reports`). Two kinds of run exist side by side until card F0-30:
+
+| Run | Created by | Driven by | Worker task |
+|---|---|---|---|
+| Pipeline run (`pipeline_id` of a loaded `pipeline.yaml`) | `orchestrator.resolution.create_run` (called by the run API, F0-30) | `orchestrator.engine.Orchestrator` | `worker.tasks.run_pipeline(run_id)` |
+| Legacy run (`pipeline_id = 'legacy'`, one `legacy` slot) | `POST /api/studies/upload` (legacy tables) | the unchanged legacy flow above | `worker.tasks.process_study(study_id, job_id)` |
+
+### Modules
+
+| Module | Role |
+|---|---|
+| `pipeline.py` | Loads and validates `pipeline.yaml` with `contracts/validate.py` (schema, wiring, static availability check); SHA-256 of the exact bytes; dependency order; input-set matching; M1-M5 slot matching of a step manifest. |
+| `catalog.py` | `PipelineRegistry` and `StepCatalog` protocols, with interim directory implementations (`PIPELINES_DIR`, `STEP_MANIFESTS_DIR`) until the registry of F0-33 reads manifests from images. |
+| `resolution.py` | `create_run`: matches the input set, evaluates slot conditions, marks `skipped` (`condition_false`, `upstream_absent`) and `unavailable` (`no_implementation`) slots, chooses implementations (user choice, deployment default, pipeline default; enablement from `slot_implementation_settings`), freezes effective parameters (defaults, literals, `case.sex`/`case.age_band` bindings, run seed) and resolves bundles. Refusals raise `RunRefused(code, message, slot)`. |
+| `bundle_resolver.py` | The `BundleResolver` protocol (`resolve(requirements, selection) -> {name: ResolvedBundle}`) and `RegistryBundleResolver`, its implementation over the F0-18 registry (`orchestrator/bundles.py`, `reference_bundles` table). |
+| `engine.py` | `Orchestrator.tick` / `drive`: the run state machine (below). `ExecutorRegistry` chooses the executor per step (deployment configuration). |
+| `collection.py` | Checks a finished attempt against the contract (step-contract.md 4.1, provenance.md 2) and decides its final `outcome`. |
+| `store.py` | Work directories and access to the F0-17 case store (`app.services.bids`): derivatives, step and run provenance, checksums. |
+| `provenance.py` | `RunProvenance` built from the database (data-model.md section 8); staged as the `run.provenance` source and used to initialise the run's provenance file. |
+| `actions.py` | `cancel_run` and `resume_run` for the run API (data-model.md 7.3): compare-and-set transitions, idempotent repeats, refusal codes. |
+| `events.py` | Audit events (`run_succeeded`, `run_failed`, `run_canceled`, `run_cancel_requested`, `run_resumed`) and notifications through the existing notification service. |
+| `legacy.py` | Dual writing of legacy studies into the run tables (data-model.md 10.1 stage 1b). |
+| `config.py` | Builds the worker's orchestrator from environment variables. |
+
+### Driving a run
+
+```mermaid
+sequenceDiagram
+  participant A as Run API (F0-30)
+  participant D as PostgreSQL
+  participant W as run_pipeline task
+  participant E as Executor
+  participant S as Case store
+  A->>D: create_run: run queued, slots, inputs, bundles
+  A->>W: enqueue run_pipeline(run_id)
+  loop every ORCHESTRATOR_POLL_SECONDS
+    W->>D: claim lease, read run, slots, attempts
+    W->>D: queued -> running (resume: user_resume attempts)
+    W->>D: new attempt (queued) for each slot whose inputs are available
+    W->>E: submit (inputs, params, verified bundles); store handle
+    W->>E: poll; on cancel request: cancel
+    W->>E: collect; check contract
+    W->>S: outputs to derivatives, provenance merged
+    W->>D: attempt final, artefacts, auto retry if allowed
+    W->>D: run succeeded / failed / canceled
+  end
+  W->>D: notifications (succeeded, failed)
+```
+
+Rules:
+
+- Every tick re-derives the next action from the rows; nothing is kept in memory, so a restarted worker continues any run. One task drives a run at a time: `pipeline_runs.orchestrator_task_id` is the lease owner and `updated_at` its heartbeat; a task can take over only after `ORCHESTRATOR_LEASE_SECONDS` without heartbeat. `worker.tasks.recover_pipeline_runs` (Celery beat, every 5 minutes, effective only when a beat process runs) re-enqueues runs whose heartbeat stopped.
+- Transitions are compare-and-set updates following the state machines of data-model.md section 7.
+- A slot gets an attempt as soon as every port it stages is available (the first available source of each `from` list; a source of a selected slot that has not succeeded yet is waited for). Independent slots run concurrently.
+- Inputs are staged as `<port><ext>`; `run.provenance` is the current run provenance file. Bundles recorded at creation are re-resolved before every attempt with their exact versions pinned; a missing, withdrawn or tampered bundle fails the attempt with `failure_code = 'bundle_unavailable'` before anything starts.
+- Outcomes come from the executor (exit 0 / 10 / other, `canceled`, `timed_out`); the orchestrator only turns a success or a rejection into `contract_violation` when the files do not satisfy the contract (missing or undeclared outputs, invalid or mismatching `provenance.json`, hash or bundle mismatch, rejection without a valid declared `error.json`).
+- `failed` and `timed_out` attempts are retried automatically (`trigger = 'auto_retry'`) up to `ORCHESTRATOR_MAX_ATTEMPTS` attempts per start or resume; `rejected` and `contract_violation` never are. Any other final failure stops the run: no new attempt starts, running independent attempts finish, then the run is `failed` (`failure_code` `step_failed` or `input_rejected`, `failed_step_run_id`).
+- Cancellation: the API sets `pipeline_runs.cancel_requested_at`; the orchestrator cancels queued attempts, calls `executor.cancel` on running ones (and records `step_runs.cancel_requested_at`), waits until the executor reports them finished, then sets the run `canceled`. The Celery task is not revoked with a signal.
+- Resume (API, `failed`/`canceled` -> `queued`): succeeded slots are kept; every slot whose latest attempt failed or was canceled gets a `user_resume` attempt; seed, choices, parameters and bundles stay those of the run.
+- Notifications: `run_succeeded` to the case owner; `run_failed` to the owner and active admins; none for cancellation.
+
+Files of a run (case store of F0-17): `<case>/runs/<run>/derivatives/<step>-<version>/` (outputs with BIDS names and the step's `provenance.json`), `<case>/runs/<run>/provenance.json` (`pipeline_runs.provenance_path`) and `checksums.json`. Executor work directories live outside the run tree in `<case>/work/<run>/<slot>/attempt-<n>/`; after collection only `logs/step.log` (`step_runs.log_path`) is kept.
+
+### Configuration
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `PIPELINES_DIR` | `/app/pipelines` | Tree scanned for `pipeline.yaml`. |
+| `STEP_MANIFESTS_DIR` | `/app/steps` | Tree scanned for `step.yaml` (interim). |
+| `BUNDLE_ROOT` | `/app/data/bundles` | Reference bundle root. |
+| `ORCHESTRATOR_EXECUTOR` | `docker` | Default executor (`docker`, `subprocess`). |
+| `ORCHESTRATOR_STEP_EXECUTORS` | empty | Per-step overrides, `step-name=executor,...`. |
+| `ORCHESTRATOR_POLL_SECONDS` | `5` | Poll interval. |
+| `ORCHESTRATOR_MAX_ATTEMPTS` | `2` | Attempts per slot per start or resume. |
+| `ORCHESTRATOR_LEASE_SECONDS` | `600` | Heartbeat age after which another task may take a run over. |
+
+The docker executor's allow-list is the set of images pinned in the loaded pipelines.
+
+### Worker images
+
+| Image | Contents | Use |
+|---|---|---|
+| `worker/Dockerfile` | Slim Python image: platform code only, no processor | Pipeline runs with steps in their own containers (docker executor) or on the HPC. Cannot process legacy studies. |
+| `backend/Dockerfile` | Platform code plus the dummy development processor | Default development worker (legacy dummy backend and pipelines). |
+| `worker/Dockerfile.compneuro` | `compneuro-anatproc` base image; platform dependencies in `/opt/platform-venv` | Legacy anatproc path (unchanged), plus pipeline runs. |
+
+Select with `WORKER_DOCKERFILE`.
+
+### Legacy runs
+
+The legacy upload -> process -> PDF path is unchanged in behaviour: `process_study` still runs the adapter in the worker process, renders PNGs, writes the technical PDF and ZIP and updates `studies` and `processing_jobs`, which stay authoritative. After the legacy state is committed (when processing starts and when it ends) `orchestrator.legacy.mirror_safely` upserts the study into the run tables with the ids and mapping of the 0011 back-fill: case, input file, a `legacy` run with one `legacy` slot, one attempt per job (`initial`, then `user_resume`), and the PDF and ZIP as `legacy` artefacts with a `legacy-technical` report. A mirror failure is logged and never changes the legacy result. Legacy runs are never driven by the orchestrator engine and the run actions refuse them.
 
 ## BIDS Per Study
 

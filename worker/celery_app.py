@@ -19,4 +19,12 @@ celery_app.conf.update(
     timezone="UTC",
     enable_utc=True,
     worker_prefetch_multiplier=1,
+    # Crash recovery of pipeline runs (docs/data-model.md 7.1). Only effective
+    # when a beat process runs (celery -A worker.celery_app.celery_app beat).
+    beat_schedule={
+        "recover-pipeline-runs": {
+            "task": "worker.tasks.recover_pipeline_runs",
+            "schedule": 300.0,
+        }
+    },
 )

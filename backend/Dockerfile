@@ -11,6 +11,8 @@ RUN pip install --no-cache-dir -r /app/backend/requirements.txt
 COPY backend /app/backend
 COPY worker /app/worker
 COPY processor_adapter /app/processor_adapter
+COPY orchestrator /app/orchestrator
+COPY contracts /app/contracts
 COPY external_processor /app/external_processor
 
 ENV PYTHONPATH=/app:/app/backend
