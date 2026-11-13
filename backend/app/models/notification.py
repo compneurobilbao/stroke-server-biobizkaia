@@ -19,6 +19,12 @@ class Notification(Base):
     study_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("studies.id"), index=True
     )
+    case_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("cases.id"), index=True
+    )
+    pipeline_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("pipeline_runs.id"), index=True
+    )
     event_type: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     message: Mapped[str] = mapped_column(Text, nullable=False)
