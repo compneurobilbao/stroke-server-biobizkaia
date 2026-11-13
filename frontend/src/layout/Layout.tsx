@@ -5,7 +5,7 @@ import { useAuth } from '../features/auth/AuthContext';
 import { useMessage } from '../shared/messages';
 import { LanguageSwitch } from './LanguageSwitch';
 
-const LOGO_SRC = '/brand/institution-logo.svg';
+const LOGO_SRC = '/brand/biobizkaia-logo.png';
 
 /** Institution logo; falls back to a text wordmark when the image is not deployed. */
 function InstitutionLogo() {
