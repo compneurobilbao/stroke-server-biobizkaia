@@ -17,8 +17,14 @@ RUN apt-get update \
     && cp -R src utils brain_templates /app/ \
     && rm -rf /tmp/compneuro-anatproc
 
+# The platform's Python dependencies go into their own virtual environment.
+# Installing them into the base image's interpreter (FSL's fslpython) replaced
+# FSL's numpy 1.x with numpy 2.x and broke FSL scripts such as aff2rigid.
 COPY backend/requirements.txt /app/backend/requirements.txt
-RUN python -m pip install --no-cache-dir -r /app/backend/requirements.txt
+RUN /opt/fsl-6.0.7.1/bin/python -m venv /opt/platform-venv \
+    && /opt/platform-venv/bin/python -m pip install --no-cache-dir -r /app/backend/requirements.txt \
+    && /opt/fsl-6.0.7.1/bin/python -c "import numpy; numpy.mat" \
+    && ln -s /opt/platform-venv/bin/celery /usr/local/bin/celery
 
 COPY backend /app/backend
 COPY worker /app/worker
@@ -28,4 +34,4 @@ COPY external_processor /app/external_processor
 ENV PYTHONPATH=/app:/app/backend
 WORKDIR /app/backend
 
-CMD ["celery", "-A", "worker.celery_app.celery_app", "worker", "--loglevel=INFO", "--concurrency=1"]
+CMD ["/opt/platform-venv/bin/celery", "-A", "worker.celery_app.celery_app", "worker", "--loglevel=INFO", "--concurrency=1"]
