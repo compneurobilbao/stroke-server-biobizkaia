@@ -101,3 +101,8 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and on pu
 The step SDK and template tests (`steps/`) are not part of `make test`: they use their own pinned dependencies (`steps/sdk/requirements-image.txt`, e.g. a different numpy pin than `backend/requirements.txt`) and need the SDK installed. Run them with `make test-steps` in a separate virtualenv; CI runs them in `.github/workflows/steps.yml`. Synthetic fixtures are already checked by `tests/test_fixtures.py`, which `make test` collects.
 
 All of these can be reproduced locally with the make targets above. Third-party actions are pinned to exact versions.
+
+## End-to-end test with a public T1w image
+
+`make e2e` (or `python3 scripts/e2e_openneuro_t1w.py`) runs one real case through a running instance: it downloads `sub-01_T1w.nii.gz` from OpenNeuro dataset ds000001 (licence CC0, SHA-256 pinned in the script, cached in `.e2e-cache/`), uploads it through the API, waits for the job, checks that the PDF report is a valid PDF and deletes the test study (`--keep` keeps it). It needs a dedicated test account whose credentials are passed as `E2E_EMAIL` and `E2E_PASSWORD` environment variables (never as arguments); `E2E_BASE_URL` defaults to `http://localhost`. Exit code 0 means passed. It is not part of CI because it needs a running instance with the real processor.
+
