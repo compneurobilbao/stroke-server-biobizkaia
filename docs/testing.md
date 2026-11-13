@@ -86,3 +86,15 @@ Si esa carpeta local no existe, usar cualquier T1w `.nii.gz` anonimizado disponi
 En una prueba local con el worker compneuro reconstruido se procesó un T1w `.nii.gz` de ejemplo. El estudio terminó en estado `completed`, generó `output/Preproc`, 18 PNG en `output/rendered_png/`, `output/reports/technical_report.pdf` y `output/outputs.zip`, sin avisos de renderizado registrados.
 
 Los tests de multiusuario no requieren el flujo real `compneuro`; usan SQLite temporal, procesador dummy y tareas Celery simuladas.
+
+## Continuous integration
+
+GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and on pushes to `develop` and `main`. The jobs are:
+
+- `backend`: `make lint` (ruff) and `make test` (pytest). The suite uses SQLite and in-memory Celery, so no Postgres or Redis service is needed.
+- `frontend`: `npm ci`, `npm run lint` and `npm run build` in `frontend/`.
+- `repo-checks`: `make check-docs` and `make check-secrets`.
+- `gitleaks`: scan of the full git history with a pinned gitleaks release binary (checksum verified) and `.gitleaks.toml`.
+- `docker-build`: builds the backend and frontend images without pushing. The compneuro worker image is not built in CI because it needs a large external base image.
+
+All of these can be reproduced locally with the make targets above. Third-party actions are pinned to exact versions.
