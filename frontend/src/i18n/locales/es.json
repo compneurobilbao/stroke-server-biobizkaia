@@ -1,10 +1,20 @@
 {
+  "brand": {
+    "product": "Stroke Server",
+    "institution": "Instituto de Investigación Sanitaria Biobizkaia",
+    "footer": "Laboratorio de Neuroimagen Computacional, Instituto de Investigación Sanitaria Biobizkaia",
+    "source": "Código fuente"
+  },
   "app": {
-    "eyebrow": "TFM - Neurorrehabilitación",
-    "title": "Servicio de procesamiento de neuroimagen",
-    "subtitle": "Plataforma para subir imágenes anatómicas T1w anonimizadas, ejecutar procesamiento asíncrono y descargar resultados técnicos.",
+    "eyebrow": "Ictus · Mapeo de redes lesionales · Neurorrehabilitación",
+    "title": "De la imagen clínica al análisis del ictus a nivel de red",
+    "subtitle": "Plataforma de investigación abierta que toma una lesión de ictus de la imagen rutinaria y ejecuta sobre ella pipelines reproducibles y versionados: control de calidad de la lesión, normalización a espacio estándar, desconexión estructural y funcional, y los informes que se construyen sobre ellas.",
     "sessionActive": "Sesión activa: {{name}} ({{role}}).",
-    "loginPrompt": "Inicia sesión con tu cuenta institucional o de proyecto para acceder a tus estudios."
+    "loginPrompt": "Inicia sesión con la cuenta que te ha facilitado el administrador de la plataforma.",
+    "featureLesion": "Entrada y control de calidad de la lesión, desde un TAC con su máscara o desde una máscara ya en espacio MNI.",
+    "featureNetwork": "Mapeo de redes lesionales y desconexión de tractos frente a conectomas normativos.",
+    "featureProvenance": "Cada resultado registra las herramientas, versiones, parámetros y datos de referencia exactos que lo produjeron.",
+    "researchOnly": "Solo para investigación. No apto para decisiones clínicas."
   },
   "language": {
     "label": "Idioma",

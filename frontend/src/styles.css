@@ -1,32 +1,108 @@
 :root {
   color: #172033;
-  background: #eef4f8;
+  background: #f3f6f9;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --brand-dark: #0f2d44;
+  --brand: #166f8f;
+  --brand-accent: #2bb3a3;
 }
 
 body {
   margin: 0;
 }
 
-.page {
+.shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.site-header {
+  background: #fff;
+  border-bottom: 1px solid #e3eaf0;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.site-header-inner {
   max-width: 1120px;
   margin: 0 auto;
-  padding: 32px 18px 56px;
+  padding: 12px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.institution-logo {
+  height: 40px;
+  width: auto;
+  display: block;
+}
+
+.wordmark {
+  font-weight: 700;
+  color: var(--brand-dark);
+  font-size: .95rem;
+}
+
+.brand-divider {
+  width: 1px;
+  height: 28px;
+  background: #d5e0e8;
+}
+
+.product-name {
+  font-weight: 800;
+  letter-spacing: -.01em;
+  color: var(--brand);
+  font-size: 1.1rem;
+  white-space: nowrap;
+}
+
+.page {
+  flex: 1;
+  width: 100%;
+  box-sizing: border-box;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 32px 18px 48px;
 }
 
 .hero {
-  background: linear-gradient(135deg, #12324a, #286579);
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 85% 20%, rgba(43, 179, 163, .35), transparent 45%),
+    linear-gradient(135deg, var(--brand-dark), #1f5a73);
   color: white;
   border-radius: 28px;
-  padding: 36px;
-  box-shadow: 0 24px 70px rgba(18, 50, 74, 0.25);
+  padding: 44px 40px;
+  box-shadow: 0 24px 70px rgba(15, 45, 68, 0.22);
+}
+
+.hero-compact {
+  padding: 28px 32px;
 }
 
 .hero h1 {
-  margin: 8px 0 12px;
-  max-width: 760px;
-  font-size: clamp(2rem, 4vw, 4rem);
-  line-height: 1;
+  margin: 10px 0 14px;
+  max-width: 780px;
+  font-size: clamp(1.9rem, 3.6vw, 3.2rem);
+  line-height: 1.08;
+  letter-spacing: -.02em;
+}
+
+.hero-compact h1 {
+  font-size: clamp(1.4rem, 2.4vw, 2rem);
 }
 
 .hero p {
@@ -34,11 +110,49 @@ body {
   color: #dceaf0;
 }
 
+.hero-lead {
+  font-size: 1.08rem;
+  line-height: 1.55;
+}
+
+.feature-list {
+  list-style: none;
+  padding: 0;
+  margin: 22px 0 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  max-width: 980px;
+}
+
+.feature-list li {
+  padding: 14px 16px 14px 40px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, .08);
+  border: 1px solid rgba(255, 255, 255, .16);
+  color: #e6f1f5;
+  line-height: 1.45;
+  position: relative;
+}
+
+.feature-list li::before {
+  content: "";
+  position: absolute;
+  left: 16px;
+  top: 20px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--brand-accent);
+}
+
 .eyebrow {
   text-transform: uppercase;
   letter-spacing: .12em;
   font-size: .78rem;
   font-weight: 700;
+  color: #9fd9d1;
+  margin: 0;
 }
 
 .dark {
@@ -52,6 +166,28 @@ body {
   border: 1px solid rgba(255,255,255,.32);
   border-radius: 16px;
   background: rgba(255,255,255,.12);
+}
+
+.site-footer {
+  border-top: 1px solid #e3eaf0;
+  background: #fff;
+  color: #5b6b7b;
+  font-size: .88rem;
+  text-align: center;
+  padding: 18px;
+}
+
+.site-footer p {
+  margin: 4px 0;
+}
+
+.site-footer a {
+  color: var(--brand);
+}
+
+.research-only {
+  font-weight: 700;
+  color: #8a5a00;
 }
 
 .topbar {
@@ -381,8 +517,12 @@ th, td {
 }
 
 .topbar-actions { display: flex; align-items: center; gap: 12px; }
-.language-switch { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; color: #fff; }
-.language-switch select { width: auto; padding: 6px 8px; }
+.language-switch { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; color: #42566a; }
+.language-switch select { width: auto; flex: none; padding: 6px 8px; border-radius: 10px; }
 .main-nav { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
 .main-nav a { color: #fff; text-decoration: none; padding: 6px 14px; border: 1px solid rgba(255, 255, 255, 0.5); border-radius: 999px; font-size: 0.9rem; }
 .main-nav a.active { background: rgba(255, 255, 255, 0.2); font-weight: 600; }
+
+.auth-card { max-width: 560px; }
+.auth-card form input[type="email"], .auth-card form input[type="password"] { flex: 1 1 200px; }
+.auth-card h2 { margin-top: 0; }

@@ -1,10 +1,20 @@
 {
+  "brand": {
+    "product": "Stroke Server",
+    "institution": "Biobizkaia Health Research Institute",
+    "footer": "Computational Neuroimaging Lab, Biobizkaia Health Research Institute",
+    "source": "Source code"
+  },
   "app": {
-    "eyebrow": "Master's thesis - Neurorehabilitation",
-    "title": "Neuroimaging processing service",
-    "subtitle": "Platform to upload anonymised T1w anatomical images, run asynchronous processing and download technical results.",
+    "eyebrow": "Stroke · Lesion network mapping · Neurorehabilitation",
+    "title": "From a clinical scan to network-level stroke analysis",
+    "subtitle": "An open research platform that takes a stroke lesion from routine imaging and runs reproducible, versioned pipelines on it: lesion quality control, normalisation to standard space, structural and functional disconnection, and the reports built on them.",
     "sessionActive": "Active session: {{name}} ({{role}}).",
-    "loginPrompt": "Sign in with your institutional or project account to access your studies."
+    "loginPrompt": "Sign in with the account provided by the platform administrator.",
+    "featureLesion": "Lesion intake and quality control, from a CT scan with its mask or from a mask already in MNI space.",
+    "featureNetwork": "Lesion network mapping and tract disconnection against normative connectomes.",
+    "featureProvenance": "Every result records the exact tools, versions, parameters and reference data that produced it.",
+    "researchOnly": "Research use only. Not for clinical decisions."
   },
   "language": {
     "label": "Language",
