@@ -14,7 +14,6 @@ from fastapi import (
     Depends,
     File,
     Form,
-    HTTPException,
     Query,
     Request,
     UploadFile,
@@ -26,6 +25,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
+from app.core.errors import ErrorCode, api_error
 from app.db.session import get_db
 from app.models.processing_job import ProcessingJob
 from app.models.notification import Notification
@@ -164,9 +164,7 @@ def login(
             ip_address=client_ip(request),
         )
         db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciales no válidas"
-        )
+        raise api_error(ErrorCode.INVALID_CREDENTIALS)
 
     user.last_login_at = datetime.utcnow()
     record_event(
@@ -197,7 +195,7 @@ def logout(
         ip_address=client_ip(request),
     )
     db.commit()
-    return LogoutResponse(message="Sesión cerrada")
+    return LogoutResponse(message="Logged out")
 
 
 @router.get("/auth/me", response_model=UserRead)
@@ -259,9 +257,7 @@ def mark_notification_read(
 ) -> NotificationRead:
     notification = db.get(Notification, notification_id)
     if not notification or notification.recipient_user_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Notificación no encontrada"
-        )
+        raise api_error(ErrorCode.NOTIFICATION_NOT_FOUND)
     if not notification.read_at:
         notification.read_at = datetime.utcnow()
         db.commit()
@@ -286,9 +282,7 @@ def create_user(
     db: Session = Depends(get_db),
 ) -> UserRead:
     if payload.role not in {UserRole.admin.value, UserRole.researcher.value}:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Rol no válido"
-        )
+        raise api_error(ErrorCode.INVALID_ROLE)
     email = normalize_email(payload.email)
     _release_deleted_user_email(db, email)
     user = User(
@@ -311,10 +305,7 @@ def create_user(
         db.commit()
     except IntegrityError:
         db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Ya existe un usuario con ese correo electrónico",
-        ) from None
+        raise api_error(ErrorCode.USER_EMAIL_EXISTS) from None
     db.refresh(user)
     return _user_read(db, user)
 
@@ -328,14 +319,9 @@ def update_user(
 ) -> UserRead:
     user = db.get(User, user_id)
     if not user or user.deleted_at:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado"
-        )
+        raise api_error(ErrorCode.USER_NOT_FOUND)
     if user.id == current_user.id and payload.is_active is False:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="No puedes desactivar tu propio usuario administrador",
-        )
+        raise api_error(ErrorCode.CANNOT_DEACTIVATE_SELF)
     if "is_active" in payload.model_fields_set and payload.is_active is not None:
         if user.role == UserRole.admin.value and payload.is_active is False:
             _ensure_another_active_admin(db, user.id)
@@ -366,14 +352,9 @@ def delete_user(
 ) -> UserActionResponse:
     user = db.get(User, user_id)
     if not user or user.deleted_at:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado"
-        )
+        raise api_error(ErrorCode.USER_NOT_FOUND)
     if user.id == current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="No puedes borrar tu propio usuario administrador",
-        )
+        raise api_error(ErrorCode.CANNOT_DELETE_SELF)
     if user.role == UserRole.admin.value:
         _ensure_another_active_admin(db, user.id)
     original_email = user.email
@@ -388,7 +369,7 @@ def delete_user(
         details={"user_id": str(user.id), "email": original_email},
     )
     db.commit()
-    return UserActionResponse(id=user.id, message="Usuario borrado")
+    return UserActionResponse(id=user.id, message="User deleted")
 
 
 @router.post(
@@ -423,18 +404,12 @@ def upload_study(
     )
     if file_size > settings.max_upload_size_bytes:
         storage.remove_study(study_id)
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail="El fichero supera el tamaño máximo permitido",
-        )
+        raise api_error(ErrorCode.UPLOAD_TOO_LARGE)
     if current_user.storage_quota_bytes is not None:
         used_bytes = _user_storage_used(db, current_user.id)
         if used_bytes + file_size > current_user.storage_quota_bytes:
             storage.remove_study(study_id)
-            raise HTTPException(
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail="La subida supera la cuota de almacenamiento del usuario",
-            )
+            raise api_error(ErrorCode.STORAGE_QUOTA_EXCEEDED)
 
     bids_paths = None
     if processor_backend == "compneuro" and resolved_bids_subject_id:
@@ -444,10 +419,7 @@ def upload_study(
             )
         except Exception as exc:
             storage.remove_study(study_id)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="No se pudo preparar la estructura BIDS",
-            ) from exc
+            raise api_error(ErrorCode.BIDS_PREPARATION_FAILED) from exc
 
     study = Study(
         id=study_id,
@@ -510,7 +482,7 @@ def upload_study(
     return UploadResponse(
         id=study_id,
         status=study.status.value,
-        message="Estudio recibido y encolado para procesamiento",
+        message="Study received and queued for processing",
         bids_subject_id=resolved_bids_subject_id,
     )
 
@@ -538,13 +510,9 @@ def get_study(
 ) -> StudyRead:
     study = db.get(Study, study_id)
     if not study:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Estudio no encontrado"
-        )
+        raise api_error(ErrorCode.STUDY_NOT_FOUND)
     if study.deleted_at:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Estudio no encontrado"
-        )
+        raise api_error(ErrorCode.STUDY_NOT_FOUND)
     require_study_access(study.owner_user_id, current_user)
     return to_study_read(study)
 
@@ -571,13 +539,9 @@ def get_study_status(
 ) -> StudyStatusRead:
     study = db.get(Study, study_id)
     if not study:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Estudio no encontrado"
-        )
+        raise api_error(ErrorCode.STUDY_NOT_FOUND)
     if study.deleted_at:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Estudio no encontrado"
-        )
+        raise api_error(ErrorCode.STUDY_NOT_FOUND)
     require_study_access(study.owner_user_id, current_user)
     return StudyStatusRead(
         id=study.id,
@@ -602,18 +566,12 @@ def update_clinical_review_status(
     study = _get_visible_study(db, study_id, current_user)
     allowed_statuses = {item.value for item in ClinicalReviewStatus}
     if payload.clinical_review_status not in allowed_statuses:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Estado de revisión clínica no válido",
-        )
+        raise api_error(ErrorCode.INVALID_CLINICAL_REVIEW_STATUS)
     if (
         payload.clinical_review_status != ClinicalReviewStatus.technical_only.value
         and study.status != StudyStatus.completed
     ):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Solo se pueden revisar o validar estudios completados",
-        )
+        raise api_error(ErrorCode.CLINICAL_REVIEW_REQUIRES_COMPLETED)
     study.clinical_review_status = payload.clinical_review_status
     record_event(
         db,
@@ -638,25 +596,15 @@ def download_pdf(
 ) -> FileResponse:
     study = db.get(Study, study_id)
     if not study:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Estudio no encontrado"
-        )
+        raise api_error(ErrorCode.STUDY_NOT_FOUND)
     require_study_access(study.owner_user_id, current_user)
     if study.deleted_at:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Estudio no encontrado"
-        )
+        raise api_error(ErrorCode.STUDY_NOT_FOUND)
     if study.status != StudyStatus.completed or not study.pdf_path:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="El informe PDF todavía no está disponible",
-        )
+        raise api_error(ErrorCode.PDF_NOT_READY)
     pdf_path = Path(study.pdf_path)
     if not pdf_path.exists() or pdf_path.suffix.lower() != ".pdf":
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="El informe PDF no existe en el almacenamiento",
-        )
+        raise api_error(ErrorCode.PDF_MISSING_IN_STORAGE)
     record_event(
         db,
         "study_downloaded_pdf",
@@ -669,7 +617,7 @@ def download_pdf(
     return FileResponse(
         pdf_path,
         media_type="application/pdf",
-        filename=f"informe-tecnico-{study.id}.pdf",
+        filename=f"technical-report-{study.id}.pdf",
     )
 
 
@@ -692,25 +640,15 @@ def download_outputs_zip(
 ) -> FileResponse:
     study = db.get(Study, study_id)
     if not study:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Estudio no encontrado"
-        )
+        raise api_error(ErrorCode.STUDY_NOT_FOUND)
     require_study_access(study.owner_user_id, current_user)
     if study.deleted_at:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Estudio no encontrado"
-        )
+        raise api_error(ErrorCode.STUDY_NOT_FOUND)
     if study.status != StudyStatus.completed or not study.output_zip_path:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="El ZIP de resultados todavía no está disponible",
-        )
+        raise api_error(ErrorCode.ZIP_NOT_READY)
     zip_path = Path(study.output_zip_path)
     if not zip_path.exists() or zip_path.suffix.lower() != ".zip":
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="El ZIP de resultados no existe en el almacenamiento",
-        )
+        raise api_error(ErrorCode.ZIP_MISSING_IN_STORAGE)
     record_event(
         db,
         "study_downloaded_zip",
@@ -776,10 +714,7 @@ def create_share_link(
             **_share_link_read(link).model_dump(),
             url=str(request.url_for("download_shared_pdf", token=token)),
         )
-    raise HTTPException(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        detail="No se pudo crear el enlace de compartición",
-    )
+    raise api_error(ErrorCode.SHARE_LINK_CREATION_FAILED)
 
 
 @router.get("/studies/{study_id}/share-links", response_model=list[ShareLinkRead])
@@ -811,9 +746,7 @@ def revoke_share_link(
     study = _get_visible_study(db, study_id, current_user)
     link = db.get(ShareLink, link_id)
     if not link or link.study_id != study.id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Enlace no encontrado"
-        )
+        raise api_error(ErrorCode.SHARE_LINK_NOT_FOUND)
     if not link.revoked_at:
         link.revoked_at = datetime.utcnow()
         record_event(
@@ -868,7 +801,7 @@ def download_shared_pdf(
     return FileResponse(
         pdf_path,
         media_type="application/pdf",
-        filename=f"informe-tecnico-{study.id}.pdf",
+        filename=f"technical-report-{study.id}.pdf",
     )
 
 
@@ -900,23 +833,17 @@ def cancel_study_processing(
 ) -> StudyActionResponse:
     study = _get_visible_study(db, study_id, current_user)
     if study.status not in {StudyStatus.queued, StudyStatus.processing}:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Solo se pueden cancelar jobs en cola o en procesamiento",
-        )
+        raise api_error(ErrorCode.CANCEL_INVALID_STATE)
     job = _latest_job(study)
     was_processing = study.status == StudyStatus.processing
     if was_processing and (not job or not job.celery_task_id):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="No se puede cancelar un procesamiento sin tarea Celery asociada",
-        )
+        raise api_error(ErrorCode.CANCEL_WITHOUT_TASK)
     now = datetime.utcnow()
     if was_processing:
         updated_studies = db.execute(
             update(Study)
             .where(Study.id == study.id, Study.status == StudyStatus.processing)
-            .values(error_message="Cancelación solicitada por el usuario")
+            .values(error_message="Cancellation requested by the user")
         ).rowcount
         updated_jobs = db.execute(
             update(ProcessingJob)
@@ -925,16 +852,13 @@ def cancel_study_processing(
                 ProcessingJob.status == StudyStatus.processing.value,
             )
             .values(
-                error_message="Cancelación solicitada por el usuario",
+                error_message="Cancellation requested by the user",
                 cancel_requested_at=now,
             )
         ).rowcount
         if updated_studies != 1 or updated_jobs != 1:
             db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="El procesamiento ya no está activo",
-            )
+            raise api_error(ErrorCode.PROCESSING_NOT_ACTIVE)
         record_event(
             db,
             "study_cancellation_requested",
@@ -954,7 +878,7 @@ def cancel_study_processing(
         return StudyActionResponse(
             id=study.id,
             status=study.status.value,
-            message="Cancelación solicitada",
+            message="Cancellation requested",
         )
 
     if job and job.celery_task_id:
@@ -962,11 +886,11 @@ def cancel_study_processing(
 
     study.status = StudyStatus.canceled
     study.processing_finished_at = now
-    study.error_message = "Cancelado por el usuario"
+    study.error_message = "Canceled by the user"
     if job:
         job.status = StudyStatus.canceled.value
         job.finished_at = now
-        job.error_message = "Cancelado antes de iniciar procesamiento"
+        job.error_message = "Canceled before processing started"
     record_event(
         db,
         "study_canceled",
@@ -978,7 +902,7 @@ def cancel_study_processing(
     )
     db.commit()
     return StudyActionResponse(
-        id=study.id, status=study.status.value, message="Procesamiento cancelado"
+        id=study.id, status=study.status.value, message="Processing canceled"
     )
 
 
@@ -991,10 +915,7 @@ def retry_failed_study(
 ) -> StudyActionResponse:
     study = _get_visible_study(db, study_id, current_user)
     if study.status != StudyStatus.failed:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Solo se pueden reintentar jobs fallidos",
-        )
+        raise api_error(ErrorCode.RETRY_INVALID_STATE)
     retry_count = max((job.retry_count for job in study.jobs), default=0) + 1
     job = ProcessingJob(
         study_id=study.id, status=StudyStatus.queued.value, retry_count=retry_count
@@ -1022,7 +943,7 @@ def retry_failed_study(
         job.celery_task_id = async_result.id
         db.commit()
     return StudyActionResponse(
-        id=study.id, status=study.status.value, message="Job reencolado"
+        id=study.id, status=study.status.value, message="Job requeued"
     )
 
 
@@ -1036,10 +957,7 @@ def delete_study(
 ) -> StudyActionResponse:
     study = _get_visible_study(db, study_id, current_user)
     if study.status == StudyStatus.processing:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="No se puede borrar un estudio en procesamiento",
-        )
+        raise api_error(ErrorCode.DELETE_WHILE_PROCESSING)
     job = _latest_job(study)
     if study.status == StudyStatus.queued:
         if job and job.celery_task_id:
@@ -1048,7 +966,7 @@ def delete_study(
         if job:
             job.status = StudyStatus.canceled.value
             job.finished_at = datetime.utcnow()
-            job.error_message = "Cancelado por borrado del estudio"
+            job.error_message = "Canceled because the study was deleted"
     study.deleted_at = datetime.utcnow()
     record_event(
         db,
@@ -1062,7 +980,7 @@ def delete_study(
     db.commit()
     LocalStudyStorage(settings.storage_root).remove_study(study.id)
     return StudyActionResponse(
-        id=study.id, status=study.status.value, message="Estudio borrado"
+        id=study.id, status=study.status.value, message="Study deleted"
     )
 
 
@@ -1095,9 +1013,7 @@ def to_study_read(study: Study) -> StudyRead:
 def _get_visible_study(db: Session, study_id: UUID, current_user: User) -> Study:
     study = db.get(Study, study_id)
     if not study or study.deleted_at:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Estudio no encontrado"
-        )
+        raise api_error(ErrorCode.STUDY_NOT_FOUND)
     require_study_access(study.owner_user_id, current_user)
     return study
 
@@ -1116,16 +1032,10 @@ def _read_last_lines(path: Path, lines: int) -> tuple[str, bool]:
 
 def _shareable_pdf_path(study: Study) -> Path:
     if study.status != StudyStatus.completed or not study.pdf_path:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Solo se pueden compartir estudios completados con PDF disponible",
-        )
+        raise api_error(ErrorCode.SHARE_REQUIRES_COMPLETED_PDF)
     pdf_path = Path(study.pdf_path)
     if not pdf_path.exists() or pdf_path.suffix.lower() != ".pdf":
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="El informe PDF no existe en el almacenamiento",
-        )
+        raise api_error(ErrorCode.PDF_MISSING_IN_STORAGE)
     return pdf_path
 
 
@@ -1149,9 +1059,7 @@ def _share_link_read(link: ShareLink) -> ShareLinkRead:
 
 
 def _raise_public_share_not_found() -> None:
-    raise HTTPException(
-        status_code=status.HTTP_404_NOT_FOUND, detail="Informe no encontrado"
-    )
+    raise api_error(ErrorCode.REPORT_NOT_FOUND)
 
 
 def _count_by(db: Session, column, *conditions) -> dict[str, int]:
@@ -1212,10 +1120,7 @@ def _ensure_another_active_admin(db: Session, user_id: UUID) -> None:
         or 0
     )
     if active_admins < 1:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Debe quedar al menos un administrador activo",
-        )
+        raise api_error(ErrorCode.LAST_ADMIN_REQUIRED)
 
 
 def _user_storage_used(db: Session, user_id: UUID) -> int:
@@ -1301,7 +1206,7 @@ def _redis_health(settings: Settings) -> AdminServiceHealth:
     broker_url = settings.celery_broker_url
     if not broker_url.startswith(("redis://", "rediss://")):
         return AdminServiceHealth(
-            name="Redis", status="unknown", detail="Broker no Redis en este entorno"
+            name="Redis", status="unknown", detail="Broker is not Redis in this environment"
         )
     try:
         client = redis.Redis.from_url(
@@ -1330,7 +1235,7 @@ def _worker_health(
         return AdminServiceHealth(name="Worker", status="down", detail=worker_error)
     if not worker_stats:
         return AdminServiceHealth(
-            name="Worker", status="warning", detail="Sin respuesta de workers Celery"
+            name="Worker", status="warning", detail="No response from Celery workers"
         )
     return AdminServiceHealth(
         name="Worker", status="ok", detail=f"{len(worker_stats)} worker(s)"
@@ -1373,14 +1278,14 @@ def _dashboard_alerts(
 ) -> list[str]:
     alerts = []
     if queue.failed:
-        alerts.append(f"Hay {queue.failed} job(s) fallidos que requieren revisión")
+        alerts.append(f"{queue.failed} failed job(s) require review")
     if queue.queued:
-        alerts.append(f"Hay {queue.queued} job(s) esperando en cola")
+        alerts.append(f"{queue.queued} job(s) waiting in the queue")
     if (
         storage.disk_total_bytes
         and storage.disk_free_bytes / storage.disk_total_bytes < 0.1
     ):
-        alerts.append("Queda menos del 10% de disco libre")
+        alerts.append("Less than 10% of disk space is free")
     for service in services:
         if service.status in {"down", "warning"}:
             alerts.append(f"{service.name}: {service.detail or service.status}")

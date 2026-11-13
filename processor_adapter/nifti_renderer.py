@@ -73,12 +73,12 @@ def render_nifti_outputs(
             continue
 
         if completed.returncode != 0:
-            message = f"slicer terminó con código {completed.returncode}"
+            message = f"slicer exited with code {completed.returncode}"
             log_lines.extend([f"EXIT_CODE: {completed.returncode}", f"STDERR: {completed.stderr}"])
             artifacts.append(RenderedNifti(nifti_path, png_path, display_name, False, message))
             continue
         if not png_path.exists():
-            message = "slicer no generó el PNG esperado"
+            message = "slicer did not generate the expected PNG"
             log_lines.append(f"ERROR: {message}")
             artifacts.append(RenderedNifti(nifti_path, png_path, display_name, False, message))
             continue
@@ -88,7 +88,7 @@ def render_nifti_outputs(
     if log_path:
         log_path.parent.mkdir(parents=True, exist_ok=True)
         if not log_lines:
-            log_lines.append(f"No se encontraron ficheros NIfTI en {preproc_dir}")
+            log_lines.append(f"No NIfTI files found in {preproc_dir}")
         log_path.write_text("\n".join(log_lines) + "\n", encoding="utf-8")
 
     return artifacts
@@ -122,10 +122,10 @@ def _safe_png_stem(display_name: str) -> str:
 
 def _public_error(exc: Exception) -> str:
     if isinstance(exc, subprocess.TimeoutExpired):
-        return "tiempo máximo de renderizado agotado"
+        return "rendering timeout exceeded"
     if isinstance(exc, FileNotFoundError):
-        return "no se encontró la herramienta de renderizado"
-    return "error renderizando NIfTI"
+        return "rendering tool not found"
+    return "error rendering NIfTI"
 
 
 def _run_render_command(
@@ -147,7 +147,7 @@ def _run_render_command(
 
     def handle_cancel(signum, _frame):
         _terminate_process_group(process)
-        raise ProcessorCanceled(f"Procesamiento cancelado por señal {signum}")
+        raise ProcessorCanceled(f"Processing canceled by signal {signum}")
 
     for signum in previous_handlers:
         signal.signal(signum, handle_cancel)

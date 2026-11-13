@@ -78,7 +78,7 @@ def test_worker_marks_study_failed_when_script_fails(tmp_path, monkeypatch):
     job = db.get(ProcessingJob, job_id)
     assert study.status == StudyStatus.failed
     assert job.status == StudyStatus.failed.value
-    assert study.error_message == "El procesador externo terminó con error"
+    assert study.error_message == "The external processor finished with an error"
     notification = db.query(Notification).one()
     assert notification.recipient_user_id == owner_id
     assert notification.event_type == "processing_failed"
@@ -150,6 +150,8 @@ def test_worker_skips_canceled_study(tmp_path, monkeypatch):
 @pytest.mark.parametrize(
     ("flag_set", "error_message"),
     [
+        # The Spanish literal is the legacy cancellation message that may still
+        # exist in old database rows; it must have no influence on behaviour.
         (True, "Cancelación solicitada por el usuario"),
         (True, "arbitrary text unrelated to cancellation"),
         (False, "Cancelación solicitada por el usuario"),
@@ -191,7 +193,7 @@ def test_worker_cancellation_depends_only_on_flag(
                 job.cancel_requested_at = datetime.utcnow()
             db.commit()
             db.close()
-            raise ProcessorCanceled("Procesamiento cancelado por señal 15")
+            raise ProcessorCanceled("Processing canceled by signal 15")
 
     monkeypatch.setattr(
         tasks, "create_processor_adapter", lambda **_kwargs: CancelingAdapter()
@@ -230,9 +232,9 @@ def test_worker_cancellation_depends_only_on_flag(
     job = db.get(ProcessingJob, job_id)
     if flag_set:
         assert study.status == StudyStatus.canceled
-        assert study.error_message == "Cancelado por el usuario"
+        assert study.error_message == "Canceled by the user"
         assert job.status == StudyStatus.canceled.value
-        assert job.error_message == "Procesamiento cancelado por señal 15"
+        assert job.error_message == "Processing canceled by signal 15"
         assert db.query(Notification).count() == 0
     else:
         # Message text alone must never be treated as a cancellation.

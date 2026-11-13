@@ -92,7 +92,7 @@ def process_study(self, study_id: str, job_id: str) -> None:
             or _cancellation_requested(job)
         ):
             logger.info("Study %s was canceled while processing", study_id)
-            _mark_study_canceled(study, job, "Cancelado durante el procesamiento")
+            _mark_study_canceled(study, job, "Canceled during processing")
             db.commit()
             return
 
@@ -131,16 +131,16 @@ def process_study(self, study_id: str, job_id: str) -> None:
                         if not artifact.success
                     ]
                     warnings.extend(
-                        f"No se pudo renderizar {artifact.display_name}: {artifact.error_message}"
+                        f"Could not render {artifact.display_name}: {artifact.error_message}"
                         for artifact in failed_renders
                     )
                     if not rendered_outputs:
                         warnings.append(
-                            "No se encontraron ficheros NIfTI renderizables en Preproc"
+                            "No renderable NIfTI files found in Preproc"
                         )
                 elif not settings.generate_rendered_png:
                     warnings.append(
-                        "La generacion de PNG renderizados esta desactivada por configuracion"
+                        "Rendered PNG generation is disabled by configuration"
                     )
                 if settings.generate_technical_pdf:
                     report_filename = (
@@ -182,7 +182,7 @@ def process_study(self, study_id: str, job_id: str) -> None:
                 study.processing_warnings = "\n".join(warnings)
             if _cancellation_requested_in_db(db, job.id):
                 logger.info("Study %s was canceled before completion commit", study_id)
-                _mark_study_canceled(study, job, "Cancelado durante el procesamiento")
+                _mark_study_canceled(study, job, "Canceled during processing")
                 db.commit()
                 return
             job.status = StudyStatus.completed.value
@@ -203,12 +203,12 @@ def process_study(self, study_id: str, job_id: str) -> None:
         else:
             if _cancellation_requested_in_db(db, job.id):
                 logger.info("Study %s was canceled before failure commit", study_id)
-                _mark_study_canceled(study, job, "Cancelado durante el procesamiento")
+                _mark_study_canceled(study, job, "Canceled during processing")
                 db.commit()
                 return
             study.status = StudyStatus.failed
             study.error_message = (
-                result.error_message or "Error desconocido durante el procesamiento"
+                result.error_message or "Unknown error during processing"
             )
             job.status = StudyStatus.failed.value
             job.error_message = study.error_message
@@ -227,17 +227,17 @@ def process_study(self, study_id: str, job_id: str) -> None:
         study = db.get(Study, study_uuid)
         job = db.get(ProcessingJob, job_uuid)
         if study and job and _cancellation_requested(job):
-            _mark_study_canceled(study, job, str(exc) or "Procesamiento cancelado")
+            _mark_study_canceled(study, job, str(exc) or "Processing canceled")
             db.commit()
             return
         if study:
             study.status = StudyStatus.failed
-            study.error_message = "Procesamiento interrumpido por señal externa"
+            study.error_message = "Processing interrupted by an external signal"
             study.processing_finished_at = datetime.utcnow()
         if job:
             job.status = StudyStatus.failed.value
             job.finished_at = datetime.utcnow()
-            job.error_message = str(exc) or "Procesamiento interrumpido por señal externa"
+            job.error_message = str(exc) or "Processing interrupted by an external signal"
         db.commit()
         if study:
             _notify_processing_finished(db, study, settings)
@@ -248,7 +248,7 @@ def process_study(self, study_id: str, job_id: str) -> None:
         job = db.get(ProcessingJob, job_uuid)
         if study:
             study.status = StudyStatus.failed
-            study.error_message = "Error interno durante el procesamiento"
+            study.error_message = "Internal error during processing"
             study.processing_finished_at = datetime.utcnow()
         if job:
             job.status = StudyStatus.failed.value
@@ -292,7 +292,7 @@ def _mark_study_canceled(
 ) -> None:
     now = datetime.utcnow()
     study.status = StudyStatus.canceled
-    study.error_message = "Cancelado por el usuario"
+    study.error_message = "Canceled by the user"
     study.processing_finished_at = study.processing_finished_at or now
     job.status = StudyStatus.canceled.value
     job.finished_at = job.finished_at or now
@@ -306,7 +306,7 @@ def _install_cancel_signal_handlers():
     }
 
     def handle_cancel(signum, _frame):
-        raise ProcessorCanceled(f"Procesamiento cancelado por señal {signum}")
+        raise ProcessorCanceled(f"Processing canceled by signal {signum}")
 
     for signum in previous_handlers:
         signal.signal(signum, handle_cancel)

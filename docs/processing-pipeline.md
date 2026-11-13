@@ -1,90 +1,90 @@
-# Pipeline De Procesamiento
+# Processing Pipeline
 
-El procesamiento tarda entre minutos y una hora, por eso nunca se ejecuta en la petición HTTP. La API prepara datos y encola; el worker ejecuta el procesador configurado.
+Processing takes between minutes and an hour, so it is never run inside the HTTP request. The API prepares data and enqueues; the worker runs the configured processor.
 
 ```mermaid
 sequenceDiagram
-  participant U as Usuario
+  participant U as User
   participant F as Frontend
   participant A as FastAPI
   participant D as PostgreSQL
   participant R as Redis
   participant W as Celery Worker
   participant P as Processor Adapter
-  participant S as Script externo
+  participant S as External script
   participant FS as Filesystem
-  participant N as Notificaciones/SMTP
-  U->>F: Selecciona T1w .nii.gz y sujeto BIDS
+  participant N as Notifications/SMTP
+  U->>F: Selects T1w .nii.gz and BIDS subject
   F->>A: POST /api/studies/upload
-  A->>FS: Guarda input/original
-  A->>FS: Prepara bids_project/data
-  A->>D: Crea Study y ProcessingJob
-  A->>R: Encola tarea
+  A->>FS: Stores input/original
+  A->>FS: Prepares bids_project/data
+  A->>D: Creates Study and ProcessingJob
+  A->>R: Enqueues task
   A-->>F: 201 queued
-  R->>W: Entrega tarea
+  R->>W: Delivers task
   W->>D: processing
   W->>P: run(input, output, study_id, logs, bids_project)
-  P->>S: Ejecuta backend configurado
-  S->>FS: Genera PDF dummy o Preproc
-  P-->>W: Resultado y ficheros generados detectados
-  W->>FS: Renderiza NIfTI con FSL slicer
-  W->>FS: Genera PDF tecnico y ZIP si aplica
-  W->>D: completed o failed
-  W->>N: Registra aviso interno y correo opcional
-  F->>A: Consulta estudios
-  F->>A: Consulta notificaciones
-  F->>A: Descarga PDF tecnico / ZIP
-  U->>F: Cancela un estudio en cola o procesamiento
+  P->>S: Runs configured backend
+  S->>FS: Generates dummy PDF or Preproc
+  P-->>W: Result and detected generated files
+  W->>FS: Renders NIfTI with FSL slicer
+  W->>FS: Generates technical PDF and ZIP if applicable
+  W->>D: completed or failed
+  W->>N: Records internal notice and optional email
+  F->>A: Queries studies
+  F->>A: Queries notifications
+  F->>A: Downloads technical PDF / ZIP
+  U->>F: Cancels a queued or running study
   F->>A: POST /api/studies/{id}/cancel
-  A->>R: Revoca tarea pendiente o solicita terminacion SIGTERM
-  W->>D: canceled si la tarea estaba ejecutando
+  A->>R: Revokes pending task or requests SIGTERM termination
+  W->>D: canceled if the task was running
 ```
 
-## Contrato Del Adaptador
+## Adapter Contract
 
-Entrada:
+Input:
 
 - `input_dir`
 - `output_dir`
 - `study_id`
 - `logs_dir`
-- backend configurado (`PROCESSOR_BACKEND`)
+- configured backend (`PROCESSOR_BACKEND`)
 
-Salida:
+Output:
 
-- éxito/error.
-- código de salida.
-- ruta del PDF, si el backend lo genera o si la plataforma crea un PDF técnico.
-- rutas de PNG renderizados desde NIfTI, si aplica.
-- lista de ficheros generados.
-- ruta del ZIP, si aplica.
-- log técnico.
-- mensaje de error.
-- duración.
+- success/error.
+- exit code.
+- PDF path, if the backend generates one or if the platform creates a technical PDF.
+- paths of PNGs rendered from NIfTI, if applicable.
+- list of generated files.
+- ZIP path, if applicable.
+- technical log.
+- error message.
+- duration.
 
-El adaptador es la frontera estable entre la plataforma y cualquier procesador externo. La API, la GUI y la cola no deben depender del script concreto ni de la imagen Docker usada para procesar. Si en el futuro se sustituye `compneuro-anatproc`, el cambio debe concentrarse en el adapter, la configuración y, si hace falta, el Dockerfile del worker.
+The adapter is the stable boundary between the platform and any external processor. The API, the GUI and the queue must not depend on the specific script or on the Docker image used for processing. If `compneuro-anatproc` is replaced in the future, the change must be concentrated in the adapter, the configuration and, if needed, the worker's Dockerfile.
 
-El adaptador elige el comando según `PROCESSOR_BACKEND`. El backend `dummy` ejecuta `PROCESSOR_COMMAND` con placeholders:
+The adapter chooses the command according to `PROCESSOR_BACKEND`. The `dummy` backend runs `PROCESSOR_COMMAND` with placeholders:
 
 ```env
 PROCESSOR_COMMAND=python /app/external_processor/dummy_processor.py --input {input_dir} --output {output_dir} --study-id {study_id}
 ```
 
-El adaptador valida entrada, crea salida, captura stdout/stderr y guarda logs. En `dummy` comprueba que se genere al menos un PDF. En `compneuro` ejecuta `COMPNEURO_COMMAND`, por defecto `bash /app/src/apreproc_launcher.sh`, comprueba exit code `0` y valida que existan `Preproc/BET` y `Preproc/ProbTissue`. El comando externo se ejecuta en un grupo de procesos propio para poder terminarlo si el usuario cancela un estudio ya iniciado.
+The adapter validates the input, creates the output, captures stdout/stderr and stores logs. In `dummy` it checks that at least one PDF is generated. In `compneuro` it runs `COMPNEURO_COMMAND`, by default `bash /app/src/apreproc_launcher.sh`, checks exit code `0` and validates that `Preproc/BET` and `Preproc/ProbTissue` exist. The external command runs in its own process group so that it can be terminated if the user cancels a study that has already started.
 
-Para otro script o contenedor, la interfaz mínima esperada por la plataforma es:
+For another script or container, the minimum interface expected by the platform is:
 
-- leer los datos preparados por la plataforma, normalmente bajo `input_dir` o `/project/data` según el backend.
-- escribir resultados en la carpeta de salida esperada, preferiblemente `output/Preproc` para reutilizar el post-procesado actual.
-- terminar con exit code `0` solo si los resultados están completos.
-- escribir stdout/stderr suficiente para diagnóstico; el worker lo guarda en `logs/processor.log`.
-- no generar `outputs.zip` como responsabilidad principal: el ZIP descargable lo crea la plataforma con `processor_adapter/output_packager.py`.
+- read the data prepared by the platform, normally under `input_dir` or `/project/data` depending on the backend.
+- write results to the expected output folder, preferably `output/Preproc` to reuse the current post-processing.
+- finish with exit code `0` only if the results are complete.
+- write enough stdout/stderr for diagnostics; the worker stores it in `logs/processor.log`.
+- not generate `outputs.zip` as a main responsibility: the downloadable ZIP is created by the platform with `processor_adapter/output_packager.py`.
 
-## BIDS Por Estudio
+## BIDS Per Study
 
 ```text
 data/studies/{study_id}/
-  input/original/{fichero_original}.nii.gz
+  input/original/{original_file}.nii.gz
   bids_project/data/sub-XXXX/anat/sub-XXXX_T1w.nii.gz
   bids_project/data/participants.tsv
   bids_project/data/dataset_description.json
@@ -99,45 +99,45 @@ data/studies/{study_id}/
   logs/rendering.log
 ```
 
-`compneuro-anatproc` usa rutas hardcodeadas bajo `/project`. La plataforma crea un `runtime_project` aislado por estudio y el worker compneuro apunta `/project` a esa carpeta mediante symlink gestionado. Esto evita Docker-in-Docker y evita modificar los scripts externos.
+`compneuro-anatproc` uses hardcoded paths under `/project`. The platform creates an isolated `runtime_project` per study and the compneuro worker points `/project` to that folder through a managed symlink. This avoids Docker-in-Docker and avoids modifying the external scripts.
 
-## Flujo Compneuro
+## Compneuro Flow
 
 ```mermaid
 flowchart TD
-  Upload[Subida .nii.gz] --> Validate[Validar extension y sub-XXXX]
-  Validate --> BIDS[Preparar BIDS]
-  BIDS --> Queue[Encolar Celery]
-  Queue --> Worker[Worker compneuro]
-  Worker --> Mount[Preparar /project]
+  Upload[.nii.gz upload] --> Validate[Validate extension and sub-XXXX]
+  Validate --> BIDS[Prepare BIDS]
+  BIDS --> Queue[Enqueue in Celery]
+  Queue --> Worker[Compneuro worker]
+  Worker --> Mount[Prepare /project]
   Mount --> Launcher[src/apreproc_launcher.sh]
   Launcher --> BET[Preproc/BET]
   Launcher --> Prob[Preproc/ProbTissue]
-  BET --> Render[PNG con FSL slicer]
+  BET --> Render[PNG with FSL slicer]
   Prob --> Render
-  Render --> Report[PDF tecnico]
+  Render --> Report[Technical PDF]
   BET --> Zip[outputs.zip]
   Prob --> Zip
 ```
 
-`src/apreproc_launcher.sh` es el script externo usado hoy. En la imagen worker compneuro queda ubicado en `/app/src/apreproc_launcher.sh`, copiado durante el build desde el repositorio `compneuro-anatproc`. No forma parte del código propio de la plataforma.
+`src/apreproc_launcher.sh` is the external script used today. In the compneuro worker image it is located at `/app/src/apreproc_launcher.sh`, copied during the build from the `compneuro-anatproc` repository. It is not part of the platform's own code.
 
-## Post-Procesado Técnico
+## Technical Post-Processing
 
-Después de una ejecución correcta de `compneuro`, el worker busca `.nii` y `.nii.gz` dentro de `output/Preproc`, con límite configurable por `NIFTI_RENDER_MAX_FILES`. Cada fichero se renderiza con FSL `slicer` usando el patrón conceptual `slicer input.nii.gz -a output.png` y se guarda en `output/rendered_png/`.
+After a successful `compneuro` run, the worker looks for `.nii` and `.nii.gz` files inside `output/Preproc`, with a limit configurable through `NIFTI_RENDER_MAX_FILES`. Each file is rendered with FSL `slicer` using the conceptual pattern `slicer input.nii.gz -a output.png` and saved in `output/rendered_png/`.
 
-El PDF se guarda por defecto en `output/reports/technical_report.pdf` e incluye metadatos del estudio, sujeto BIDS, flujo de procesamiento usado, listado de resultados, nombre de cada NIfTI y la imagen PNG renderizada. Si no hay NIfTI o falla alguna conversión, el PDF se genera igualmente con avisos técnicos. Estos avisos no son trazas internas y pueden mostrarse en la GUI.
+The PDF is saved by default in `output/reports/technical_report.pdf` and includes the study metadata, BIDS subject, processing flow used, list of results, the name of each NIfTI and the rendered PNG image. If there is no NIfTI or a conversion fails, the PDF is still generated with technical warnings. These warnings are not internal traces and may be shown in the GUI.
 
-El documento es un informe técnico de artefactos generados. No interpreta imágenes ni constituye un informe médico validado. Por defecto, cada estudio queda marcado como `technical_only`; administración puede cambiar la marca a `reviewed` o `validated` solo como trazabilidad interna de revisión.
+The document is a technical report of generated artefacts. It does not interpret images and is not a validated medical report. By default, each study is marked `technical_only`; administration can change the mark to `reviewed` or `validated` only as internal review traceability.
 
-## Notificaciones De Cierre
+## Closing Notifications
 
-Cuando el worker confirma `completed` o `failed`, primero guarda el estado final del estudio/job y después crea notificaciones. Este orden evita que un error de SMTP afecte al resultado principal del procesamiento.
+When the worker confirms `completed` or `failed`, it first stores the final state of the study/job and then creates notifications. This order prevents an SMTP error from affecting the main result of the processing run.
 
-Reglas actuales:
+Current rules:
 
-- `completed`: notificación interna al propietario y correo electrónico si lo permite su preferencia.
-- `failed`: notificación interna al propietario y a admins activos; correo electrónico si lo permiten sus preferencias.
-- Los correos electrónicos no adjuntan PDF, ZIP, logs ni datos pesados; solo texto y enlace a la plataforma configurado con `APP_PUBLIC_BASE_URL`.
-- En Docker Compose, el SMTP por defecto es Mailpit (`mailpit:1025`) con remitente `noreply@neuroimagen.com`; la bandeja local está en `http://localhost:8025`.
-- Si SMTP falla, se registra `email_status=failed` y `email_error` en la notificación, pero el estudio mantiene su estado real.
+- `completed`: internal notification to the owner and an email if their preference allows it.
+- `failed`: internal notification to the owner and to active admins; email if their preferences allow it.
+- Emails do not attach PDF, ZIP, logs or heavy data; only text and a link to the platform configured with `APP_PUBLIC_BASE_URL`.
+- In Docker Compose, the default SMTP server is Mailpit (`mailpit:1025`) with a `noreply@<sender-domain>` sender; the local inbox is at `http://localhost:8025`.
+- If SMTP fails, `email_status=failed` and `email_error` are recorded on the notification, but the study keeps its real state.

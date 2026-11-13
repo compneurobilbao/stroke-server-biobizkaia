@@ -1,36 +1,35 @@
 # Docs
 
-Esta carpeta contiene la documentación técnica, operativa y de defensa del TFM.
+This folder contains the technical and operational documentation of the platform.
 
-## Responsabilidad
+## Responsibility
 
-- Explicar arquitectura, despliegue, operación, seguridad y mantenimiento.
-- Documentar el pipeline de procesamiento.
-- Mantener un roadmap realista.
-- Servir como apoyo para la memoria y defensa del TFM.
+- Explain architecture, deployment, operation, security and maintenance.
+- Document the processing pipeline.
+- Keep a realistic plan of work.
 
-## Documentos Principales
+## Main Documents
 
-- `plan/IMPLEMENTATION_PLAN.md`: plan de implementación de la plataforma y los pipelines (en inglés).
-- `adr/`: registros de decisiones de arquitectura (en inglés).
+- `plan/IMPLEMENTATION_PLAN.md`: implementation plan for the platform and the pipelines (English).
+- `adr/`: architecture decision records (English).
 - `contracts/`: normative step contract specification (step, pipeline, provenance, bundles, artefact types, versioning).
-- `architecture.md`: arquitectura, componentes, ER y estados.
-- `processing-pipeline.md`: flujo API, Redis, worker, adapter, script y PDF.
-- `roadmap.md`: estado actual y roadmap de evolución funcional por fases.
-- `configuration.md`: variables de entorno y uso de `.env`.
-- `deployment.md`: instalación local y despliegue con Docker Compose.
-- `user-manual.md`: manual para usuario funcional.
-- `developer-manual.md`: guía para desarrollo y cambios seguros por tipo de modificación.
-- `operations-manual.md`: operación diaria, administración básica y mantenimiento.
-- `security.md`: seguridad actual y pendientes.
-- `api.md`: endpoints principales.
-- `testing.md`: pruebas disponibles.
-- `ai-development-rules.md`: reglas para desarrollo asistido por IA.
-- `troubleshooting.md`: incidencias habituales.
-- `demo-guide.md`: guion operativo para demostrar la plataforma ante tribunal.
-- `tfm-technical-summary.md`: resumen técnico para el TFM.
-- `agentic-workflow-audit.md`: auditoría y decisiones de configuración OpenCode/agentes.
+- `architecture.md`: architecture, components, ER diagram and states.
+- `processing-pipeline.md`: API, Redis, worker, adapter, script and PDF flow.
+- `roadmap.md`: historical phase-based roadmap (superseded by the implementation plan).
+- `configuration.md`: environment variables and use of `.env`.
+- `deployment.md`: local installation and Docker Compose deployment.
+- `user-manual.md`: manual for functional users.
+- `developer-manual.md`: development guide and safe changes by type of modification.
+- `operations-manual.md`: daily operation, basic administration and maintenance.
+- `security.md`: current security state and pending items.
+- `api.md`: main endpoints.
+- `testing.md`: available tests.
+- `ai-development-rules.md`: rules for AI-assisted development.
+- `troubleshooting.md`: common issues.
+- `demo-guide.md`: historical note, the script used to demonstrate the prototype in a thesis defence.
+- `tfm-technical-summary.md`: historical note, the technical summary written for the master's thesis.
+- `agentic-workflow-audit.md`: audit and decisions on OpenCode/agent configuration.
 
-## Regla De Mantenimiento
+## Maintenance Rule
 
-Si cambia arquitectura, endpoints, despliegue, flujo de procesamiento o seguridad, hay que actualizar esta carpeta junto con el código.
+If architecture, endpoints, deployment, processing flow or security change, this folder must be updated together with the code.

@@ -1,38 +1,40 @@
-# neuroimagen-server-biocruces
+# stroke-server
 
-Repositorio para el TFM **"Diseño e implementación de un servicio de procesamiento de imágenes de resonancia magnética para la generación automática de informes clínicos en Neurorrehabilitación"**.
+> "stroke-server" is the working name of this project; it is a placeholder and may change.
 
-La plataforma permite subir estudios anonimizados desde una GUI web, registrar la subida, preparar una estructura BIDS por estudio, lanzar procesamiento asíncrono mediante un procesador externo tratado como componente aislado, guardar estados, recibir notificaciones internas/correo electrónico y descargar un PDF técnico y, cuando aplica, un ZIP de resultados.
+This repository contains a web platform for processing magnetic resonance imaging studies and producing automatic technical reports. It started as a master's thesis prototype ("Design and implementation of an MRI processing service for the automatic generation of clinical reports in neurorehabilitation") and is now the base for the platform described in `docs/plan/IMPLEMENTATION_PLAN.md`.
 
-El PDF generado en esta versión es un **informe técnico de artefactos de procesamiento**. No interpreta imágenes, no contiene conclusiones médicas y no constituye un informe clínico validado.
+The platform lets users upload anonymised studies from a web GUI, records the upload, prepares a per-study BIDS structure, launches asynchronous processing through an external processor treated as an isolated component, stores states, sends internal/email notifications and offers a technical PDF and, when applicable, a ZIP of results for download.
 
-## Arquitectura Resumida
+The PDF generated in this version is a **technical report of processing artefacts**. It does not interpret images, contains no medical conclusions and is not a validated clinical report.
+
+## Architecture Summary
 
 ```mermaid
 flowchart LR
-  GUI[GUI React] --> API[FastAPI]
+  GUI[React GUI] --> API[FastAPI]
   API --> DB[(PostgreSQL)]
   API --> FS[(Filesystem data/studies)]
   API --> Redis[(Redis)]
   Redis --> Worker[Celery worker]
   Worker --> Adapter[processor_adapter]
-  Adapter --> CLI[Procesador externo]
-  CLI --> Outputs[Resultados del procesador]
-  Worker --> Render[PNG con FSL slicer]
-  Render --> Artifacts[PDF tecnico / ZIP]
-  Worker --> Notify[Notificaciones internas / SMTP]
-  API --> Download[Descarga resultados]
+  Adapter --> CLI[External processor]
+  CLI --> Outputs[Processor results]
+  Worker --> Render[PNG via FSL slicer]
+  Render --> Artifacts[Technical PDF / ZIP]
+  Worker --> Notify[Internal notifications / SMTP]
+  API --> Download[Result download]
   Proxy[Nginx] --> GUI
   Proxy --> API
 ```
 
-## Requisitos
+## Requirements
 
-- Docker y Docker Compose.
-- Make opcional para comandos cómodos.
-- Uso inicial con datos anonimizados.
+- Docker and Docker Compose.
+- Optionally Make for convenience commands.
+- Initial use with anonymised data only.
 
-## Arranque Rápido
+## Quick Start
 
 ```bash
 cp .env.example .env
@@ -40,124 +42,124 @@ make up
 make create-admin EMAIL=admin@example.org
 ```
 
-Abre `http://localhost` para la GUI y `http://localhost/api/docs` para Swagger/OpenAPI.
+Open `http://localhost` for the GUI and `http://localhost/api/docs` for Swagger/OpenAPI.
 
-## Comandos Principales
+## Main Commands
 
 ```bash
-make up       # levantar servicios; WORKER_REPLICAS=N escala workers
-make down     # parar servicios
-make logs     # ver logs
-make frontend-rebuild # reconstruir/recrear solo el frontend Docker
-make rebuild  # reconstruir/recrear todos los servicios Docker
-make test     # ejecutar tests Python locales
+make up       # start services; WORKER_REPLICAS=N scales workers
+make down     # stop services
+make logs     # follow logs
+make frontend-rebuild # rebuild/recreate only the Docker frontend
+make rebuild  # rebuild/recreate all Docker services
+make test     # run local Python tests
 make lint     # ruff check
 make format   # ruff format
-make migrate  # aplicar migraciones en el contenedor api
-make create-admin EMAIL=admin@example.org # crear/actualizar admin inicial
-make backup   # crear backup local de PostgreSQL y data/studies
-make retention-dry-run DAYS=90  # ver estudios candidatos a retención sin borrar
-make restore BACKUP_DIR=backups/<timestamp> CONFIRM_RESTORE=YES_I_UNDERSTAND # restaurar backup local
-make seed     # crear fichero de prueba local
-make smoke    # comprobar healthcheck vía proxy
-make clean    # borrar volúmenes y estudios locales
+make migrate  # apply migrations in the api container
+make create-admin EMAIL=admin@example.org # create/update the initial admin
+make backup   # create a local backup of PostgreSQL and data/studies
+make retention-dry-run DAYS=90  # list studies that are retention candidates without deleting
+make restore BACKUP_DIR=backups/<timestamp> CONFIRM_RESTORE=YES_I_UNDERSTAND # restore a local backup
+make seed     # create a local test file
+make smoke    # check the healthcheck through the proxy
+make clean    # delete local volumes and studies
 ```
 
-Para permitir más procesamientos simultáneos en `compneuro`, mantené `MAX_CONCURRENT_PROCESSING_JOBS=1` y escalá contenedores worker, por ejemplo `make up WORKER_REPLICAS=2`.
-También podés dejar `WORKER_REPLICAS=2` en `.env`; `make up` lo toma automáticamente si no se pasa por comando.
+To allow more simultaneous processing runs with `compneuro`, keep `MAX_CONCURRENT_PROCESSING_JOBS=1` and scale worker containers, for example `make up WORKER_REPLICAS=2`.
+You can also leave `WORKER_REPLICAS=2` in `.env`; `make up` picks it up automatically when it is not passed on the command line.
 
-Cuando se modifica el frontend y se usa el despliegue Docker/Nginx, ejecuta `make frontend-rebuild` para regenerar el bundle estático y recrear el contenedor. `make down && make up` puede reutilizar una imagen anterior; `make clean` solo debe usarse si quieres borrar volúmenes y estudios locales.
+When the frontend is modified and the Docker/Nginx deployment is used, run `make frontend-rebuild` to regenerate the static bundle and recreate the container. `make down && make up` may reuse an old image; use `make clean` only if you want to delete local volumes and studies.
 
-## Flujo Funcional
+## Functional Flow
 
-1. El usuario inicia sesión con login local.
-2. El usuario sube un fichero desde la GUI.
-3. FastAPI valida permisos, cuota de almacenamiento, extensión, sanitiza nombre y guarda el fichero en `data/studies/{study_id}/input`.
-4. Se crea un `Study` con propietario, un `ProcessingJob` y eventos de auditoría.
-5. FastAPI encola una tarea Celery en Redis.
-6. El worker ejecuta `processor_adapter`.
-7. El adaptador ejecuta el comando correspondiente al backend configurado.
-8. En modo `dummy`, se usa `PROCESSOR_COMMAND`; en modo `compneuro`, se usa `COMPNEURO_COMMAND`.
-9. El procesador dummy genera un PDF de desarrollo o `compneuro-anatproc` genera `Preproc/BET` y `Preproc/ProbTissue`.
-10. El worker detecta resultados, renderiza NIfTI a PNG con FSL `slicer`, genera un PDF técnico y opcionalmente un ZIP.
-11. El worker registra notificaciones internas y, si SMTP está configurado, envía correos electrónicos sin adjuntos al completar o fallar.
-12. La GUI permite a investigadores ver detalle/logs, cancelar jobs en cola o en procesamiento, reintentar fallidos, borrar estudios permitidos, consultar su cuota y descargar PDF/ZIP si el usuario tiene permiso.
-13. El propietario del estudio y administración pueden marcar resultados como `technical_only`, `reviewed` o `validated`; el panel de administración además gestiona usuarios, borrado lógico y cuotas sin ejecutar pipelines desde el panel.
+1. The user logs in with a local account.
+2. The user uploads a file from the GUI.
+3. FastAPI validates permissions, storage quota and extension, sanitises the file name and stores the file in `data/studies/{study_id}/input`.
+4. A `Study` with an owner, a `ProcessingJob` and audit events are created.
+5. FastAPI enqueues a Celery task in Redis.
+6. The worker runs `processor_adapter`.
+7. The adapter runs the command for the configured backend.
+8. In `dummy` mode, `PROCESSOR_COMMAND` is used; in `compneuro` mode, `COMPNEURO_COMMAND` is used.
+9. The dummy processor generates a development PDF, or `compneuro-anatproc` generates `Preproc/BET` and `Preproc/ProbTissue`.
+10. The worker detects results, renders NIfTI to PNG with FSL `slicer`, generates a technical PDF and optionally a ZIP.
+11. The worker records internal notifications and, if SMTP is configured, sends emails without attachments on completion or failure.
+12. The GUI lets researchers view details/logs, cancel queued or running jobs, retry failed ones, delete permitted studies, check their quota and download the PDF/ZIP if they have permission.
+13. The study owner and administrators can mark results as `technical_only`, `reviewed` or `validated`; the admin panel also manages users, soft deletion and quotas, without running pipelines from the panel.
 
-## Notificaciones
+## Notifications
 
-La plataforma registra notificaciones internas cuando un procesamiento termina correctamente o falla. Por defecto Docker Compose levanta Mailpit como SMTP local y los correos quedan visibles en `http://localhost:8025`; no salen a Internet. En producción se deben reemplazar las variables SMTP por un servidor real. Los correos electrónicos solo incluyen texto y enlace a la plataforma, nunca PDF, ZIP ni datos pesados.
+The platform records internal notifications when a processing run finishes successfully or fails. By default Docker Compose starts Mailpit as a local SMTP server and emails are visible at `http://localhost:8025`; they do not leave the machine. In production the SMTP variables must be replaced with a real server. Emails contain only text and a link to the platform, never PDF, ZIP or heavy data.
 
-Variables principales:
+Main variables:
 
 ```env
-APP_PUBLIC_BASE_URL=http://100.114.173.115
+APP_PUBLIC_BASE_URL=http://<server-host>
 NOTIFICATIONS_EMAIL_ENABLED=true
 SMTP_HOST=mailpit
 SMTP_PORT=1025
 SMTP_USERNAME=
 SMTP_PASSWORD=
-SMTP_FROM_EMAIL=noreply@neuroimagen.com
+SMTP_FROM_EMAIL=noreply@example.org
 SMTP_USE_TLS=false
 ```
 
-Cada usuario puede activar o desactivar correos electrónicos para estudios completados y fallidos desde la GUI. Las notificaciones internas se conservan para diagnóstico aunque el correo esté desactivado o falle.
+Each user can enable or disable emails for completed and failed studies from the GUI. Internal notifications are kept for diagnostics even if email is disabled or fails.
 
-## Procesadores
+## Processors
 
-El backend de procesamiento se selecciona con `PROCESSOR_BACKEND`.
+The processing backend is selected with `PROCESSOR_BACKEND`.
 
-| Backend | Uso | Comando ejecutado |
+| Backend | Use | Command executed |
 | --- | --- | --- |
-| `dummy` | Desarrollo y pruebas rápidas sin flujo real. | `PROCESSOR_COMMAND` |
-| `compneuro` | Integración real con `compneuro-anatproc` para T1w `.nii.gz`. | `COMPNEURO_COMMAND` |
+| `dummy` | Development and quick tests without a real pipeline. | `PROCESSOR_COMMAND` |
+| `compneuro` | Real integration with `compneuro-anatproc` for T1w `.nii.gz`. | `COMPNEURO_COMMAND` |
 
-`PROCESSOR_COMMAND` es una plantilla para el procesador de desarrollo. Permite cambiar el script dummy sin tocar FastAPI ni Celery:
+`PROCESSOR_COMMAND` is a template for the development processor. It allows changing the dummy script without touching FastAPI or Celery:
 
 ```env
 PROCESSOR_COMMAND=python /app/external_processor/dummy_processor.py --input {input_dir} --output {output_dir} --study-id {study_id}
 ```
 
-Placeholders disponibles: `{input_dir}`, `{output_dir}`, `{study_id}`, `{logs_dir}`.
+Available placeholders: `{input_dir}`, `{output_dir}`, `{study_id}`, `{logs_dir}`.
 
-Para `compneuro`, el worker debe construirse con `WORKER_DOCKERFILE=worker/Dockerfile.compneuro` y `PROCESSOR_BACKEND=compneuro`. En este modo el comando relevante es:
+For `compneuro`, the worker must be built with `WORKER_DOCKERFILE=worker/Dockerfile.compneuro` and `PROCESSOR_BACKEND=compneuro`. In this mode the relevant command is:
 
 ```env
 COMPNEURO_COMMAND=bash /app/src/apreproc_launcher.sh
 ```
 
-No se usa Docker-in-Docker: Celery corre dentro de una imagen derivada de `compneurobilbaolab/compneuro-anatproc:1.1`, ejecuta `src/apreproc_launcher.sh` y después usa FSL `slicer` para crear PNG técnicos desde los NIfTI generados.
+Docker-in-Docker is not used: Celery runs inside an image derived from `compneurobilbaolab/compneuro-anatproc:1.1`, runs `src/apreproc_launcher.sh` and then uses FSL `slicer` to create technical PNGs from the generated NIfTI files.
 
-## Estructura
+## Layout
 
 ```text
-backend/              API FastAPI, modelos, migraciones
-frontend/             GUI React/Vite
-worker/               tareas Celery
-processor_adapter/    adaptador CLI desacoplado
-external_processor/   procesador dummy de desarrollo
+backend/              FastAPI API, models, migrations
+frontend/             React/Vite GUI
+worker/               Celery tasks
+processor_adapter/    decoupled CLI adapter
+external_processor/   development dummy processor
 infra/reverse-proxy/  Nginx
-docs/                 documentación TFM y operación
-scripts/              scripts de operación y validación
-tests/                tests básicos
-data/studies/         almacenamiento local ignorado por Git
+docs/                 documentation and operations
+scripts/              operations and validation scripts
+tests/                basic tests
+data/studies/         local storage ignored by Git
 ```
 
-Cada carpeta de primer nivel incluye su propio `README.md` explicando para qué sirve y cómo está organizado su código o contenido.
+Each top-level folder includes its own `README.md` explaining what it is for and how its code or content is organised.
 
-## Limitaciones Iniciales
+## Initial Limitations
 
-- Sin anonimización DICOM integrada.
-- Sin revisión clínica formal; los resultados pueden marcarse como solo técnicos, revisados o validados para trazabilidad interna.
-- Retención de datos inicial por CLI/configuración, desactivada por defecto para borrado real y sin pantalla GUI en esta versión.
-- Sin subida múltiple ni lotes.
-- Sin MinIO/S3 en esta versión.
-- El procesador dummy no tiene validez clínica.
-- La integración `compneuro-anatproc` inicial ejecuta solo `src/apreproc_launcher.sh`; `brainmeasures.sh` queda como mejora futura.
-- El PDF de la integración real es un resumen técnico de procesamiento con PNG renderizados desde resultados NIfTI; no es un informe clínico.
+- No integrated DICOM anonymisation.
+- No formal clinical review; results can be marked as technical only, reviewed or validated for internal traceability.
+- Initial data retention is handled via CLI/configuration, real deletion is disabled by default and there is no GUI screen for it in this version.
+- No multiple upload or batches.
+- No MinIO/S3 in this version.
+- The dummy processor has no clinical validity.
+- The initial `compneuro-anatproc` integration only runs `src/apreproc_launcher.sh`; `brainmeasures.sh` is a future improvement.
+- The PDF from the real integration is a technical processing summary with PNGs rendered from NIfTI results; it is not a clinical report.
 
 ## Roadmap
 
-El roadmap detallado está en `docs/roadmap.md` y organiza la evolución por fases. La **Fase 6 — Notificaciones** ya añade avisos internos y SMTP configurable sin adjuntos pesados.
+The forward-looking plan is `docs/plan/IMPLEMENTATION_PLAN.md`. The older phase-based roadmap in `docs/roadmap.md` is superseded by it and kept for reference; its **Phase 6 — Notifications** already added internal notices and configurable SMTP without heavy attachments.
 
-Quedan para fases posteriores: Google/OIDC, ORCID, múltiples subidas, pantalla admin avanzada de retención, flujos de procesamiento configurables e integración institucional.
+Left for later: Google/OIDC, ORCID, multiple uploads, an advanced admin retention screen, configurable processing flows and institutional integration.
