@@ -11,16 +11,15 @@ function isSupported(value: string | null | undefined): value is Language {
   return SUPPORTED_LANGUAGES.includes(value as Language);
 }
 
-/** Stored choice first, then the browser language, then English (the source language). */
+/** Stored choice first, then English (the default and source language). */
 export function detectLanguage(): Language {
   try {
     const stored = window.localStorage.getItem(LANGUAGE_KEY);
     if (isSupported(stored)) return stored;
   } catch {
-    // localStorage may be unavailable; fall through to the browser language.
+    // localStorage may be unavailable; fall back to English.
   }
-  const browser = (typeof navigator !== 'undefined' ? navigator.language : '').slice(0, 2).toLowerCase();
-  return isSupported(browser) ? browser : 'en';
+  return 'en';
 }
 
 /** Switch language and persist the choice in localStorage. */
