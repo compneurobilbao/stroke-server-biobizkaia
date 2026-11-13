@@ -9,6 +9,7 @@ import subprocess
 import sys
 import textwrap
 import time
+from pathlib import Path
 
 import pytest
 from sdk_helpers import write_qc
@@ -95,8 +96,11 @@ def test_sigterm_stops_promptly_and_reports(run, tmp_path):
     assert time.time() - start < 10
     assert code == EXIT_TERMINATED
     assert run.files() == {"error.json", "provenance.json"}
-    assert run.json("error.json")["code"] == "terminated"
-    assert run.json("provenance.json")["status"] == "failed"
+    err = run.json("error.json")
+    assert err["code"] == "terminated" and err["category"] == "internal"
+    prov = run.json("provenance.json")
+    assert prov["status"] == "failed" and prov["outputs"] == []
+    assert run.validate() == []  # contract 1.1, step-contract 2.4 item 6 and 4.4
 
 
 def test_thread_variables_follow_step_cpus():
@@ -199,3 +203,66 @@ def test_check_run_directory_detects_violations(run):
     assert "provenance.json is missing" in reftest.check_run_directory(
         manifest, run.in_dir, run.out_dir, 0
     )
+
+
+def test_check_run_directory_forbids_outputs_after_exit_10(run):
+    manifest = load_manifest(run.manifest_path)
+    (run.in_dir / "lesion_mask.nii.gz").unlink()
+    assert run.run(write_qc) == 10
+    assert reftest.check_run_directory(manifest, run.in_dir, run.out_dir, 10) == []
+    (run.out_dir / "lesion_qc.json").write_text("{}", encoding="utf-8")
+    problems = reftest.check_run_directory(manifest, run.in_dir, run.out_dir, 10)
+    assert any("lesion_qc.json" in p for p in problems)
+
+
+def _reftest_step_dir(tmp_path, generator_body):
+    import yaml
+    from sdk_helpers import MANIFEST
+
+    step_dir = tmp_path / "step"
+    (step_dir / "tests").mkdir(parents=True)
+    manifest = dict(MANIFEST)
+    manifest["reference_test"] = {
+        "generator": "tests/make_reference.py",
+        "inputs": {"lesion_mask": "tests/reference/lesion_mask.nii.gz"},
+        "expected": {"lesion_qc": {"compare": "exists"}},
+    }
+    (step_dir / "step.yaml").write_text(yaml.safe_dump(manifest), encoding="utf-8")
+    (step_dir / "tests" / "make_reference.py").write_text(
+        textwrap.dedent(generator_body), encoding="utf-8"
+    )
+    return step_dir, load_manifest(step_dir / "step.yaml")
+
+
+def test_reference_generator_writes_fixtures_deterministically(tmp_path):
+    step_dir, manifest = _reftest_step_dir(
+        tmp_path,
+        """
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, %r)
+        from sdk_helpers import write_mask
+        out = Path("tests/reference")
+        out.mkdir(parents=True, exist_ok=True)
+        write_mask(out / "lesion_mask.nii.gz")
+        """
+        % str(Path(__file__).resolve().parent),
+    )
+    fixture = step_dir / "tests" / "reference" / "lesion_mask.nii.gz"
+    assert reftest.run_generator(manifest, step_dir) == []
+    first = fixture.read_bytes()
+    fixture.unlink()
+    assert reftest.run_generator(manifest, step_dir) == []
+    assert fixture.read_bytes() == first  # byte-identical (step-contract 1.7 item 5)
+
+
+def test_reference_generator_failures_are_reported(tmp_path):
+    step_dir, manifest = _reftest_step_dir(tmp_path, "pass\n")
+    assert reftest.run_generator(manifest, step_dir) == [
+        "fixture 'tests/reference/lesion_mask.nii.gz' does not exist"
+    ]
+    (step_dir / "tests" / "make_reference.py").write_text(
+        "raise SystemExit(3)\n", encoding="utf-8"
+    )
+    problems = reftest.run_generator(manifest, step_dir)
+    assert problems == ["the fixture generator exited with code 3"]

@@ -1,5 +1,5 @@
 {
-  "contract_version": "1.0",
+  "contract_version": "1.1",
   "kind": "StepProvenance",
   "step": { "name": "ct-lesion-to-mni152", "version": "1.0.0" },
   "status": "succeeded",
@@ -20,7 +20,8 @@
     { "name": "FSL", "version": "6.0.7.6" },
     { "name": "itk-elastix", "version": "0.20.0" },
     { "name": "ct_lesion_to_mni152", "version": "0.0.1" },
-    { "name": "compneuro-step-sdk", "version": "1.0.0" }
+    { "name": "compneuro-step-sdk", "version": "1.1.0" },
+    { "name": "python", "version": "3.12.7" }
   ],
   "warnings": [
     {

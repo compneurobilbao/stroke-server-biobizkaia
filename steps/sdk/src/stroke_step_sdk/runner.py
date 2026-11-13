@@ -70,9 +70,11 @@ class _Run:
         self.log.info(
             "starting step %s %s (contract %s)", m.name, m.version, m.contract_version
         )
-        for code in m.missing_sdk_codes():
+        for code in m.missing_sdk_codes():  # contract 1.0 manifests only
             self.log.warning(
-                "the manifest does not declare the standard error code '%s'", code
+                "the manifest (contract %s) does not declare the reserved error code '%s'",
+                m.contract_version,
+                code,
             )
         try:
             self._prepare()
@@ -142,8 +144,8 @@ class _Run:
             gpus=_int_or_none(self.environ.get("STEP_GPUS")) or 0,
             logger=self.log,
         )
-        self.ctx.add_software("compneuro-step-sdk", __version__)
-        self.ctx.add_software("python", platform.python_version())
+        for record in _base_software():
+            self.ctx.add_software(record["name"], record["version"])
 
     def _stage_inputs(self) -> dict[str, Path | None]:
         m = self.manifest
@@ -329,14 +331,14 @@ class _Run:
 
     def _reject(self, exc: StepRejection) -> int:
         m = self.manifest
-        declared = m.errors.get(exc.code)
+        declared = m.declared_error_codes().get(exc.code)
         if declared is None:
             self.log.error("undeclared error code '%s'", exc.code)
             return self._internal(
                 "undeclared_error_code",
                 f"The step tried to report the undeclared error code '{exc.code}'.",
             )
-        if declared["category"] != exc.category:
+        if declared != exc.category:
             return self._internal(
                 "error_category_mismatch",
                 f"The error code '{exc.code}' is declared with another category.",
@@ -370,7 +372,10 @@ class _Run:
         return self._write_failure(error, "failed", exit_code)
 
     def _write_failure(self, error: dict, status: str, exit_code: int) -> int:
-        """Best effort: remove output ports, write error.json, then provenance.json."""
+        """Best effort: remove output ports, write error.json, then provenance.json.
+
+        Contract 1.1 (4.1, provenance 2): after a rejection or failure ``/out`` holds no
+        output port files and ``provenance.outputs`` is empty."""
         try:
             for port in self.manifest.outputs:
                 (self.out_dir / port.filename).unlink(missing_ok=True)
@@ -384,7 +389,10 @@ class _Run:
 
 
 def _base_software() -> list[dict]:
-    return [{"name": "compneuro-step-sdk", "version": __version__}]
+    return [
+        {"name": "compneuro-step-sdk", "version": __version__},
+        {"name": "python", "version": platform.python_version()},
+    ]
 
 
 def _int_or_none(value: str | None) -> int | None:

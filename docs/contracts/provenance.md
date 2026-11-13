@@ -1,7 +1,7 @@
-# Provenance records 1.0 (`provenance.json`)
+# Provenance records 1.1 (`provenance.json`)
 
-Status: normative. Contract version `1.0`. Schema: [`contracts/schemas/v1/provenance.schema.json`](../../contracts/schemas/v1/provenance.schema.json).
-Worked examples: [`provenance-step.json`](../../contracts/examples/provenance-step.json), [`provenance-run.json`](../../contracts/examples/provenance-run.json).
+Status: normative. Contract version `1.1`. Schema: [`contracts/schemas/v1/provenance.schema.json`](../../contracts/schemas/v1/provenance.schema.json).
+Worked examples: [`provenance-step.json`](../../contracts/examples/provenance-step.json), [`provenance-step-rejected.json`](../../contracts/examples/provenance-step-rejected.json), [`provenance-run.json`](../../contracts/examples/provenance-run.json).
 
 There are two kinds of record, in one schema:
 
@@ -27,14 +27,16 @@ There are two kinds of record, in one schema:
 | `step` | `{name, version}` from the manifest. |
 | `status` | `succeeded` (exit 0), `rejected` (exit 10) or `failed` (internal failure, best effort). |
 | `started_at`, `finished_at` | The step's own clock, start of `run` to the moment the record is written. |
-| `parameters` | The effective parameters as read and validated by the step (after applying defaults). |
-| `inputs[]` | `{port, type, sha256, size_bytes}` for every staged input file. |
-| `outputs[]` | `{port, type, sha256, size_bytes}` for every produced output file (not for `provenance.json`, `error.json` or `extra/`). |
+| `parameters` | With `status: succeeded`: the effective parameters as read and validated by the step (after applying defaults). With `rejected` or `failed`: the same if validation had passed; otherwise (code `invalid_parameters`) the object exactly as read from the parameter file, unvalidated; `{}` if the file could not be read. |
+| `inputs[]` | `{port, type, sha256, size_bytes}` for every staged input file. With `rejected` or `failed` it MAY list fewer (the step stopped before hashing them). |
+| `outputs[]` | `{port, type, sha256, size_bytes}` for every produced output file (not for `provenance.json`, `error.json` or `extra/`). *1.1:* empty unless `status: succeeded`; outputs are collected only after exit 0. |
 | `bundles[]` | `{name, id, version, content_digest}` copied from each mounted `/ref/<name>/bundle.yaml`. A model is a bundle (D10), so the model version appears here. |
-| `software[]` | `{name, version}` of the tools and libraries that determine results (e.g. FSL, elastix, MRtrix3, the SDK). |
+| `software[]` | `{name, version}` of the tools and libraries that determine results (e.g. FSL, elastix, MRtrix3). Names and versions are free-form strings and are not checked by the validator; use the upstream project name. A step built on the SDK records `compneuro-step-sdk` (SDK version) and `python` (interpreter version) automatically; step code adds the rest. |
 | `warnings[]` | Optional `{code, message, port}` non-fatal findings, shown in the UI and report. |
 
-The orchestrator, when collecting, MUST validate the record against the schema, check that `step` matches the implementation it started, recompute the SHA-256 of every staged input and collected output and compare them with the record, and check bundle digests against what it mounted. A mismatch is a `contract_violation`.
+The orchestrator, when collecting, MUST validate the record against the schema, check that `step` matches the implementation it started, recompute the SHA-256 of every staged input and collected output and compare them with the record, and check bundle digests against what it mounted. A mismatch is a `contract_violation`. The record's `parameters` are checked against the manifest's parameter schema only when `status` is `succeeded`; for `rejected` and `failed` they are kept as evidence of what the step received.
+
+*Rationale for raw parameters on rejection:* the record must say honestly what the step was given; recording defaults instead would describe a run that did not happen.
 
 ## 3. `RunProvenance`
 

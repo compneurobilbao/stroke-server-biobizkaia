@@ -263,7 +263,7 @@ def test_invalid_manifest_returns_internal_without_files(run):
 
 def test_manifest_with_newer_minor_contract_version_is_rejected(run):
     bad = copy.deepcopy(MANIFEST)
-    bad["contract_version"] = "1.1"  # newer than the contract the SDK implements
+    bad["contract_version"] = "1.2"  # newer than the contract the SDK implements
     run.manifest_path.write_text(json.dumps(bad), encoding="utf-8")
     assert run.run(lambda ctx: None) == EXIT_INTERNAL
     assert run.files() == set()
