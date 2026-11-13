@@ -51,7 +51,7 @@ class DummyProcessorAdapter:
         if not input_dir.exists() or not input_dir.is_dir():
             logs_dir.mkdir(parents=True, exist_ok=True)
             log_path.write_text("Input directory does not exist\n", encoding="utf-8")
-            return ProcessorResult(False, None, None, log_path, "No existe el directorio de entrada", 0.0)
+            return ProcessorResult(False, None, None, log_path, "Input directory does not exist", 0.0)
 
         output_dir.mkdir(parents=True, exist_ok=True)
         logs_dir.mkdir(parents=True, exist_ok=True)
@@ -65,13 +65,13 @@ class DummyProcessorAdapter:
 
         completed, duration = self._run_command(command, log_path, started)
         if completed is None:
-            return ProcessorResult(False, None, None, log_path, "Error ejecutando el procesador externo", duration)
+            return ProcessorResult(False, None, None, log_path, "Error running the external processor", duration)
         if completed.returncode != 0:
-            return ProcessorResult(False, completed.returncode, None, log_path, "El procesador externo terminó con error", duration)
+            return ProcessorResult(False, completed.returncode, None, log_path, "The external processor finished with an error", duration)
 
         pdf_path = self._find_pdf(output_dir)
         if not pdf_path:
-            return ProcessorResult(False, completed.returncode, None, log_path, "El procesador no generó ningún PDF", duration)
+            return ProcessorResult(False, completed.returncode, None, log_path, "The processor did not generate any PDF", duration)
 
         return ProcessorResult(True, completed.returncode, pdf_path, log_path, None, duration, output_files=[pdf_path])
 
@@ -146,7 +146,7 @@ class CompneuroAnatprocAdapter:
                 except Exception as exc:
                     duration = time.monotonic() - started
                     log_path.write_text(f"ERROR preparando /project: {exc}\n", encoding="utf-8")
-                    return ProcessorResult(False, None, None, log_path, "No se pudo preparar el entorno /project", duration)
+                    return ProcessorResult(False, None, None, log_path, "Could not prepare the /project environment", duration)
 
                 command = self.command_template.format(
                     input_dir=shlex.quote(str(input_dir.resolve())),
@@ -162,7 +162,7 @@ class CompneuroAnatprocAdapter:
         if completed is None:
             return ProcessorResult(False, None, None, log_path, "Error ejecutando compneuro-anatproc", duration, preproc_path=preproc_dir)
         if completed.returncode != 0:
-            return ProcessorResult(False, completed.returncode, None, log_path, "compneuro-anatproc terminó con error", duration, preproc_path=preproc_dir)
+            return ProcessorResult(False, completed.returncode, None, log_path, "compneuro-anatproc finished with an error", duration, preproc_path=preproc_dir)
 
         output_files = list_output_files(preproc_dir)
         missing = [name for name in ["BET", "ProbTissue"] if not (preproc_dir / name).is_dir()]
@@ -172,13 +172,13 @@ class CompneuroAnatprocAdapter:
                 completed.returncode,
                 None,
                 log_path,
-                f"No se generaron las carpetas esperadas: {', '.join(missing)}",
+                f"The expected folders were not generated: {', '.join(missing)}",
                 duration,
                 output_files=output_files,
                 preproc_path=preproc_dir,
             )
         if not output_files:
-            return ProcessorResult(False, completed.returncode, None, log_path, "compneuro-anatproc no generó outputs", duration, preproc_path=preproc_dir)
+            return ProcessorResult(False, completed.returncode, None, log_path, "compneuro-anatproc did not generate outputs", duration, preproc_path=preproc_dir)
 
         return ProcessorResult(True, completed.returncode, None, log_path, None, duration, output_files=output_files, preproc_path=preproc_dir)
 
@@ -198,14 +198,14 @@ class CompneuroAnatprocAdapter:
         if project_mount.is_symlink():
             project_mount.unlink()
         elif project_mount.exists():
-            raise ValueError(f"{project_mount} existe y no es un symlink gestionado")
+            raise ValueError(f"{project_mount} exists and is not a managed symlink")
         project_mount.symlink_to(runtime_project_dir, target_is_directory=True)
 
     def _replace_symlink(self, link_path: Path, target: Path) -> None:
         if link_path.is_symlink():
             link_path.unlink()
         elif link_path.exists():
-            raise ValueError(f"{link_path} existe y no es un symlink gestionado")
+            raise ValueError(f"{link_path} exists and is not a managed symlink")
         link_path.symlink_to(target, target_is_directory=True)
 
     def _run_command(self, command: str, log_path: Path, started: float) -> tuple[subprocess.CompletedProcess[str] | None, float]:
@@ -267,7 +267,7 @@ def _run_external_command(
 
     def handle_cancel(signum, _frame):
         _terminate_process_group(process)
-        raise ProcessorCanceled(f"Procesamiento cancelado por señal {signum}")
+        raise ProcessorCanceled(f"Processing canceled by signal {signum}")
 
     for signum in previous_handlers:
         signal.signal(signum, handle_cancel)
@@ -321,4 +321,4 @@ def create_processor_adapter(
         return DummyProcessorAdapter(processor_command, timeout_seconds=timeout_seconds)
     if normalized_backend == "compneuro":
         return CompneuroAnatprocAdapter(compneuro_command, compneuro_project_mount, timeout_seconds=timeout_seconds)
-    raise ValueError(f"Backend de procesamiento no soportado: {backend}")
+    raise ValueError(f"Unsupported processing backend: {backend}")

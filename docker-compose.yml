@@ -62,13 +62,13 @@ services:
       AUTH_SECRET_KEY: ${AUTH_SECRET_KEY:-change-me-in-production}
       AUTH_ACCESS_TOKEN_EXPIRE_MINUTES: ${AUTH_ACCESS_TOKEN_EXPIRE_MINUTES:-480}
       SHARE_LINK_EXPIRE_HOURS: ${SHARE_LINK_EXPIRE_HOURS:-72}
-      APP_PUBLIC_BASE_URL: ${APP_PUBLIC_BASE_URL:-http://100.114.173.115}
+      APP_PUBLIC_BASE_URL: ${APP_PUBLIC_BASE_URL:-http://localhost}
       NOTIFICATIONS_EMAIL_ENABLED: ${NOTIFICATIONS_EMAIL_ENABLED:-true}
       SMTP_HOST: ${SMTP_HOST:-mailpit}
       SMTP_PORT: ${SMTP_PORT:-1025}
       SMTP_USERNAME: ${SMTP_USERNAME:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-noreply@neuroimagen.com}
+      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-noreply@example.org}
       SMTP_USE_TLS: ${SMTP_USE_TLS:-false}
     depends_on:
       postgres:
@@ -118,13 +118,13 @@ services:
       TECHNICAL_REPORT_FILENAME: ${TECHNICAL_REPORT_FILENAME:-technical_report.pdf}
       BIDS_VALIDATE: ${BIDS_VALIDATE:-false}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost,http://localhost:5173}
-      APP_PUBLIC_BASE_URL: ${APP_PUBLIC_BASE_URL:-http://100.114.173.115}
+      APP_PUBLIC_BASE_URL: ${APP_PUBLIC_BASE_URL:-http://localhost}
       NOTIFICATIONS_EMAIL_ENABLED: ${NOTIFICATIONS_EMAIL_ENABLED:-true}
       SMTP_HOST: ${SMTP_HOST:-mailpit}
       SMTP_PORT: ${SMTP_PORT:-1025}
       SMTP_USERNAME: ${SMTP_USERNAME:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-noreply@neuroimagen.com}
+      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-noreply@example.org}
       SMTP_USE_TLS: ${SMTP_USE_TLS:-false}
     depends_on:
       postgres:

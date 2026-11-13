@@ -43,8 +43,8 @@ def test_send_email_uses_starttls_before_login(monkeypatch):
     _send_email(
         settings=settings,
         to_email="recipient@example.test",
-        subject="Procesamiento completado",
-        body="El estudio terminó correctamente.",
+        subject="Processing completed",
+        body="The study finished successfully.",
     )
 
     assert events == [

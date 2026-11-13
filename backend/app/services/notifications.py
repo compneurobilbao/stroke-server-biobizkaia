@@ -38,10 +38,10 @@ def _notify_completed(
             recipient=owner,
             study=study,
             event_type="processing_completed",
-            title="Procesamiento completado",
+            title="Processing completed",
             message=(
-                f"El estudio {study.original_filename} terminó correctamente. "
-                "Ya puedes revisar y descargar el informe técnico desde la plataforma."
+                f"Study {study.original_filename} finished successfully. "
+                "You can now review and download the technical report from the platform."
             ),
             settings=settings,
             email_allowed=owner.notify_on_processing_completed,
@@ -64,9 +64,9 @@ def _notify_failed(db: Session, study: Study, settings: Settings) -> list[Notifi
         if recipient.id in seen:
             continue
         seen.add(recipient.id)
-        title = "Procesamiento fallido"
+        title = "Processing failed"
         if recipient.role == UserRole.admin.value:
-            title = "Error de procesamiento requiere revisión"
+            title = "Processing error requires review"
         notifications.append(
             create_notification(
                 db,
@@ -75,8 +75,8 @@ def _notify_failed(db: Session, study: Study, settings: Settings) -> list[Notifi
                 event_type="processing_failed",
                 title=title,
                 message=(
-                    f"El estudio {study.original_filename} terminó con error. "
-                    f"Detalle registrado: {study.error_message or 'sin detalle técnico'}."
+                    f"Study {study.original_filename} finished with an error. "
+                    f"Recorded detail: {study.error_message or 'no technical detail'}."
                 ),
                 settings=settings,
                 email_allowed=recipient.notify_on_processing_failed,
@@ -161,11 +161,11 @@ def _email_body(message: str, study: Study | None, settings: Settings) -> str:
         lines.extend(
             [
                 "",
-                f"Estudio: {study.id}",
-                f"Fichero: {study.original_filename}",
-                f"Acceso a la plataforma: {base_url}",
+                f"Study: {study.id}",
+                f"File: {study.original_filename}",
+                f"Platform access: {base_url}",
                 "",
-                "No se adjuntan PDF, ZIP ni datos pesados en este correo.",
+                "No PDF, ZIP or other large data are attached to this email.",
             ]
         )
     return "\n".join(lines)

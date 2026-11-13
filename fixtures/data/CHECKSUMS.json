@@ -1,0 +1,156 @@
+{
+  "files": {
+    "bundles/toy-normative-connectome/1.0.0/README.md": {
+      "payload_sha256": "8a0d04dfe6b8c70aa0327e483ab9b6f8c39f97709bcfecf097320d995073c1cc",
+      "sha256": "8a0d04dfe6b8c70aa0327e483ab9b6f8c39f97709bcfecf097320d995073c1cc",
+      "size_bytes": 786
+    },
+    "bundles/toy-normative-connectome/1.0.0/bundle.yaml": {
+      "payload_sha256": "72c6eb658f46d242225181a73d0837e786c646d23ca6ec28bc0beb14f3df3ff3",
+      "sha256": "72c6eb658f46d242225181a73d0837e786c646d23ca6ec28bc0beb14f3df3ff3",
+      "size_bytes": 1268
+    },
+    "bundles/toy-normative-connectome/1.0.0/connectomes.npz": {
+      "payload_sha256": "28a357cb5d545ab16c2f429a0096439a4830878720fbc942b64af75bb80625fa",
+      "sha256": "28a357cb5d545ab16c2f429a0096439a4830878720fbc942b64af75bb80625fa",
+      "size_bytes": 801854
+    },
+    "bundles/toy-normative-connectome/1.0.0/parcellation/atlas.nii.gz": {
+      "payload_sha256": "66545fd27cae0c9c6ca1e15e65aa2876a146835ceb73bcb275a740c185d21c04",
+      "sha256": "a54c93cd60be9258a1654fc467561425ec9eda0f32fd105b1ea2ab94937c5194",
+      "size_bytes": 26822
+    },
+    "bundles/toy-normative-connectome/1.0.0/parcellation/labels.tsv": {
+      "payload_sha256": "f0abbc60bedb131cd8884df55d658d5115ec9a2e5b8bff556140b926ab86986a",
+      "sha256": "f0abbc60bedb131cd8884df55d658d5115ec9a2e5b8bff556140b926ab86986a",
+      "size_bytes": 1115
+    },
+    "bundles/toy-normative-connectome/1.0.0/participants.tsv": {
+      "payload_sha256": "0bb43d9fbd907220cecb3014ce55d9324ef4fd1a58e9fc1280ea1a53352da7ad",
+      "sha256": "0bb43d9fbd907220cecb3014ce55d9324ef4fd1a58e9fc1280ea1a53352da7ad",
+      "size_bytes": 352
+    },
+    "bundles/toy-tract-atlas/1.0.0/README.md": {
+      "payload_sha256": "0594776d1e112f68f94df0dad72fe384120a89ed15dea3ef0c49e0abbdb03fe9",
+      "sha256": "0594776d1e112f68f94df0dad72fe384120a89ed15dea3ef0c49e0abbdb03fe9",
+      "size_bytes": 695
+    },
+    "bundles/toy-tract-atlas/1.0.0/bundle.yaml": {
+      "payload_sha256": "822e3524b699dca0c13b844eaa896b901f1fd4c51d1876a87aad51ffa37c1a57",
+      "sha256": "822e3524b699dca0c13b844eaa896b901f1fd4c51d1876a87aad51ffa37c1a57",
+      "size_bytes": 1362
+    },
+    "bundles/toy-tract-atlas/1.0.0/streamlines.npz": {
+      "payload_sha256": "bf264d71c4fe706000a5776bac8f474fce9e5e5061135a07bb88fef5fd94b94e",
+      "sha256": "bf264d71c4fe706000a5776bac8f474fce9e5e5061135a07bb88fef5fd94b94e",
+      "size_bytes": 90004
+    },
+    "bundles/toy-tract-atlas/1.0.0/tracts.tsv": {
+      "payload_sha256": "c7263858a04418a5e12872ed6a26fdd005c8f8b7c1f3394e527ae238a3d25e1a",
+      "sha256": "c7263858a04418a5e12872ed6a26fdd005c8f8b7c1f3394e527ae238a3d25e1a",
+      "size_bytes": 210
+    },
+    "bundles/toy-tract-atlas/1.0.0/tracts/toy_arcuate_left.nii.gz": {
+      "payload_sha256": "72e96f35c8c778daa3c15f825eb5331b6efb48af9db7ee1cb4ea786c04f61b02",
+      "sha256": "d36bc6be403f342807920fd781234617095d1b81a0c6519914a224e98a4e1452",
+      "size_bytes": 1470
+    },
+    "bundles/toy-tract-atlas/1.0.0/tracts/toy_cc_body.nii.gz": {
+      "payload_sha256": "99a4799f256bf5defaf523c01f28482be8961001507830f55b1911b0b92a548f",
+      "sha256": "93b81a6b4bd44cb403df3719e9a124492083530e09c27e9da1d2149ac1f6f017",
+      "size_bytes": 1561
+    },
+    "bundles/toy-tract-atlas/1.0.0/tracts/toy_cst_left.nii.gz": {
+      "payload_sha256": "89a9b6c1764e6b0e2cc147e78d6afdef3a732574200347024feb05fdcb1d4c11",
+      "sha256": "20c6bc2d685ea3b330eae57575116800dcfb60e2f888d12702764fa0aab8feba",
+      "size_bytes": 1586
+    },
+    "bundles/toy-tract-atlas/1.0.0/tracts/toy_cst_right.nii.gz": {
+      "payload_sha256": "696ae7e11dbfce182f228ed7b42db4acc55e7b70e2034845ef279a1515a6f22d",
+      "sha256": "57d6f0e1d3eb0cd8d2cc6a7aa4d9a0340a0921b3c6990a3051ee6f2727c0588d",
+      "size_bytes": 1673
+    },
+    "cases/case-01/ct.nii.gz": {
+      "payload_sha256": "333fc3fb65fd1e65d4f33c45b238b4638d46b84459cb660f7f768cebb306cd75",
+      "sha256": "c6115cccef25239ffefd3005badf691e13468e67d2aaea0f66ab652bd101d96b",
+      "size_bytes": 261337
+    },
+    "cases/case-01/lesion_mask_mni.nii.gz": {
+      "payload_sha256": "2cb5034a6f0f6106203ff343650d8332a9f7a1b092cfdbf59ac26e3cb1590845",
+      "sha256": "7120e719b6659b5a9a900a90794494a6f21c69a065e45769411237520209eade",
+      "size_bytes": 1210
+    },
+    "cases/case-01/lesion_mask_native.nii.gz": {
+      "payload_sha256": "1f2304cb0df902b9d4919fb2e19505f4fa873cde9d8eb9a4deae2aacc863fa84",
+      "sha256": "4022dd617125a2335144f37f861095ca767737fcb96cf487f29329ebb2420f06",
+      "size_bytes": 704
+    },
+    "cases/case-01/truth.json": {
+      "payload_sha256": "67b9602f7da9a498dbeb1d9e2b0961dfbf7261cd5e2f4dc56e2e795abcf4aa73",
+      "sha256": "67b9602f7da9a498dbeb1d9e2b0961dfbf7261cd5e2f4dc56e2e795abcf4aa73",
+      "size_bytes": 1833
+    },
+    "cases/case-02/ct.nii.gz": {
+      "payload_sha256": "70bb95ce80961fe6092eac0fd73dd545cbaf693d25fb928e79bc6ec14c9755db",
+      "sha256": "a6cb9ff1a4326a41ac290b866f4b31ec5d7da1f47bd5e234c492a3f15f031257",
+      "size_bytes": 258703
+    },
+    "cases/case-02/lesion_mask_mni.nii.gz": {
+      "payload_sha256": "f6b25412bb089336ddda2f941358a36029b3201eec05f67b5f8c58add6c84013",
+      "sha256": "e0c36c031bcbf58f4aaf1d70e93ef602ea9bab90f4865d2ac9233aa2de4566bb",
+      "size_bytes": 1059
+    },
+    "cases/case-02/lesion_mask_native.nii.gz": {
+      "payload_sha256": "b649987c2d8984d3d1cf8865c9389d6f9d1101b63900ded3f2e67c8352feabb9",
+      "sha256": "be041838e5ce120d7821da6f6f8c0489a0f46136d9345b7ad7ec2473a315ceb6",
+      "size_bytes": 587
+    },
+    "cases/case-02/truth.json": {
+      "payload_sha256": "888de28d9debd7d1401901476daee7218c513627612750e3aec826c39f72bffe",
+      "sha256": "888de28d9debd7d1401901476daee7218c513627612750e3aec826c39f72bffe",
+      "size_bytes": 1824
+    },
+    "mni_masks/index.tsv": {
+      "payload_sha256": "e37fbe468492a253477e91e9030bae369f2edb0794e7c41bbfdca30950fc3dd5",
+      "sha256": "e37fbe468492a253477e91e9030bae369f2edb0794e7c41bbfdca30950fc3dd5",
+      "size_bytes": 279
+    },
+    "mni_masks/lesion_left_large.nii.gz": {
+      "payload_sha256": "a7453682baea3f3539a9a2227370a280d7ab14bfedb5520362f1a05f3e4dbbfd",
+      "sha256": "a80b189c5911631e720147a1cf099586c309202059fa5cf3c3cf9d2064e93484",
+      "size_bytes": 1575
+    },
+    "mni_masks/lesion_left_medium.nii.gz": {
+      "payload_sha256": "2cb5034a6f0f6106203ff343650d8332a9f7a1b092cfdbf59ac26e3cb1590845",
+      "sha256": "7120e719b6659b5a9a900a90794494a6f21c69a065e45769411237520209eade",
+      "size_bytes": 1210
+    },
+    "mni_masks/lesion_left_small.nii.gz": {
+      "payload_sha256": "0a1de15da5d8b7bced2f67ab53a2ddef180566cdf7b56526ea1b617566f9d9c6",
+      "sha256": "f33dde2a5e1980307968fc746e2a819169098a517d3d3fc3352668eb1022a930",
+      "size_bytes": 1061
+    },
+    "mni_masks/lesion_right_blob.nii.gz": {
+      "payload_sha256": "8eab439229bec8445d5cb452049f028c406a2bd088949626c3d11df88d3741b0",
+      "sha256": "29c91a3995544c2dd9ed207d7f8b0f55ab0473afe368358e5359b6f640d800e7",
+      "size_bytes": 1235
+    },
+    "mni_masks/lesion_right_large.nii.gz": {
+      "payload_sha256": "8d9435f4485ce6be43577b0a38ff6a6ea3a5f5cb0933a8d2f345bcf751a64e32",
+      "sha256": "514a15face82a0ffd74ef4cb880a3e71fc38ee42994a4409773974798fec7c21",
+      "size_bytes": 1699
+    },
+    "mni_masks/lesion_right_medium.nii.gz": {
+      "payload_sha256": "b89d100698bae65e95155a0cffac315a8b1396abf397a5a1c4de68211006a714",
+      "sha256": "8c6521b812a94f06bfb3c776ddbf9299afd2f88121566092eb242536cb564116",
+      "size_bytes": 1229
+    },
+    "mni_masks/lesion_right_small.nii.gz": {
+      "payload_sha256": "5a23d567de5bdb512ef574a19d0c50fd7c240d8469b0bdf0d6030b2006432e65",
+      "sha256": "a0ec6cefb3e5df3e57e4dc91e559f923424261300d232a1a07b5091205fa8d77",
+      "size_bytes": 1046
+    }
+  },
+  "note": "payload_sha256 is the SHA-256 of the decompressed content and is the cross-platform reproducibility check; sha256 is of the stored bytes.",
+  "seed": 20260101
+}

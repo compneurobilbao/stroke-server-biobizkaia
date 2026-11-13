@@ -12,3 +12,5 @@ uvicorn[standard]==0.30.6
 pytest==8.3.3
 jsonschema==4.23.0
 PyYAML==6.0.2
+numpy==2.1.1
+nibabel==5.3.2
