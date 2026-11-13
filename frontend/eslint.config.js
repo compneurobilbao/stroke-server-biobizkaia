@@ -1,21 +1,19 @@
+import js from '@eslint/js';
 import react from 'eslint-plugin-react';
+import globals from 'globals';
+import tseslint from 'typescript-eslint';
+import { defineConfig } from 'eslint/config';
 
-export default [
+export default defineConfig([
+  { ignores: ['dist', 'node_modules'] },
   {
-    files: ['src/**/*.{js,jsx}'],
+    files: ['**/*.{ts,tsx}'],
+    extends: [js.configs.recommended, tseslint.configs.recommended],
     plugins: { react },
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'module',
-      parserOptions: {
-        ecmaFeatures: { jsx: true },
-      },
-      globals: {
-        document: 'readonly',
-        fetch: 'readonly',
-        FormData: 'readonly',
-        window: 'readonly',
-      },
+      globals: { ...globals.browser },
     },
     settings: {
       react: { version: 'detect' },
@@ -26,4 +24,4 @@ export default [
       'react/prop-types': 'off',
     },
   },
-];
+]);
