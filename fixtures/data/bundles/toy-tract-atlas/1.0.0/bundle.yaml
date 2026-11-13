@@ -1,0 +1,38 @@
+contract_version: '1.0'
+kind: Bundle
+id: toy-tract-atlas
+version: 1.0.0
+type: tract-atlas
+title: Toy tract atlas (synthetic)
+description: Four synthetic streamline bundles with voxel masks. For CI and demos only.
+synthetic: true
+licence:
+  spdx: CC0-1.0
+  redistributable: true
+  notes: Generated data; no public ingredient. See fixtures/LICENCES.md.
+metadata:
+  n_tracts: 4
+  n_streamlines_per_tract: 60
+content_digest: sha256:9205b18ca563890aae7ee6e12d35f19487ab7d37a411ee1ef96dc7d2adb26e74
+files:
+- path: README.md
+  sha256: 0594776d1e112f68f94df0dad72fe384120a89ed15dea3ef0c49e0abbdb03fe9
+  size_bytes: 695
+- path: streamlines.npz
+  sha256: cd2d4fb6ace2b53641b783b30d5878e8cb00c3af64694f6f15c54b023de290c0
+  size_bytes: 90004
+- path: tracts/toy_arcuate_left.nii.gz
+  sha256: d36bc6be403f342807920fd781234617095d1b81a0c6519914a224e98a4e1452
+  size_bytes: 1470
+- path: tracts/toy_cc_body.nii.gz
+  sha256: 93b81a6b4bd44cb403df3719e9a124492083530e09c27e9da1d2149ac1f6f017
+  size_bytes: 1561
+- path: tracts/toy_cst_left.nii.gz
+  sha256: 20c6bc2d685ea3b330eae57575116800dcfb60e2f888d12702764fa0aab8feba
+  size_bytes: 1586
+- path: tracts/toy_cst_right.nii.gz
+  sha256: 57d6f0e1d3eb0cd8d2cc6a7aa4d9a0340a0921b3c6990a3051ee6f2727c0588d
+  size_bytes: 1673
+- path: tracts.tsv
+  sha256: c7263858a04418a5e12872ed6a26fdd005c8f8b7c1f3394e527ae238a3d25e1a
+  size_bytes: 210

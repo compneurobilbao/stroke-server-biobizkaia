@@ -1,0 +1,37 @@
+contract_version: '1.0'
+kind: Bundle
+id: toy-normative-connectome
+version: 1.0.0
+type: normative-connectome
+title: Toy normative connectome (synthetic)
+description: Synthetic parcellation plus random low-rank connectivity matrices for 20 synthetic
+  participants with sex and age labels. For CI and demos only.
+synthetic: true
+licence:
+  spdx: CC0-1.0
+  redistributable: true
+  notes: Generated data; no public ingredient. See fixtures/LICENCES.md.
+metadata:
+  n_participants: 20
+  n_female: 10
+  n_male: 10
+  age_range: 45-85
+  n_parcels: 100
+  layout: placeholder-v0
+content_digest: sha256:9db94900cabd539a6e9b0d76f0473eec3ee095b14ce02608fa8f4c65d2799e3c
+files:
+- path: connectomes.npz
+  sha256: ea78c1a5396febafcec153896f00dea3acd1584e0db56be6572062f837cfc5af
+  size_bytes: 801854
+- path: parcellation/atlas.nii.gz
+  sha256: a54c93cd60be9258a1654fc467561425ec9eda0f32fd105b1ea2ab94937c5194
+  size_bytes: 26822
+- path: parcellation/labels.tsv
+  sha256: f0abbc60bedb131cd8884df55d658d5115ec9a2e5b8bff556140b926ab86986a
+  size_bytes: 1115
+- path: participants.tsv
+  sha256: 0bb43d9fbd907220cecb3014ce55d9324ef4fd1a58e9fc1280ea1a53352da7ad
+  size_bytes: 352
+- path: README.md
+  sha256: 8a0d04dfe6b8c70aa0327e483ab9b6f8c39f97709bcfecf097320d995073c1cc
+  size_bytes: 786
