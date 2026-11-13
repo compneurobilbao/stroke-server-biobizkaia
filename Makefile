@@ -1,4 +1,4 @@
-.PHONY: up down logs test lint format migrate seed clean smoke check-docs check-secrets frontend-rebuild rebuild create-admin backup restore retention-dry-run retention-execute
+.PHONY: up down logs test test-steps lint format migrate seed clean smoke check-docs check-secrets frontend-rebuild rebuild create-admin backup restore retention-dry-run retention-execute
 
 WORKER_REPLICAS ?=
 DAYS ?= 90
@@ -28,6 +28,13 @@ logs:
 
 test:
 	PYTHONPATH=.:backend pytest tests
+
+# Step SDK and template step unit tests. They need the SDK's own pinned dependencies
+# (steps/sdk/requirements-image.txt, differing from backend/requirements.txt) and the SDK
+# installed, so run them in a separate virtualenv:
+#   pip install -r steps/sdk/requirements-image.txt pytest==8.3.3 && pip install --no-deps -e steps/sdk
+test-steps:
+	python -m pytest steps -q
 
 lint:
 	ruff check backend worker processor_adapter tests

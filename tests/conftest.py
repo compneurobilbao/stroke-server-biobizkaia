@@ -16,6 +16,13 @@ from app.db.session import get_db
 from app.main import app
 
 
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "postgres: needs a PostgreSQL database; skipped unless TEST_POSTGRES_URL is set",
+    )
+
+
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
     yield from _make_client(tmp_path, monkeypatch)

@@ -31,6 +31,59 @@ jobs:
       - name: Tests (pytest)
         run: make test
 
+  migrations-postgres:
+    name: Alembic migrations on PostgreSQL
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        # Same major version as docker-compose.yml
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: migrations
+          POSTGRES_USER: migrations
+          POSTGRES_PASSWORD: migrations
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U migrations -d migrations"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://migrations:migrations@localhost:5432/migrations
+      TEST_POSTGRES_URL: postgresql+psycopg://migrations:migrations@localhost:5432/migrations
+      STORAGE_ROOT: ./test-data/studies
+      CELERY_BROKER_URL: memory://
+      CELERY_RESULT_BACKEND: cache+memory://
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-python@v5.3.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
+      - name: Alembic upgrade, downgrade, upgrade
+        working-directory: backend
+        run: |
+          set -o pipefail
+          {
+            echo "### Alembic migrations on PostgreSQL 16"
+            echo
+            echo '```'
+            for cmd in "upgrade head" "downgrade base" "upgrade head"; do
+              echo "$ alembic $cmd"
+              alembic $cmd 2>&1
+            done
+            echo "$ alembic current"
+            alembic current 2>&1
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Postgres-marked tests (pytest -m postgres)
+        run: PYTHONPATH=.:backend pytest tests -m postgres -v
+
   frontend:
     name: Frontend typecheck, lint, test and build
     runs-on: ubuntu-24.04
