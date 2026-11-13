@@ -6,13 +6,13 @@
       "size_bytes": 786
     },
     "bundles/toy-normative-connectome/1.0.0/bundle.yaml": {
-      "payload_sha256": "35252cf9020b6b0f610c5b2c3d4aa84ca6accf40a53bf1d40c042782782eeb81",
-      "sha256": "35252cf9020b6b0f610c5b2c3d4aa84ca6accf40a53bf1d40c042782782eeb81",
+      "payload_sha256": "72c6eb658f46d242225181a73d0837e786c646d23ca6ec28bc0beb14f3df3ff3",
+      "sha256": "72c6eb658f46d242225181a73d0837e786c646d23ca6ec28bc0beb14f3df3ff3",
       "size_bytes": 1268
     },
     "bundles/toy-normative-connectome/1.0.0/connectomes.npz": {
-      "payload_sha256": "dead3c24a538c84dbbca765b0d3c55d556e0cba35101bc0d89dd95dca90fdcd4",
-      "sha256": "dead3c24a538c84dbbca765b0d3c55d556e0cba35101bc0d89dd95dca90fdcd4",
+      "payload_sha256": "28a357cb5d545ab16c2f429a0096439a4830878720fbc942b64af75bb80625fa",
+      "sha256": "28a357cb5d545ab16c2f429a0096439a4830878720fbc942b64af75bb80625fa",
       "size_bytes": 801854
     },
     "bundles/toy-normative-connectome/1.0.0/parcellation/atlas.nii.gz": {
@@ -36,13 +36,13 @@
       "size_bytes": 695
     },
     "bundles/toy-tract-atlas/1.0.0/bundle.yaml": {
-      "payload_sha256": "3150cff711464c394b0d22b85980cdac189e208f1ca7bdb61886d617a743bd15",
-      "sha256": "3150cff711464c394b0d22b85980cdac189e208f1ca7bdb61886d617a743bd15",
+      "payload_sha256": "822e3524b699dca0c13b844eaa896b901f1fd4c51d1876a87aad51ffa37c1a57",
+      "sha256": "822e3524b699dca0c13b844eaa896b901f1fd4c51d1876a87aad51ffa37c1a57",
       "size_bytes": 1362
     },
     "bundles/toy-tract-atlas/1.0.0/streamlines.npz": {
-      "payload_sha256": "cd2d4fb6ace2b53641b783b30d5878e8cb00c3af64694f6f15c54b023de290c0",
-      "sha256": "cd2d4fb6ace2b53641b783b30d5878e8cb00c3af64694f6f15c54b023de290c0",
+      "payload_sha256": "bf264d71c4fe706000a5776bac8f474fce9e5e5061135a07bb88fef5fd94b94e",
+      "sha256": "bf264d71c4fe706000a5776bac8f474fce9e5e5061135a07bb88fef5fd94b94e",
       "size_bytes": 90004
     },
     "bundles/toy-tract-atlas/1.0.0/tracts.tsv": {

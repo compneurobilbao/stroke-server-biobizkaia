@@ -75,6 +75,7 @@ def write_npz(path: Path, **arrays: np.ndarray) -> None:
             )
             info = zipfile.ZipInfo(name + ".npy", date_time=(1980, 1, 1, 0, 0, 0))
             info.compress_type = zipfile.ZIP_STORED
+            info.create_system = 3  # ZipInfo defaults to 0 on Windows, 3 elsewhere
             info.external_attr = 0o644 << 16
             zf.writestr(info, buf.getvalue())
 

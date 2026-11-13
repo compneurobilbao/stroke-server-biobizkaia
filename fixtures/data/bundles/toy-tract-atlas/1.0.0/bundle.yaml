@@ -13,13 +13,13 @@ licence:
 metadata:
   n_tracts: 4
   n_streamlines_per_tract: 60
-content_digest: sha256:9205b18ca563890aae7ee6e12d35f19487ab7d37a411ee1ef96dc7d2adb26e74
+content_digest: sha256:9d85752415e1a73414c018a486409d364e85a1ac2698aec41e1ea78d76e8415e
 files:
 - path: README.md
   sha256: 0594776d1e112f68f94df0dad72fe384120a89ed15dea3ef0c49e0abbdb03fe9
   size_bytes: 695
 - path: streamlines.npz
-  sha256: cd2d4fb6ace2b53641b783b30d5878e8cb00c3af64694f6f15c54b023de290c0
+  sha256: bf264d71c4fe706000a5776bac8f474fce9e5e5061135a07bb88fef5fd94b94e
   size_bytes: 90004
 - path: tracts.tsv
   sha256: c7263858a04418a5e12872ed6a26fdd005c8f8b7c1f3394e527ae238a3d25e1a
