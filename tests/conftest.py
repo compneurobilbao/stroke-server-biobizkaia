@@ -16,6 +16,13 @@ from app.db.session import get_db
 from app.main import app
 
 
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "postgres: needs a PostgreSQL database; skipped unless TEST_POSTGRES_URL is set",
+    )
+
+
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
     yield from _make_client(tmp_path, monkeypatch)
@@ -64,7 +71,7 @@ def _make_client(tmp_path, monkeypatch, **extra_env):
         def delay(*args, **kwargs):
             return None
 
-    import app.api.routes as routes
+    import app.api.studies as routes
 
     routes.process_study = DummyTask
     with TestClient(app) as test_client:

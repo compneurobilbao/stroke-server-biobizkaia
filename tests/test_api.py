@@ -435,7 +435,7 @@ def test_cancel_processing_study_terminates_celery_task(client, monkeypatch):
     class FakeTask:
         app = type("FakeApp", (), {"control": FakeControl})()
 
-    import app.api.routes as routes
+    import app.api.studies as routes
 
     monkeypatch.setattr(routes, "process_study", FakeTask)
 
@@ -913,7 +913,7 @@ def test_researcher_cannot_create_users(client):
 
 
 def test_admin_dashboard_returns_operational_summary(client, monkeypatch):
-    import app.api.routes as routes
+    import app.api.admin as routes
 
     monkeypatch.setattr(
         routes,
@@ -1028,7 +1028,7 @@ def test_compneuro_upload_cleans_storage_when_bids_preparation_fails(
     def fail_bids_preparation(*args, **kwargs):
         raise RuntimeError("forced failure")
 
-    import app.api.routes as routes
+    import app.api.studies as routes
 
     monkeypatch.setattr(
         routes, "prepare_single_subject_t1w_bids", fail_bids_preparation
