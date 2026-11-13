@@ -58,7 +58,7 @@ The plan fixes the decisions D1–D8 and D15. Where it is silent, this specifica
 18. `executor: external` is reserved for results uploaded through the SP2 endpoint ([provenance.md §3.2](provenance.md#32-step-records)).
 19. Executor runtime settings: clean environment with `STEP_CPUS` and thread variables, `SIGTERM` then `SIGKILL` after 30 s, Docker and Apptainer flags ([step-contract.md §2.3, §6](step-contract.md#6-container-constraints-docker-and-apptainer)).
 
-Added in 1.1 ([ADR-0016](../adr/0016-contract-1-1-sdk-gaps.md)):
+Added in 1.1 ([ADR-0017](../adr/0017-contract-1-1-sdk-gaps.md)):
 
 20. Reserved, implicitly declared error codes `input_missing`, `input_format_invalid`, `invalid_parameters` and `terminated` ([step-contract.md §4.4](step-contract.md#44-reserved-error-codes)).
 21. Rejected and failed provenance records keep the raw supplied parameters and are not checked against the parameter schema; their `outputs` are empty and `/out` holds no output files after exit 10 ([provenance.md §2](provenance.md#2-stepprovenance)).

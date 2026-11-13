@@ -14,7 +14,8 @@ A decision is changed by a new record that supersedes the old one; accepted reco
 | [0007](0007-open-by-default-digests-and-stubs.md) | Open code, steps referenced by digest, stubs as fixtures (D7) | accepted |
 | [0008](0008-sp2-contract.md) | SP2 results enter through one schema, as a step or through an endpoint (D8) | accepted |
 | [0015](0015-selectable-implementations-per-slot.md) | Selectable implementations per pipeline slot (D15) | accepted |
-| [0016](0016-contract-1-1-sdk-gaps.md) | Contract 1.1 closes the gaps found while building the step SDK | proposed |
+| [0016](0016-data-model-design.md) | Detailed data model design for cases, runs, step attempts and artefacts (D4, card F0-11) | accepted |
+| [0017](0017-contract-1-1-sdk-gaps.md) | Contract 1.1 closes the gaps found while building the step SDK | proposed |
 
 Numbers 0001–0015 follow the plan's decision numbers D1–D15; 0009–0014 are reserved for D9–D14. Records for decisions not in the plan continue from 0016.
 The normative specification that these records point to is in [docs/contracts/](../contracts/README.md).

@@ -1,6 +1,6 @@
 # Step contract 1.1
 
-Status: normative. Contract version `1.1`. Decision records: [ADR-0001](../adr/0001-step-contract.md), [ADR-0016](../adr/0016-contract-1-1-sdk-gaps.md) (changes in 1.1).
+Status: normative. Contract version `1.1`. Decision records: [ADR-0001](../adr/0001-step-contract.md), [ADR-0017](../adr/0017-contract-1-1-sdk-gaps.md) (changes in 1.1).
 Schemas: [`contracts/schemas/v1/step.schema.json`](../../contracts/schemas/v1/step.schema.json), [`error.schema.json`](../../contracts/schemas/v1/error.schema.json), [`provenance.schema.json`](../../contracts/schemas/v1/provenance.schema.json).
 Conventions (RFC 2119 keywords, identifiers, hashes, timestamps) are defined in [README.md](README.md#conventions).
 

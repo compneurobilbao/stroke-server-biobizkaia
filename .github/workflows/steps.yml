@@ -24,7 +24,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  IMAGE: template-lesion-volume-step:ci
+  IMAGE: template-lesion-volume-step:ci   # overridden per job where another step is built
   APPTAINER_VERSION: "1.5.5"
   # SHA-256 of apptainer_1.5.5_amd64.deb as published with the GitHub release
   APPTAINER_DEB_SHA256: "25095d3711504b3e8657dbb2e172ef8db9db43c4503d940c9c36b105db8dce77"
@@ -43,10 +43,12 @@ jobs:
           cache-dependency-path: steps/sdk/requirements-image.txt
       - name: Install SDK and test dependencies
         run: |
-          pip install -r steps/sdk/requirements-image.txt pytest==8.3.3
+          pip install -r steps/sdk/requirements-image.txt -r steps/lesion-qc/requirements-step.txt pytest==8.3.3
           pip install --no-deps -e steps/sdk
       - name: Contract documents are valid
-        run: python contracts/validate.py --kind step steps/template/step.yaml
+        run: |
+          python contracts/validate.py --kind step steps/template/step.yaml
+          python contracts/validate.py --kind step steps/lesion-qc/step.yaml
       - name: Tests (pytest)
         run: python -m pytest steps -q
 
@@ -169,5 +171,152 @@ jobs:
         if: always()
         with:
           name: template-step-provenance
+          path: artifacts/
+          if-no-files-found: warn
+
+  lesion-qc-container:
+    name: Lesion QC step under Docker and Apptainer
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      IMAGE: lesion-qc-step:ci
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-python@v5.3.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: steps/sdk/requirements-image.txt
+      - name: Install SDK (host side, for the reference-test runner and validator)
+        run: |
+          pip install -r steps/sdk/requirements-image.txt
+          pip install --no-deps -e steps/sdk
+
+      - name: Generate the synthetic reference dataset
+        run: python steps/lesion-qc/tests/make_reference.py
+
+      - name: Build the step image
+        run: docker build -f steps/lesion-qc/Dockerfile -t "$IMAGE" .
+
+      - name: Image checks (mount points, manifest location, file permissions)
+        run: |
+          docker run --rm --entrypoint /bin/sh "$IMAGE" -c '
+            set -eu
+            test -x /usr/local/bin/run
+            test -r /opt/step/step.yaml
+            for d in /in /out /ref /tmp; do test -d "$d"; test -z "$(ls -A "$d")"; done
+            # nothing in the step directories may be unreadable by an arbitrary user
+            test -z "$(find /opt/step /usr/local/bin/run -not -perm -o=r)"
+          '
+          # the manifest is read from the image, as the registry will do
+          docker run --rm --entrypoint cat "$IMAGE" /opt/step/step.yaml > "$RUNNER_TEMP/step-from-image.yaml"
+          cmp "$RUNNER_TEMP/step-from-image.yaml" steps/lesion-qc/step.yaml
+
+      - name: Reference test under Docker (contract section 6 flags, arbitrary UID)
+        run: |
+          mkdir -p artifacts
+          stroke-step-reftest --step-dir steps/lesion-qc --mode docker --image "$IMAGE" \
+            --workdir "$RUNNER_TEMP/docker-run" --save-provenance artifacts/provenance-docker.json
+
+      - name: Validate manifest, provenance and outputs with contracts/validate.py (Docker run)
+        run: |
+          python contracts/validate.py steps/lesion-qc/step.yaml artifacts/provenance-docker.json
+          cat artifacts/provenance-docker.json
+          cp "$RUNNER_TEMP/docker-run/out/lesion_qc.json" "$RUNNER_TEMP/docker-run/out/qc_figure.png" artifacts/
+
+      - name: Rejection path under Docker (exit code 10 and error.json)
+        run: |
+          work="$RUNNER_TEMP/docker-reject"
+          mkdir -p "$work/in" "$work/out"
+          chmod 777 "$work/out"
+          echo '{}' > "$work/in/params.json"
+          # no lesion_mask staged: the SDK must reject the run
+          set +e
+          docker run --rm --read-only --user 12345:12345 --cap-drop ALL \
+            --security-opt no-new-privileges --network none --tmpfs /tmp:rw,mode=1777 \
+            -v "$work/in:/in:ro" -v "$work/out:/out" -e HOME=/tmp -e TMPDIR=/tmp -e TZ=UTC \
+            -e STEP_CPUS=1 --entrypoint /usr/local/bin/run "$IMAGE" \
+            --in /in --out /out --params /in/params.json
+          code=$?
+          set -e
+          echo "exit code: $code"
+          test "$code" -eq 10
+          python contracts/validate.py steps/lesion-qc/step.yaml "$work/out/provenance.json" "$work/out/error.json"
+          cp "$work/out/error.json" artifacts/error-docker.json
+
+      - name: Install Apptainer (official release package)
+        run: |
+          deb="apptainer_${APPTAINER_VERSION}_amd64.deb"
+          curl -sSfL -o "$RUNNER_TEMP/$deb" \
+            "https://github.com/apptainer/apptainer/releases/download/v${APPTAINER_VERSION}/${deb}"
+          echo "${APPTAINER_DEB_SHA256}  $RUNNER_TEMP/$deb" | sha256sum -c -
+          sudo apt-get update -q
+          sudo apt-get install -y -q "$RUNNER_TEMP/$deb"
+          # Ubuntu 24.04 restricts unprivileged user namespaces, which Apptainer needs
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          apptainer --version
+
+      - name: Build the SIF from the Docker image with the template's definition file
+        run: |
+          sudo apptainer build --build-arg IMAGE="$IMAGE" "$RUNNER_TEMP/step.sif" steps/lesion-qc/Apptainer.def
+          sudo chown "$(id -u):$(id -g)" "$RUNNER_TEMP/step.sif"
+          sha256sum "$RUNNER_TEMP/step.sif"
+
+      - name: Reference test under Apptainer (--containall --cleanenv --no-home)
+        run: |
+          stroke-step-reftest --step-dir steps/lesion-qc --mode apptainer --sif "$RUNNER_TEMP/step.sif" \
+            --workdir "$RUNNER_TEMP/apptainer-run" --save-provenance artifacts/provenance-apptainer.json
+
+      - name: Validate the Apptainer run with contracts/validate.py
+        run: python contracts/validate.py steps/lesion-qc/step.yaml artifacts/provenance-apptainer.json
+
+      - name: Docker and Apptainer outputs are identical
+        run: |
+          for f in lesion_qc.json lesion_mask_mni.nii.gz qc_figure.png; do
+            cmp "$RUNNER_TEMP/docker-run/out/$f" "$RUNNER_TEMP/apptainer-run/out/$f"
+          done
+          python - <<'PY'
+          import json
+          a = json.load(open("artifacts/provenance-docker.json"))
+          b = json.load(open("artifacts/provenance-apptainer.json"))
+          assert a["outputs"] == b["outputs"], "output hashes differ between runtimes"
+          assert a["inputs"] == b["inputs"], "input hashes differ between runtimes"
+          PY
+
+      - name: Validate lesion_qc.json against its JSON Schema and keep the QC figure
+        run: |
+          python - <<'PY'
+          import json
+          from jsonschema import Draft202012Validator
+          schema = json.load(open("steps/lesion-qc/lesion_qc.schema.json"))
+          doc = json.load(open("artifacts/lesion_qc.json"))
+          Draft202012Validator(schema).validate(doc)
+          print("lesion_qc.json conforms to lesion_qc.schema.json")
+          PY
+          test "$(head -c 8 artifacts/qc_figure.png | xxd -p)" = "89504e470d0a1a0a"
+
+      - name: Publish the validated provenance
+        if: always()
+        run: |
+          {
+            echo "### lesion_qc JSON (synthetic reference mask, Docker run)"
+            echo
+            echo '```json'
+            cat artifacts/lesion_qc.json 2>/dev/null || echo "not produced"
+            echo '```'
+            echo
+            echo "The QC figure is in the artifact lesion-qc-step-outputs."
+            echo
+            echo "### Validated step provenance (lesion-qc step, Docker run)"
+            echo
+            echo '```json'
+            cat artifacts/provenance-docker.json 2>/dev/null || echo "not produced"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4.6.0
+        if: always()
+        with:
+          name: lesion-qc-step-outputs
           path: artifacts/
           if-no-files-found: warn

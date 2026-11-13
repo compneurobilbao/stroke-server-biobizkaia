@@ -360,7 +360,7 @@ def test_error_message_must_not_contain_paths(message, ok):
     assert (v.check_error(data) == []) is ok
 
 
-# ----------------------------------------------------------------- contract 1.1 (ADR-0016)
+# ----------------------------------------------------------------- contract 1.1 (ADR-0017)
 
 
 def _cross_errors(*named):

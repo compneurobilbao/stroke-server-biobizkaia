@@ -1,4 +1,4 @@
-# ADR-0016: Contract 1.1 closes the gaps found while building the step SDK
+# ADR-0017: Contract 1.1 closes the gaps found while building the step SDK
 
 - Status: proposed
 - Date: 2026-11-13

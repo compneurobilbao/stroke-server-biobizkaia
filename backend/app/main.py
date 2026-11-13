@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import router
+from app.api import admin, auth, notifications, shares, studies, users
 from app.core.config import get_settings
 from app.core.errors import ApiError, api_error_handler
 
@@ -26,4 +26,5 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(router, prefix=settings.api_prefix)
+for api_module in (admin, auth, notifications, users, studies, shares):
+    app.include_router(api_module.router, prefix=settings.api_prefix)

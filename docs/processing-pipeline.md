@@ -80,6 +80,47 @@ For another script or container, the minimum interface expected by the platform 
 - write enough stdout/stderr for diagnostics; the worker stores it in `logs/processor.log`.
 - not generate `outputs.zip` as a main responsibility: the downloadable ZIP is created by the platform with `processor_adapter/output_packager.py`.
 
+## Executor Interface
+
+`orchestrator/executors/` defines how one step attempt runs on a backend ([ADR-0003](adr/0003-executors.md)). The worker does not use it yet; the pipeline orchestrator (card F0-15) will. Every backend implements `Executor` (`orchestrator/executors/base.py`):
+
+| Method | Does |
+|---|---|
+| `submit(invocation) -> handle` | Stages `/in`, `/ref`, an empty `/out`, starts the attempt, returns at once. |
+| `poll(handle) -> JobStatus` | `queued`, `running` or `finished` with an outcome. |
+| `cancel(handle) -> bool` | `SIGTERM` to the whole process group, `SIGKILL` 30 s later. |
+| `collect(handle) -> StepResult` | Outcome, exit code, output files, the step's `provenance.json` and `error.json` verbatim, log path, usage and the run-provenance `execution` block. |
+| `cleanup(handle)` | Removes staging and scratch; keeps logs. |
+
+A `StepInvocation` carries the step identity, optional pinned image (`repo@sha256:…`), staged input files, effective parameters, bundle mounts, granted `Resources`, a timeout (default: granted wall time) and an `Accounting` record (`submitted_by`, `submit_as`, `billing_account`). Only `submit_as: service-account` is implemented; `per-user` and `chargeback` raise `NotImplementedError`. Outcomes: exit 0 `succeeded`, exit 10 `rejected`, other codes `failed`, killed by a signal the platform did not send `terminated` (recorded as `failed` in provenance), and `canceled` / `timed_out` when the platform stopped it (their `/out` is discarded).
+
+Handles are plain JSON, so the orchestrator stores them and can poll, cancel, collect or clean up after a worker restart:
+
+```python
+from orchestrator.executors import (
+    Accounting, ExecutorHandle, Resources, StepInvocation, SubprocessExecutor,
+)
+
+executor = SubprocessExecutor()
+handle = executor.submit(StepInvocation(
+    step_run_id="…", step_name="lesion-volume", step_version="1.0.0",
+    resources=Resources(cpus=2, memory_mb=2048, wall_time_minutes=10),
+    accounting=Accounting(submitted_by="user:8d2e6b1a"),
+    work_dir=attempt_dir, inputs={"lesion_mask.nii.gz": mask_path},
+    params={"threshold": 0.5},
+))
+stored = handle.to_dict()                # persist with the step run
+...
+handle = ExecutorHandle.from_dict(stored)
+if executor.poll(handle).finished:
+    result = executor.collect(handle)    # result.outcome, result.outputs, result.execution
+    executor.cleanup(handle)
+```
+
+**`subprocess` executor.** Runs a local command (a step installed on the worker host, or a legacy adapter) on POSIX hosts. Contract paths are per-attempt directories under `work_dir` (`in/`, `out/`, `ref/`, `tmp/`, `logs/`); placeholders `{in_dir}`, `{out_dir}`, `{params}`, `{ref_dir}`, `{tmp_dir}` in the command are replaced by them, and without a command the contract command `/usr/local/bin/run --in … --out … --params …` is used. The environment is clean: `PATH` plus the contract variables (`HOME` and `TMPDIR` pointing to the attempt's `tmp/`, `TZ=UTC`, `STEP_CPUS` and the thread variables, `STEP_MEMORY_MB`, `STEP_GPUS`). Each attempt runs under a small supervisor process in its own session that starts the command in a new process group, writes stdout and stderr in order to `logs/step.log`, enforces the timeout, sends `SIGTERM` then `SIGKILL` to the whole group, kills anything left in the group when the command exits, and writes `.executor/status.json` with exit code and usage. `poll` reads that file, so it works from a persisted handle after the worker process restarts; if the host or container restarts, the attempt is lost and reported as `terminated`. No container isolation is applied (read-only root, network, UID, memory limit): steps that need it run under the docker or slurm executors.
+
+**Legacy adapters.** `processor_adapter/executor_bridge.py` runs the unchanged `DummyProcessorAdapter` and `CompneuroAnatprocAdapter` through this executor: `legacy_invocation(...)` builds the invocation, `run_legacy(executor, invocation)` returns the usual `ProcessorResult`. Legacy commands see the worker's environment minus secrets (`*PASSWORD*`, `*SECRET*`, `*TOKEN*`, `*_KEY`, `DATABASE_URL`, `CELERY_*`, `SMTP_*`, `AUTH_*`, `REDIS_*`), plus the contract variables; the anatproc lock and `/project` symlink behave as before. Timeouts and cancellation are owned by the executor.
+
 ## BIDS Per Study
 
 ```text

@@ -9,7 +9,6 @@ import subprocess
 import sys
 import textwrap
 import time
-from pathlib import Path
 
 import pytest
 from sdk_helpers import write_qc
@@ -238,15 +237,15 @@ def test_reference_generator_writes_fixtures_deterministically(tmp_path):
     step_dir, manifest = _reftest_step_dir(
         tmp_path,
         """
-        import sys
+        import gzip
         from pathlib import Path
-        sys.path.insert(0, %r)
-        from sdk_helpers import write_mask
-        out = Path("tests/reference")
+        out = Path("tests/reference")  # relative: the runner sets the step directory
         out.mkdir(parents=True, exist_ok=True)
-        write_mask(out / "lesion_mask.nii.gz")
-        """
-        % str(Path(__file__).resolve().parent),
+        data = bytes(range(256)) * 64
+        with open(out / "lesion_mask.nii.gz", "wb") as raw:
+            with gzip.GzipFile(fileobj=raw, mode="wb", mtime=0) as fh:
+                fh.write(data)
+        """,
     )
     fixture = step_dir / "tests" / "reference" / "lesion_mask.nii.gz"
     assert reftest.run_generator(manifest, step_dir) == []

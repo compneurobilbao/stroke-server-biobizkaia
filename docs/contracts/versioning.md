@@ -34,7 +34,7 @@ Non-breaking (**additive**) changes add optional fields, enum values or types, w
 | Version | Changes | Decision record |
 |---|---|---|
 | `1.0` | First release. | [ADR-0001](../adr/0001-step-contract.md) |
-| `1.1` | Reserved error codes `input_missing`, `input_format_invalid`, `invalid_parameters`, `terminated`; parameters of rejected and failed records not checked against the schema; empty `outputs` and no output files on exit 10; `SIGTERM` exit code and report; optional `reference_test.generator` for generated fixtures; `software[]` stated to be free-form. | [ADR-0016](../adr/0016-contract-1-1-sdk-gaps.md) |
+| `1.1` | Reserved error codes `input_missing`, `input_format_invalid`, `invalid_parameters`, `terminated`; parameters of rejected and failed records not checked against the schema; empty `outputs` and no output files on exit 10; `SIGTERM` exit code and report; optional `reference_test.generator` for generated fixtures; `software[]` stated to be free-form. | [ADR-0017](../adr/0017-contract-1-1-sdk-gaps.md) |
 
 ## 3. Steps
 
