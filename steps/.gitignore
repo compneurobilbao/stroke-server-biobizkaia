@@ -1,0 +1,4 @@
+# Generated reference datasets (see each step tests/make_reference.py)
+**/tests/reference/
+__pycache__/
+*.egg-info/

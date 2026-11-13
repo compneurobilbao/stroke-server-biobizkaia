@@ -1,0 +1,173 @@
+name: Steps
+
+# Step SDK and template step (card F0-21). Separate from ci.yml: it needs Docker and
+# Apptainer and only matters when steps/ or the contract changes.
+
+on:
+  pull_request:
+    paths:
+      - "steps/**"
+      - "contracts/**"
+      - ".github/workflows/steps.yml"
+  push:
+    branches: [develop, main]
+    paths:
+      - "steps/**"
+      - "contracts/**"
+      - ".github/workflows/steps.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: steps-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE: template-lesion-volume-step:ci
+  APPTAINER_VERSION: "1.5.5"
+  # SHA-256 of apptainer_1.5.5_amd64.deb as published with the GitHub release
+  APPTAINER_DEB_SHA256: "25095d3711504b3e8657dbb2e172ef8db9db43c4503d940c9c36b105db8dce77"
+
+jobs:
+  sdk-tests:
+    name: SDK and template unit tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-python@v5.3.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: steps/sdk/requirements-image.txt
+      - name: Install SDK and test dependencies
+        run: |
+          pip install -r steps/sdk/requirements-image.txt pytest==8.3.3
+          pip install --no-deps -e steps/sdk
+      - name: Contract documents are valid
+        run: python contracts/validate.py --kind step steps/template/step.yaml
+      - name: Tests (pytest)
+        run: python -m pytest steps -q
+
+  template-container:
+    name: Template step under Docker and Apptainer
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-python@v5.3.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: steps/sdk/requirements-image.txt
+      - name: Install SDK (host side, for the reference-test runner and validator)
+        run: |
+          pip install -r steps/sdk/requirements-image.txt
+          pip install --no-deps -e steps/sdk
+
+      - name: Generate the synthetic reference dataset
+        run: python steps/template/tests/make_reference.py
+
+      - name: Build the step image
+        run: docker build -f steps/template/Dockerfile -t "$IMAGE" .
+
+      - name: Image checks (mount points, manifest location, file permissions)
+        run: |
+          docker run --rm --entrypoint /bin/sh "$IMAGE" -c '
+            set -eu
+            test -x /usr/local/bin/run
+            test -r /opt/step/step.yaml
+            for d in /in /out /ref /tmp; do test -d "$d"; test -z "$(ls -A "$d")"; done
+            # nothing in the step directories may be unreadable by an arbitrary user
+            test -z "$(find /opt/step /usr/local/bin/run -not -perm -o=r)"
+          '
+          # the manifest is read from the image, as the registry will do
+          docker run --rm --entrypoint cat "$IMAGE" /opt/step/step.yaml > "$RUNNER_TEMP/step-from-image.yaml"
+          cmp "$RUNNER_TEMP/step-from-image.yaml" steps/template/step.yaml
+
+      - name: Reference test under Docker (contract section 6 flags, arbitrary UID)
+        run: |
+          mkdir -p artifacts
+          stroke-step-reftest --step-dir steps/template --mode docker --image "$IMAGE" \
+            --workdir "$RUNNER_TEMP/docker-run" --save-provenance artifacts/provenance-docker.json
+
+      - name: Validate manifest, provenance and outputs with contracts/validate.py (Docker run)
+        run: |
+          python contracts/validate.py steps/template/step.yaml artifacts/provenance-docker.json
+          cat artifacts/provenance-docker.json
+
+      - name: Rejection path under Docker (exit code 10 and error.json)
+        run: |
+          work="$RUNNER_TEMP/docker-reject"
+          mkdir -p "$work/in" "$work/out"
+          chmod 777 "$work/out"
+          echo '{}' > "$work/in/params.json"
+          # no lesion_mask staged: the SDK must reject the run
+          set +e
+          docker run --rm --read-only --user 12345:12345 --cap-drop ALL \
+            --security-opt no-new-privileges --network none --tmpfs /tmp:rw,mode=1777 \
+            -v "$work/in:/in:ro" -v "$work/out:/out" -e HOME=/tmp -e TMPDIR=/tmp -e TZ=UTC \
+            -e STEP_CPUS=1 --entrypoint /usr/local/bin/run "$IMAGE" \
+            --in /in --out /out --params /in/params.json
+          code=$?
+          set -e
+          echo "exit code: $code"
+          test "$code" -eq 10
+          python contracts/validate.py steps/template/step.yaml "$work/out/provenance.json" "$work/out/error.json"
+          cp "$work/out/error.json" artifacts/error-docker.json
+
+      - name: Install Apptainer (official release package)
+        run: |
+          deb="apptainer_${APPTAINER_VERSION}_amd64.deb"
+          curl -sSfL -o "$RUNNER_TEMP/$deb" \
+            "https://github.com/apptainer/apptainer/releases/download/v${APPTAINER_VERSION}/${deb}"
+          echo "${APPTAINER_DEB_SHA256}  $RUNNER_TEMP/$deb" | sha256sum -c -
+          sudo apt-get update -q
+          sudo apt-get install -y -q "$RUNNER_TEMP/$deb"
+          # Ubuntu 24.04 restricts unprivileged user namespaces, which Apptainer needs
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          apptainer --version
+
+      - name: Build the SIF from the Docker image with the template's definition file
+        run: |
+          sudo apptainer build --build-arg IMAGE="$IMAGE" "$RUNNER_TEMP/step.sif" steps/template/Apptainer.def
+          sudo chown "$(id -u):$(id -g)" "$RUNNER_TEMP/step.sif"
+          sha256sum "$RUNNER_TEMP/step.sif"
+
+      - name: Reference test under Apptainer (--containall --cleanenv --no-home)
+        run: |
+          stroke-step-reftest --step-dir steps/template --mode apptainer --sif "$RUNNER_TEMP/step.sif" \
+            --workdir "$RUNNER_TEMP/apptainer-run" --save-provenance artifacts/provenance-apptainer.json
+
+      - name: Validate the Apptainer run with contracts/validate.py
+        run: python contracts/validate.py steps/template/step.yaml artifacts/provenance-apptainer.json
+
+      - name: Docker and Apptainer outputs are identical
+        run: |
+          cmp "$RUNNER_TEMP/docker-run/out/lesion_qc.json" "$RUNNER_TEMP/apptainer-run/out/lesion_qc.json"
+          python - <<'PY'
+          import json
+          a = json.load(open("artifacts/provenance-docker.json"))
+          b = json.load(open("artifacts/provenance-apptainer.json"))
+          assert a["outputs"] == b["outputs"], "output hashes differ between runtimes"
+          assert a["inputs"] == b["inputs"], "input hashes differ between runtimes"
+          PY
+
+      - name: Publish the validated provenance
+        if: always()
+        run: |
+          {
+            echo "### Validated step provenance (template step, Docker run)"
+            echo
+            echo '```json'
+            cat artifacts/provenance-docker.json 2>/dev/null || echo "not produced"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4.6.0
+        if: always()
+        with:
+          name: template-step-provenance
+          path: artifacts/
+          if-no-files-found: warn
