@@ -1,0 +1,253 @@
+{
+  "accounting": {
+    "billing_account": "lab-stroke",
+    "submit_as": "service-account",
+    "submitted_by": "user:8d2e6b1a-47c3-4f0e-b5a9-3c1d7e2f9a60"
+  },
+  "case_id": "c3a81f40-5e92-4b6d-8a17-2f9b0c6d4e85",
+  "contract_version": "1.0",
+  "created_at": "2026-11-13T11:00:00Z",
+  "input_set": "mni-mask",
+  "inputs": [
+    {
+      "name": "lesion_mni",
+      "sha256": "7039a1152e72b0cc78c6ca4048eeb4b0297714bca3b3a686d8bd27da68103356",
+      "size_bytes": 23817,
+      "type": "lesion_mask_mni_any"
+    }
+  ],
+  "kind": "RunProvenance",
+  "pipeline": {
+    "id": "stroke-lnm",
+    "sha256": "c8feb380411aad0d2619b60361ae599eb407526546239c6be5b1f20bc996c408",
+    "version": "0.1.0"
+  },
+  "platform": {
+    "artefact_types_version": "1.0.0",
+    "version": "0.3.0"
+  },
+  "run_id": "6f1c2a9e-3b7d-4e21-9c55-0d8e4f7a1b23",
+  "seed": 2718281828,
+  "slots": [
+    {
+      "bundles": [],
+      "implementation": {
+        "chosen_by": "pipeline_default",
+        "id": "lesion-qc",
+        "image": "docker.io/compneurobilbaolab/step-lesion-qc@sha256:cdaa743124272cc44e7eee7deac206d4f413f799fd2fd480085def3b581aa344",
+        "step": {
+          "name": "lesion-qc",
+          "version": "1.0.0"
+        },
+        "stub": false
+      },
+      "slot": "lesion-intake",
+      "status": "selected"
+    },
+    {
+      "reason": "condition_false",
+      "slot": "normalisation",
+      "status": "skipped"
+    },
+    {
+      "reason": "no_implementation",
+      "slot": "functional-disconnection",
+      "status": "unavailable"
+    },
+    {
+      "bundles": [
+        {
+          "content_digest": "sha256:c7e0e0a7664ec23a3958c9c76e4352460b31e017c232f90baa43354bed68d75a",
+          "id": "hcp1065-tracts",
+          "name": "tracts",
+          "version": "1.0.0"
+        }
+      ],
+      "implementation": {
+        "chosen_by": "deployment_default",
+        "id": "lnm-tracts",
+        "image": "docker.io/compneurobilbaolab/step-lnm-tracts@sha256:416b7a381284de83b86f811b915af688143d974508d623b0d79d2b6b4d56a9b5",
+        "step": {
+          "name": "lnm-tracts",
+          "version": "1.0.0"
+        },
+        "stub": false
+      },
+      "slot": "tract-disconnection",
+      "status": "selected"
+    },
+    {
+      "reason": "upstream_absent",
+      "slot": "cognitive-profile",
+      "status": "skipped"
+    },
+    {
+      "bundles": [],
+      "implementation": {
+        "chosen_by": "pipeline_default",
+        "id": "research-report",
+        "image": "docker.io/compneurobilbaolab/step-research-report@sha256:43199ac0a3fd5c92e41b6db66eb06d2015c87231c08c3f2877102dddabfbc9ad",
+        "step": {
+          "name": "research-report",
+          "version": "0.1.0"
+        },
+        "stub": false
+      },
+      "slot": "report",
+      "status": "selected"
+    }
+  ],
+  "status": "running",
+  "steps": [
+    {
+      "error": null,
+      "execution": {
+        "attempt": 1,
+        "executor": "docker",
+        "exit_code": 0,
+        "finished_at": "2026-11-13T11:00:31.871Z",
+        "image": "docker.io/compneurobilbaolab/step-lesion-qc@sha256:cdaa743124272cc44e7eee7deac206d4f413f799fd2fd480085def3b581aa344",
+        "outcome": "succeeded",
+        "queued_at": "2026-11-13T11:00:00.512Z",
+        "resources": {
+          "cpus": 1,
+          "gpus": 0,
+          "memory_mb": 1024,
+          "wall_time_minutes": 10
+        },
+        "runtime": "docker",
+        "started_at": "2026-11-13T11:00:02.110Z",
+        "usage": {
+          "wall_seconds": 29.761
+        }
+      },
+      "provenance": {
+        "bundles": [],
+        "contract_version": "1.0",
+        "finished_at": "2026-11-13T11:00:31.502Z",
+        "inputs": [
+          {
+            "port": "lesion_mni",
+            "sha256": "7039a1152e72b0cc78c6ca4048eeb4b0297714bca3b3a686d8bd27da68103356",
+            "size_bytes": 23817,
+            "type": "lesion_mask_mni_any"
+          }
+        ],
+        "kind": "StepProvenance",
+        "outputs": [
+          {
+            "port": "lesion_qc",
+            "sha256": "1aa2fb2d0b5050a4ed801a7ddc8c48a697ea7a09574cd47ce6f41e1212e6dd10",
+            "size_bytes": 611,
+            "type": "lesion_qc"
+          },
+          {
+            "port": "lesion_mask_mni",
+            "sha256": "8d1a6fe62fe6a9609fa07776cf26ae13108ffab96741ce639b63f6e6b4ac3826",
+            "size_bytes": 9012,
+            "type": "lesion_mask_mni"
+          },
+          {
+            "port": "qc_figure",
+            "sha256": "c36d7c7b3e885970f52d357a486303b162a85b18b1660bf6fa03ed95e9b3dfd3",
+            "size_bytes": 201554,
+            "type": "qc_figure"
+          }
+        ],
+        "parameters": {},
+        "software": [
+          {
+            "name": "nibabel",
+            "version": "5.2.1"
+          },
+          {
+            "name": "compneuro-step-sdk",
+            "version": "1.0.0"
+          }
+        ],
+        "started_at": "2026-11-13T11:00:02.398Z",
+        "status": "succeeded",
+        "step": {
+          "name": "lesion-qc",
+          "version": "1.0.0"
+        }
+      },
+      "slot": "lesion-intake"
+    },
+    {
+      "error": null,
+      "execution": {
+        "attempt": 1,
+        "executor": "slurm",
+        "exit_code": 0,
+        "external_job_id": "4817263",
+        "finished_at": "2026-11-13T11:38:55Z",
+        "image": "docker.io/compneurobilbaolab/step-lnm-tracts@sha256:416b7a381284de83b86f811b915af688143d974508d623b0d79d2b6b4d56a9b5",
+        "outcome": "succeeded",
+        "queued_at": "2026-11-13T11:00:32.004Z",
+        "resources": {
+          "cpus": 8,
+          "gpus": 0,
+          "memory_mb": 16384,
+          "wall_time_minutes": 120
+        },
+        "runtime": "apptainer",
+        "sif_sha256": "a5c289e275b9636a811cdd0ce8fb90abb1dafa7c155e469f33dce608770da87c",
+        "started_at": "2026-11-13T11:06:10Z",
+        "usage": {
+          "cpu_core_hours": 4.367,
+          "gpu_hours": 0,
+          "max_rss_mb": 6120,
+          "wall_seconds": 1965
+        }
+      },
+      "provenance": {
+        "bundles": [
+          {
+            "content_digest": "sha256:c7e0e0a7664ec23a3958c9c76e4352460b31e017c232f90baa43354bed68d75a",
+            "id": "hcp1065-tracts",
+            "name": "tracts",
+            "version": "1.0.0"
+          }
+        ],
+        "contract_version": "1.0",
+        "finished_at": "2026-11-13T11:38:53.090Z",
+        "inputs": [
+          {
+            "port": "lesion_mask",
+            "sha256": "8d1a6fe62fe6a9609fa07776cf26ae13108ffab96741ce639b63f6e6b4ac3826",
+            "size_bytes": 9012,
+            "type": "lesion_mask_mni"
+          }
+        ],
+        "kind": "StepProvenance",
+        "outputs": [
+          {
+            "port": "tract_disconnection",
+            "sha256": "cb638ac764af777a401634894d9e04326707cd2d06d3396f7e0a5ebb820b945f",
+            "size_bytes": 2310,
+            "type": "tract_disconnection"
+          }
+        ],
+        "parameters": {},
+        "software": [
+          {
+            "name": "MRtrix3",
+            "version": "3.0.4"
+          },
+          {
+            "name": "compneuro-step-sdk",
+            "version": "1.0.0"
+          }
+        ],
+        "started_at": "2026-11-13T11:06:12.733Z",
+        "status": "succeeded",
+        "step": {
+          "name": "lnm-tracts",
+          "version": "1.0.0"
+        }
+      },
+      "slot": "tract-disconnection"
+    }
+  ]
+}
