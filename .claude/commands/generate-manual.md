@@ -1,3 +1,9 @@
-# Generate Manual
+---
+description: Write or update a user, administrator, developer or operations manual in English.
+---
 
-Generá documentación clara en castellano para usuario, administrador, desarrollo u operación. Mantener enfoque TFM y limitaciones clínicas.
+# Generate a manual
+
+Manual: $ARGUMENTS
+
+Write clear English documentation for users, administrators, developers or operators, based on the real code and configuration. State the research-use limitation ("research use only, not for clinical decisions"). Use screenshots or examples only with synthetic data. No people's names, host or institution details.
