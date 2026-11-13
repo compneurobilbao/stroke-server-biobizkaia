@@ -281,10 +281,15 @@ def test_derivative_layout_generated_by_and_collisions(populated):
     assert (qc / SUB / "ses-acute" / f"{SUB}_ses-acute_label-lesion_qc.json").is_file()
     # Two ports of one type get distinct names through desc-<port>.
     anat = deriv / "norm-stub-1.0.0" / SUB / "ses-acute" / "anat"
+    stem = f"{SUB}_ses-acute_space-MNI152NLin6Asym_res-2_label-lesion"
     assert sorted(p.name for p in anat.iterdir()) == [
-        f"{SUB}_ses-acute_space-MNI152NLin6Asym_res-2_label-lesion_desc-maska_mask.nii.gz",
-        f"{SUB}_ses-acute_space-MNI152NLin6Asym_res-2_label-lesion_desc-maskb_mask.nii.gz",
+        f"{stem}_desc-maska_mask.json",
+        f"{stem}_desc-maska_mask.nii.gz",
+        f"{stem}_desc-maskb_mask.json",
+        f"{stem}_desc-maskb_mask.nii.gz",
     ]
+    sidecar = json.loads((anat / f"{stem}_desc-maska_mask.json").read_text())
+    assert "2" in sidecar["Resolution"]  # required by BIDS when res is an entity
     # Non-standard files are ignored for the validator, standard ones are not.
     assert "anat" not in (deriv / "norm-stub-1.0.0" / ".bidsignore").read_text()
     ignored = (qc / ".bidsignore").read_text().splitlines()

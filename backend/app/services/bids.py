@@ -312,6 +312,17 @@ def _register_bidsignore(dataset_root: Path, relative: Path | str) -> None:
         _atomic_write_bytes(path, ("\n".join(sorted(lines)) + "\n").encode("utf-8"))
 
 
+def _write_derivative_sidecar(target: Path, naming: BidsNaming) -> None:
+    """Sidecar of a standard derivative image: ``Resolution`` is required when ``res`` is
+    an entity; only technical description, never case data."""
+    sidecar: dict[str, Any] = {"Description": f"{naming.suffix} image written by the case store"}
+    if "res" in naming.entities:
+        res = naming.entities["res"]
+        sidecar["Resolution"] = {res: f"Voxel grid index {res} of the artefact type registry"}
+    name = target.name[: -len("".join(target.suffixes))] if target.suffixes else target.name
+    _write_json(target.with_name(name + ".json"), sidecar)
+
+
 def _store_dataset_file(
     storage: LocalStudyStorage,
     dataset_root: Path,
@@ -328,6 +339,8 @@ def _store_dataset_file(
         _register_bidsignore(dataset_root, target.parent.relative_to(dataset_root).as_posix() + "/")
     elif not _is_bids_standard(dataset_type, naming):
         _register_bidsignore(dataset_root, target.relative_to(dataset_root))
+    elif dataset_type == "derivative":
+        _write_derivative_sidecar(target, naming)
     return StoredFile(storage.relative_path(target), sha256, size)
 
 
