@@ -1,0 +1,5 @@
+# Pinned runtime dependencies used when building step images.
+numpy==2.2.6
+nibabel==5.3.2
+PyYAML==6.0.2
+jsonschema==4.23.0
