@@ -44,13 +44,27 @@ def test_two_runs_are_byte_identical(regenerated):
         assert (a / rel).read_bytes() == (b / rel).read_bytes(), rel
 
 
+def _manifest_without_hashes(path: Path) -> dict:
+    doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+    doc.pop("content_digest")
+    doc["files"] = [f["path"] for f in doc["files"]]
+    return doc
+
+
 def test_regeneration_matches_committed_checksums(regenerated):
     a, _ = regenerated
     committed = json.loads((DATA / "CHECKSUMS.json").read_text(encoding="utf-8"))
     fresh = json.loads((a / "CHECKSUMS.json").read_text(encoding="utf-8"))
     assert fresh["files"].keys() == committed["files"].keys()
     for rel, entry in committed["files"].items():
-        assert fresh["files"][rel]["payload_sha256"] == entry["payload_sha256"], rel
+        if rel.endswith("bundle.yaml"):
+            # Lists hashes of stored (gzip) bytes, which depend on the zlib build:
+            # compare everything except the hashes (the payloads are checked above).
+            assert _manifest_without_hashes(a / rel) == _manifest_without_hashes(
+                DATA / rel
+            )
+        else:
+            assert fresh["files"][rel]["payload_sha256"] == entry["payload_sha256"], rel
 
 
 def test_committed_files_match_checksum_manifest():
