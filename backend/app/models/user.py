@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, String, Text
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -18,8 +18,20 @@ class UserRole(str, enum.Enum):
     researcher = "researcher"
 
 
+# Roles accepted by the CHECK on users.role. The API assigns only admin and researcher
+# until F1-03 enforces the others (docs/data-model.md section 6).
+RESERVED_ROLES = ("reviewer", "coordinator", "service")
+ALL_ROLES = (UserRole.admin.value, UserRole.researcher.value, *RESERVED_ROLES)
+
+
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint(
+            "role IN (" + ", ".join(f"'{r}'" for r in ALL_ROLES) + ")",
+            name="ck_users_role",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     email: Mapped[str] = mapped_column(
