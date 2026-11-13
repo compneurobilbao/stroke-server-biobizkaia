@@ -1,0 +1,11 @@
+# gitleaks configuration: default rules plus allow-list for documented placeholders.
+title = "stroke-server gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Placeholders used in *.example templates and Compose development defaults"
+regexes = [
+  '''change-me-in-production''',
+]

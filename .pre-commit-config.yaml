@@ -7,11 +7,15 @@ repos:
       - id: check-yaml
       - id: check-added-large-files
       - id: detect-private-key
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
   - repo: local
     hooks:
       - id: no-env-files
         name: Block .env files
-        entry: sh -c 'if git diff --cached --name-only | grep -E "(^|/)\.env$"; then echo "Do not commit .env"; exit 1; fi'
+        entry: sh -c 'if git diff --cached --name-only --diff-filter=ACMR | grep -E "(^|/)\.env(\.[^/]*)?$" | grep -v "\.example$"; then echo "Do not commit .env files (only *.example templates)"; exit 1; fi'
         language: system
         pass_filenames: false
       - id: docs-exist

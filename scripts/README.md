@@ -14,7 +14,7 @@ Esta carpeta contiene scripts pequeños de operación y validación.
 - `stop.sh`: detiene servicios con `docker compose down`.
 - `smoke.sh`: comprueba el healthcheck vía reverse proxy.
 - `check-docs.sh`: valida que exista la documentación mínima obligatoria.
-- `check-no-secrets.sh`: busca señales simples de secretos o `.env` commiteados.
+- `check-no-secrets.sh`: bloquea ficheros `.env*` commiteados (salvo plantillas `*.example`), datos de estudios y señales simples de secretos; ejecuta `gitleaks` si está instalado.
 - `backup.sh`: crea un backup local de PostgreSQL y `data/studies`; pausa `api`/`worker`, rechaza jobs activos y archiva solo estudios registrados en DB.
 - `restore.sh`: restaura PostgreSQL y `data/studies` desde un backup local con confirmación explícita, limpiando Redis como estado transitorio.
 - `seed.sh`: crea un fichero dummy local para pruebas manuales.
