@@ -22,7 +22,13 @@ pytestmark = [
 ]
 
 BACKEND_DIR = Path(__file__).resolve().parents[1] / "backend"
-EXPECTED_TABLES = {"users", "studies", "processing_jobs", "notifications", "audit_events"}
+EXPECTED_TABLES = {
+    "users",
+    "studies",
+    "processing_jobs",
+    "notifications",
+    "audit_events",
+}
 
 
 def alembic(*args: str) -> None:
@@ -34,7 +40,9 @@ def alembic(*args: str) -> None:
         capture_output=True,
         text=True,
     )
-    assert result.returncode == 0, f"alembic {' '.join(args)} failed:\n{result.stdout}\n{result.stderr}"
+    assert (
+        result.returncode == 0
+    ), f"alembic {' '.join(args)} failed:\n{result.stdout}\n{result.stderr}"
 
 
 @pytest.fixture()
