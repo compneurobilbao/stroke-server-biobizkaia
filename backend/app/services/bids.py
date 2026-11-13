@@ -107,6 +107,11 @@ _RUN_FIELDS_UPDATABLE = frozenset({"status", "finished_at", "slots", "inputs", "
 _RAW_ANAT_SUFFIXES = frozenset({"T1w", "T2w", "FLAIR", "PDw", "T2starw"})
 _DERIV_ANAT_SUFFIXES = _RAW_ANAT_SUFFIXES | {"mask", "dseg", "probseg"}
 _NIFTI_EXTENSIONS = frozenset({".nii.gz", ".nii"})
+# Datatype directories of BIDS 1.11; any other directory (here: ``ct``) is ignored whole.
+_BIDS_DATATYPES = frozenset(
+    {"anat", "beh", "dwi", "eeg", "emg", "fmap", "func", "ieeg", "meg", "micr",
+     "motion", "mrs", "perf", "pet", "phenotype", "nirs"}
+)
 _CONTAINER_TYPES = {"docker": "docker", "apptainer": "apptainer"}
 
 
@@ -318,7 +323,10 @@ def _store_dataset_file(
 ) -> StoredFile:
     target = dataset_root / _bids_relative_dir(case, naming) / bids_file_name(case, naming)
     sha256, size = _copy_verified(source, target, expected_sha256)
-    if not _is_bids_standard(dataset_type, naming):
+    if naming.datatype is not None and naming.datatype not in _BIDS_DATATYPES:
+        # The validator reports an unknown datatype directory itself, so list the directory.
+        _register_bidsignore(dataset_root, target.parent.relative_to(dataset_root).as_posix() + "/")
+    elif not _is_bids_standard(dataset_type, naming):
         _register_bidsignore(dataset_root, target.relative_to(dataset_root))
     return StoredFile(storage.relative_path(target), sha256, size)
 

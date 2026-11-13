@@ -181,18 +181,14 @@ jobs:
           deno-version: ${{ env.DENO_VERSION }}
       - name: Build a synthetic case tree (raw inputs, two step derivatives, run provenance)
         run: PYTHONPATH=.:backend pytest tests/test_bids.py -k test_export_tree_for_bids_validator -v
-      - name: Validate the raw dataset
+      - name: Validate the raw and derivative datasets
         run: |
-          for d in bids-export/*/rawdata; do
+          status=0
+          for d in bids-export/*/rawdata bids-export/*/runs/*/derivatives/*; do
             echo "== $d"
-            deno run -A "jsr:@bids/validator@${BIDS_VALIDATOR_VERSION}" "$d"
+            deno run -A "jsr:@bids/validator@${BIDS_VALIDATOR_VERSION}" "$d" || status=1
           done
-      - name: Validate the derivative datasets
-        run: |
-          for d in bids-export/*/runs/*/derivatives/*/; do
-            echo "== $d"
-            deno run -A "jsr:@bids/validator@${BIDS_VALIDATOR_VERSION}" "$d"
-          done
+          exit $status
 
   repo-checks:
     name: Docs and secrets checks
