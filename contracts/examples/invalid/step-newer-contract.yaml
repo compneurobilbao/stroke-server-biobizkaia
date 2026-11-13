@@ -1,0 +1,19 @@
+# Schema-valid but rejected by validate.py: it declares contract 1.1, newer
+# than the 1.0 this validator (and an orchestrator built with it) supports.
+contract_version: "1.1"
+kind: Step
+name: from-the-future
+version: 1.0.0
+title: Newer contract
+provides: tract-disconnection
+image: {repository: docker.io/compneurobilbaolab/from-the-future}
+licence: {spdx: MIT}
+inputs:
+  - {name: lesion_mask, type: lesion_mask_mni}
+outputs:
+  - {name: tract_disconnection, type: tract_disconnection}
+parameters:
+  type: object
+  additionalProperties: false
+  properties: {}
+resources: {cpus: 1, memory_mb: 512, wall_time_minutes: 5}

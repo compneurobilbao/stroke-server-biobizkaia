@@ -1,0 +1,209 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/compneurobilbao/stroke-server-biobizkaia/contracts/schemas/v1/pipeline.schema.json",
+  "title": "Pipeline definition (pipeline.yaml)",
+  "description": "Normative text: docs/contracts/pipeline.md. Wiring, type matching, acyclicity and slot/step matching are checked by contracts/validate.py.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract_version", "kind", "id", "version", "title", "inputs", "input_sets", "slots"],
+  "properties": {
+    "contract_version": { "$ref": "#/$defs/contract_version" },
+    "kind": { "const": "Pipeline" },
+    "id": { "$ref": "#/$defs/kebab_id" },
+    "version": { "$ref": "#/$defs/semver" },
+    "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "description": { "type": "string", "maxLength": 4000 },
+    "inputs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "type"],
+        "properties": {
+          "name": { "$ref": "#/$defs/snake_id" },
+          "type": { "$ref": "#/$defs/snake_id" },
+          "description": { "type": "string", "maxLength": 1000 }
+        }
+      }
+    },
+    "input_sets": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "inputs"],
+        "properties": {
+          "name": { "$ref": "#/$defs/kebab_id" },
+          "inputs": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "$ref": "#/$defs/snake_id" }
+          },
+          "description": { "type": "string", "maxLength": 1000 }
+        }
+      }
+    },
+    "slots": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/slot" }
+    }
+  },
+  "$defs": {
+    "contract_version": { "type": "string", "pattern": "^1\\.(0|[1-9][0-9]*)$" },
+    "kebab_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+      "maxLength": 64
+    },
+    "snake_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*$",
+      "maxLength": 64
+    },
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$"
+    },
+    "image_digest_ref": {
+      "description": "Fully qualified image reference pinned by digest, e.g. docker.io/org/name@sha256:<64 hex>. Tags are not allowed.",
+      "type": "string",
+      "pattern": "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]+)?(/[a-z0-9]+([._-][a-z0-9]+)*)+@sha256:[a-f0-9]{64}$",
+      "maxLength": 340
+    },
+    "condition": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "inputs_present": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/snake_id" }
+        },
+        "inputs_absent": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/snake_id" }
+        }
+      }
+    },
+    "source": {
+      "description": "inputs.<pipeline input>, <slot>.<port>, or run.provenance.",
+      "type": "string",
+      "pattern": "^(inputs\\.[a-z][a-z0-9]*(_[a-z0-9]+)*|run\\.provenance|[a-z][a-z0-9]*(-[a-z0-9]+)*\\.[a-z][a-z0-9]*(_[a-z0-9]+)*)$"
+    },
+    "slot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "consumes", "produces", "implementations"],
+      "properties": {
+        "name": {
+          "allOf": [
+            { "$ref": "#/$defs/kebab_id" },
+            { "not": { "enum": ["inputs", "run"] } }
+          ]
+        },
+        "title": { "type": "string", "maxLength": 120 },
+        "description": { "type": "string", "maxLength": 2000 },
+        "optional": { "type": "boolean", "default": false },
+        "when": { "$ref": "#/$defs/condition" },
+        "consumes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["port", "type", "from"],
+            "properties": {
+              "port": { "$ref": "#/$defs/snake_id" },
+              "type": { "$ref": "#/$defs/snake_id" },
+              "optional": { "type": "boolean", "default": false },
+              "from": {
+                "oneOf": [
+                  { "$ref": "#/$defs/source" },
+                  {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": { "$ref": "#/$defs/source" }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "produces": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["port", "type"],
+            "properties": {
+              "port": { "$ref": "#/$defs/snake_id" },
+              "type": { "$ref": "#/$defs/snake_id" },
+              "optional": { "type": "boolean", "default": false },
+              "when": { "$ref": "#/$defs/condition" }
+            }
+          }
+        },
+        "implementations": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["allowed"],
+          "properties": {
+            "default": { "$ref": "#/$defs/kebab_id" },
+            "allowed": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/$defs/implementation" }
+            }
+          }
+        }
+      }
+    },
+    "implementation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "step", "image"],
+      "properties": {
+        "id": { "$ref": "#/$defs/kebab_id" },
+        "step": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "version"],
+          "properties": {
+            "name": { "$ref": "#/$defs/kebab_id" },
+            "version": { "$ref": "#/$defs/semver" }
+          }
+        },
+        "image": { "$ref": "#/$defs/image_digest_ref" },
+        "parameters": { "type": "object" },
+        "parameter_bindings": {
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/snake_id" },
+          "additionalProperties": { "enum": ["case.sex", "case.age_band"] }
+        },
+        "bundles": {
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/snake_id" },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "version"],
+            "properties": {
+              "id": { "$ref": "#/$defs/kebab_id" },
+              "version": { "$ref": "#/$defs/semver" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

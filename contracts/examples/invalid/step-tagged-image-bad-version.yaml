@@ -1,0 +1,19 @@
+# Invalid (schema): version is not semver, the image repository carries a tag,
+# a port uses a reserved name and the output list is empty.
+contract_version: "1.0"
+kind: Step
+name: broken-step
+version: "1.0"
+title: Broken step
+provides: normalisation
+image:
+  repository: docker.io/compneurobilbaolab/broken-step:latest
+licence: {spdx: MIT}
+inputs:
+  - {name: params, type: lesion_mask_native}
+outputs: []
+parameters:
+  type: object
+  additionalProperties: false
+  properties: {}
+resources: {cpus: 1, memory_mb: 512, wall_time_minutes: 5}

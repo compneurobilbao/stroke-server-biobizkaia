@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/compneurobilbao/stroke-server-biobizkaia/contracts/schemas/v1/artefact-types.schema.json",
+  "title": "Artefact type registry (contracts/artefact-types.yaml)",
+  "description": "Normative text: docs/contracts/artefact-types.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract_version", "kind", "version", "grids", "types"],
+  "properties": {
+    "contract_version": { "type": "string", "pattern": "^1\\.(0|[1-9][0-9]*)$" },
+    "kind": { "const": "ArtefactTypeRegistry" },
+    "version": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "grids": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[A-Za-z0-9]+(-[A-Za-z0-9]+)*$" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["space", "shape", "affine"],
+        "properties": {
+          "space": { "type": "string", "pattern": "^[A-Za-z0-9]+$" },
+          "shape": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 3,
+            "items": { "type": "integer", "minimum": 1 }
+          },
+          "affine": {
+            "type": "array",
+            "minItems": 4,
+            "maxItems": 4,
+            "items": {
+              "type": "array",
+              "minItems": 4,
+              "maxItems": 4,
+              "items": { "type": "number" }
+            }
+          },
+          "description": { "type": "string", "maxLength": 1000 }
+        }
+      }
+    },
+    "types": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*$", "maxLength": 64 },
+      "additionalProperties": { "$ref": "#/$defs/artefact_type" }
+    }
+  },
+  "$defs": {
+    "artefact_type": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["description", "format", "extension", "bids"],
+      "properties": {
+        "description": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "format": { "enum": ["nifti", "json", "tsv", "pdf", "png"] },
+        "extension": { "enum": [".nii.gz", ".json", ".tsv", ".pdf", ".png"] },
+        "bids": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["suffix"],
+          "properties": {
+            "datatype": { "type": "string", "pattern": "^[a-z]+$" },
+            "suffix": { "type": "string", "pattern": "^[A-Za-z0-9]+$" },
+            "entities": {
+              "type": "object",
+              "propertyNames": { "enum": ["space", "res", "label", "desc", "stat"] },
+              "additionalProperties": { "type": "string", "pattern": "^[A-Za-z0-9]+$" }
+            }
+          }
+        },
+        "nifti": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "binary": { "type": "boolean" },
+            "space": { "type": "string", "pattern": "^[A-Za-z0-9]+$" },
+            "grid": { "type": "string", "pattern": "^[A-Za-z0-9]+(-[A-Za-z0-9]+)*$" }
+          }
+        },
+        "json_schema": {
+          "description": "Path relative to the contracts/ directory.",
+          "type": "string",
+          "pattern": "^(?!/)(?!.*\\.\\.)[A-Za-z0-9._/-]+\\.json$"
+        },
+        "tsv_columns": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" }
+        }
+      },
+      "allOf": [
+        { "if": { "properties": { "format": { "const": "nifti" } } }, "then": { "properties": { "extension": { "const": ".nii.gz" } } }, "else": { "not": { "required": ["nifti"] } } },
+        { "if": { "properties": { "format": { "const": "json" } } }, "then": { "properties": { "extension": { "const": ".json" } } }, "else": { "not": { "required": ["json_schema"] } } },
+        { "if": { "properties": { "format": { "const": "tsv" } } }, "then": { "properties": { "extension": { "const": ".tsv" } } }, "else": { "not": { "required": ["tsv_columns"] } } },
+        { "if": { "properties": { "format": { "const": "pdf" } } }, "then": { "properties": { "extension": { "const": ".pdf" } } } },
+        { "if": { "properties": { "format": { "const": "png" } } }, "then": { "properties": { "extension": { "const": ".png" } } } }
+      ]
+    }
+  }
+}

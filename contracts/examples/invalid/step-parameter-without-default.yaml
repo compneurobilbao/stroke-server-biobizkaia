@@ -1,0 +1,21 @@
+# Invalid (schema): every parameter must declare a default, and network access
+# cannot be requested (there is no such field).
+contract_version: "1.0"
+kind: Step
+name: no-default
+version: 1.0.0
+title: Parameter without default
+provides: tract-disconnection
+image: {repository: docker.io/compneurobilbaolab/no-default}
+licence: {spdx: MIT}
+inputs:
+  - {name: lesion_mask, type: lesion_mask_mni}
+outputs:
+  - {name: tract_disconnection, type: tract_disconnection}
+parameters:
+  type: object
+  additionalProperties: false
+  properties:
+    threshold: {type: number}
+resources: {cpus: 1, memory_mb: 512, wall_time_minutes: 5}
+network: true

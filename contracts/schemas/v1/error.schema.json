@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/compneurobilbao/stroke-server-biobizkaia/contracts/schemas/v1/error.schema.json",
+  "title": "Step error report (/out/error.json)",
+  "description": "Normative text: docs/contracts/step-contract.md, section 'Exit codes and error.json'.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract_version", "kind", "step", "category", "code", "message"],
+  "properties": {
+    "contract_version": { "type": "string", "pattern": "^1\\.(0|[1-9][0-9]*)$" },
+    "kind": { "const": "StepError" },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$", "maxLength": 64 },
+        "version": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$"
+        }
+      }
+    },
+    "category": { "enum": ["input_rejected", "qc_failed", "internal"] },
+    "code": { "type": "string", "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*$", "maxLength": 64 },
+    "message": { "type": "string", "minLength": 1, "maxLength": 500 },
+    "port": { "type": "string", "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*$", "maxLength": 64 },
+    "details": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*$" },
+      "additionalProperties": { "type": ["string", "number", "integer", "boolean", "null"] },
+      "maxProperties": 50
+    }
+  }
+}
