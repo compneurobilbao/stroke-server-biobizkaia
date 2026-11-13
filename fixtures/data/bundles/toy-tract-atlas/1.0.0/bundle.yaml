@@ -21,6 +21,9 @@ files:
 - path: streamlines.npz
   sha256: cd2d4fb6ace2b53641b783b30d5878e8cb00c3af64694f6f15c54b023de290c0
   size_bytes: 90004
+- path: tracts.tsv
+  sha256: c7263858a04418a5e12872ed6a26fdd005c8f8b7c1f3394e527ae238a3d25e1a
+  size_bytes: 210
 - path: tracts/toy_arcuate_left.nii.gz
   sha256: d36bc6be403f342807920fd781234617095d1b81a0c6519914a224e98a4e1452
   size_bytes: 1470
@@ -33,6 +36,3 @@ files:
 - path: tracts/toy_cst_right.nii.gz
   sha256: 57d6f0e1d3eb0cd8d2cc6a7aa4d9a0340a0921b3c6990a3051ee6f2727c0588d
   size_bytes: 1673
-- path: tracts.tsv
-  sha256: c7263858a04418a5e12872ed6a26fdd005c8f8b7c1f3394e527ae238a3d25e1a
-  size_bytes: 210

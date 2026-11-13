@@ -20,6 +20,9 @@ metadata:
   layout: placeholder-v0
 content_digest: sha256:9db94900cabd539a6e9b0d76f0473eec3ee095b14ce02608fa8f4c65d2799e3c
 files:
+- path: README.md
+  sha256: 8a0d04dfe6b8c70aa0327e483ab9b6f8c39f97709bcfecf097320d995073c1cc
+  size_bytes: 786
 - path: connectomes.npz
   sha256: ea78c1a5396febafcec153896f00dea3acd1584e0db56be6572062f837cfc5af
   size_bytes: 801854
@@ -32,6 +35,3 @@ files:
 - path: participants.tsv
   sha256: 0bb43d9fbd907220cecb3014ce55d9324ef4fd1a58e9fc1280ea1a53352da7ad
   size_bytes: 352
-- path: README.md
-  sha256: 8a0d04dfe6b8c70aa0327e483ab9b6f8c39f97709bcfecf097320d995073c1cc
-  size_bytes: 786

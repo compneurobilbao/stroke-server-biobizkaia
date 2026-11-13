@@ -151,7 +151,8 @@ def content_digest(files: list[dict]) -> str:
 
 def finish_bundle(root: Path, header: dict) -> None:
     files = []
-    for p in sorted(root.rglob("*")):
+    # Sort on the POSIX string: Path ordering is case-insensitive on Windows.
+    for p in sorted(root.rglob("*"), key=lambda q: q.relative_to(root).as_posix()):
         rel = p.relative_to(root).as_posix()
         if p.is_file() and rel != "bundle.yaml":
             files.append(
