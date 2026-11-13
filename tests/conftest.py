@@ -71,7 +71,7 @@ def _make_client(tmp_path, monkeypatch, **extra_env):
         def delay(*args, **kwargs):
             return None
 
-    import app.api.routes as routes
+    import app.api.studies as routes
 
     routes.process_study = DummyTask
     with TestClient(app) as test_client:
