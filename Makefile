@@ -39,7 +39,7 @@ migrate:
 	docker compose exec api alembic upgrade head
 
 create-admin:
-	test -n "$(EMAIL)" || (echo "Uso: make create-admin EMAIL=admin@example.org"; exit 1)
+	test -n "$(EMAIL)" || (echo "Usage: make create-admin EMAIL=admin@example.org"; exit 1)
 	docker compose exec api python -m app.cli.create_admin --email "$(EMAIL)"
 
 retention-dry-run:
@@ -52,7 +52,7 @@ backup:
 	sh ./scripts/backup.sh
 
 restore:
-	test -n "$(BACKUP_DIR)" || (echo "Uso: make restore BACKUP_DIR=backups/<timestamp> CONFIRM_RESTORE=YES_I_UNDERSTAND"; exit 1)
+	test -n "$(BACKUP_DIR)" || (echo "Usage: make restore BACKUP_DIR=backups/<timestamp> CONFIRM_RESTORE=YES_I_UNDERSTAND"; exit 1)
 	BACKUP_DIR="$(BACKUP_DIR)" CONFIRM_RESTORE="$(CONFIRM_RESTORE)" sh ./scripts/restore.sh
 
 seed:

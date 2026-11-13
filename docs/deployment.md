@@ -1,17 +1,17 @@
-# Despliegue
+# Deployment
 
-El despliegue inicial está pensado para un único servidor con Docker Compose.
+The initial deployment is designed for a single server with Docker Compose.
 
-## Instalación Local
+## Local Installation
 
-1. Clonar o abrir el repositorio.
-2. Crear configuración local con `cp .env.example .env`.
-3. Revisar contraseñas, rutas y procesador según `docs/configuration.md`.
-4. Levantar servicios con `make up`.
-5. Crear el primer admin con `make create-admin EMAIL=admin@example.org`.
-6. Acceder a la GUI en `http://localhost` o a Swagger en `http://localhost/api/docs`.
+1. Clone or open the repository.
+2. Create the local configuration with `cp .env.example .env`.
+3. Review passwords, paths and processor according to `docs/configuration.md`.
+4. Start the services with `make up`.
+5. Create the first admin with `make create-admin EMAIL=admin@example.org`.
+6. Open the GUI at `http://localhost` or Swagger at `http://localhost/api/docs`.
 
-No uses datos reales identificativos o sensibles en esta versión inicial.
+Do not use real identifying or sensitive data in this initial version.
 
 ```mermaid
 flowchart TB
@@ -26,15 +26,15 @@ flowchart TB
   Worker --> Data
 ```
 
-## Worker Compneuro
+## Compneuro Worker
 
-Para ejecutar `compneuro-anatproc`, el worker se construye con `worker/Dockerfile.compneuro`, derivado de `compneurobilbaolab/compneuro-anatproc:1.1`. Ese contenedor contiene Celery, el código de la plataforma y las herramientas de neuroimagen. No se usa Docker-in-Docker.
+To run `compneuro-anatproc`, the worker is built with `worker/Dockerfile.compneuro`, derived from `compneurobilbaolab/compneuro-anatproc:1.1`. That container holds Celery, the platform code and the neuroimaging tools. Docker-in-Docker is not used.
 
-No se arranca un contenedor `compneuro-anatproc` separado. El servicio `worker` es el contenedor que hereda esa imagen base y ejecuta directamente `src/apreproc_launcher.sh`.
+No separate `compneuro-anatproc` container is started. The `worker` service is the container that inherits that base image and runs `src/apreproc_launcher.sh` directly.
 
-Si en el futuro se usa otro script o una imagen distinta, el patrón se mantiene: el servicio `worker` debe contener Celery, el código de la plataforma, las dependencias del procesador y acceso al volumen `./data:/app/data`. El nuevo comando debe configurarse por variables de entorno y respetar la estructura de resultados esperada documentada en `docs/processing-pipeline.md`.
+If another script or a different image is used in the future, the pattern stays the same: the `worker` service must contain Celery, the platform code, the processor's dependencies and access to the `./data:/app/data` volume. The new command must be configured through environment variables and respect the expected result structure documented in `docs/processing-pipeline.md`.
 
-Variables mínimas:
+Minimum variables:
 
 ```env
 PROCESSOR_BACKEND=compneuro
@@ -46,18 +46,18 @@ WORKER_REPLICAS=2
 MAX_CONCURRENT_PROCESSING_JOBS=1
 ```
 
-`MAX_CONCURRENT_PROCESSING_JOBS` debe quedar en `1` para `compneuro`, porque cada contenedor worker gestiona una ruta interna `/project`. Para aumentar paralelismo, escalá contenedores worker con `WORKER_REPLICAS=2` en `.env`, `make up WORKER_REPLICAS=2` o `make rebuild WORKER_REPLICAS=2`. La capacidad simultánea esperada es el número de réplicas activas.
+`MAX_CONCURRENT_PROCESSING_JOBS` must stay at `1` for `compneuro`, because each worker container manages an internal `/project` path. To increase parallelism, scale worker containers with `WORKER_REPLICAS=2` in `.env`, `make up WORKER_REPLICAS=2` or `make rebuild WORKER_REPLICAS=2`. The expected simultaneous capacity is the number of active replicas.
 
-La plantilla `.env.compneuro.example` está comentada variable por variable. Usala como checklist de despliegue: copiar a `.env`, revisar secretos, confirmar rutas/comandos compneuro y después levantar con `make up`.
+The `.env.compneuro.example` template is commented variable by variable. Use it as a deployment checklist: copy it to `.env`, review secrets, confirm compneuro paths/commands and then start with `make up`.
 
-`api` y `worker` deben compartir `./data:/app/data`, porque la API prepara BIDS y el worker escribe `output/Preproc`, logs, PDF técnico y ZIP.
+`api` and `worker` must share `./data:/app/data`, because the API prepares BIDS and the worker writes `output/Preproc`, logs, the technical PDF and the ZIP.
 
-## Producción Básica
+## Basic Production
 
-- Cambiar secretos en `.env`.
-- Configurar `AUTH_SECRET_KEY` con un valor propio.
-- Revisar todas las variables descritas en `docs/configuration.md`.
-- Restringir acceso de red al servidor.
-- Añadir TLS en Nginx o Caddy.
-- Ejecutar `make backup` para respaldar PostgreSQL y `data/studies`, y copiar `backups/` fuera del servidor si se necesita recuperación ante pérdida de disco.
-- Revisar política de retención antes de usar datos sensibles.
+- Change secrets in `.env`.
+- Set `AUTH_SECRET_KEY` to your own value.
+- Review all the variables described in `docs/configuration.md`.
+- Restrict network access to the server.
+- Add TLS in Nginx or Caddy.
+- Run `make backup` to back up PostgreSQL and `data/studies`, and copy `backups/` off the server if recovery from disk loss is needed.
+- Review the retention policy before using sensitive data.

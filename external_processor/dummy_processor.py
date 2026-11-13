@@ -3,11 +3,11 @@ import time
 from pathlib import Path
 
 
-MINIMAL_PDF = b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Count 1/Kids[3 0 R]>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 144]/Contents 4 0 R>>endobj\n4 0 obj<</Length 76>>stream\nBT /F1 12 Tf 40 100 Td (Informe dummy - sin validez clinica) Tj ET\nendstream endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n"
+MINIMAL_PDF = b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Count 1/Kids[3 0 R]>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 144]/Contents 4 0 R>>endobj\n4 0 obj<</Length 76>>stream\nBT /F1 12 Tf 40 100 Td (Dummy report - no clinical validity) Tj ET\nendstream endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n"
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Procesador dummy para desarrollo. No tiene validez clinica.")
+    parser = argparse.ArgumentParser(description="Dummy processor for development. It has no clinical validity.")
     parser.add_argument("--input", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--study-id", required=True)
