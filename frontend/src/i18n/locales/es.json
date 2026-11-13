@@ -3,18 +3,23 @@
     "product": "Stroke Server",
     "institution": "Instituto de Investigación Sanitaria Biobizkaia",
     "footer": "Laboratorio de Neuroimagen Computacional, Instituto de Investigación Sanitaria Biobizkaia",
-    "source": "Código fuente"
+    "source": "Código fuente",
+    "alpha": "Alfa",
+    "alphaHint": "Versión inicial en desarrollo: las funciones y los resultados pueden cambiar."
   },
   "app": {
-    "eyebrow": "Ictus · Mapeo de redes lesionales · Neurorrehabilitación",
-    "title": "De la imagen clínica al análisis del ictus a nivel de red",
-    "subtitle": "Plataforma de investigación abierta que toma una lesión de ictus de la imagen rutinaria y ejecuta sobre ella pipelines reproducibles y versionados: control de calidad de la lesión, normalización a espacio estándar, desconexión estructural y funcional, y los informes que se construyen sobre ellas.",
+    "eyebrow": "Plataforma de investigación en ictus",
+    "title": "De la imagen rutinaria del ictus a sus consecuencias en la red cerebral",
+    "subtitle": "Sube una lesión y ejecuta sobre ella pipelines de análisis reproducibles y versionados. Cada resultado registra las herramientas, parámetros y datos de referencia exactos que lo produjeron.",
     "sessionActive": "Sesión activa: {{name}} ({{role}}).",
     "loginPrompt": "Inicia sesión con la cuenta que te ha facilitado el administrador de la plataforma.",
-    "featureLesion": "Entrada y control de calidad de la lesión, desde un TAC con su máscara o desde una máscara ya en espacio MNI.",
-    "featureNetwork": "Mapeo de redes lesionales y desconexión de tractos frente a conectomas normativos.",
-    "featureProvenance": "Cada resultado registra las herramientas, versiones, parámetros y datos de referencia exactos que lo produjeron.",
-    "researchOnly": "Solo para investigación. No apto para decisiones clínicas."
+    "featureLesion": "Un TAC con su máscara de lesión, o una máscara ya en espacio MNI, revisada y llevada a espacio estándar.",
+    "featureNetwork": "Mapeo de redes lesionales y desconexión por tracto frente a conectomas normativos.",
+    "featureProvenance": "Pasos versionados, datos de referencia fijados y un registro de procedencia completo en cada ejecución.",
+    "researchOnly": "Solo para investigación. No apto para decisiones clínicas.",
+    "featureLesionTitle": "Entrada y control de calidad",
+    "featureNetworkTitle": "Desconexión de redes",
+    "featureProvenanceTitle": "Resultados trazables"
   },
   "language": {
     "label": "Idioma",
@@ -65,7 +70,9 @@
     "loggingIn": "Iniciando sesión...",
     "failed": "No se pudo iniciar sesión.",
     "loggedIn": "Sesión iniciada.",
-    "sessionExpired": "La sesión ha expirado. Vuelve a iniciar sesión."
+    "sessionExpired": "La sesión ha expirado. Vuelve a iniciar sesión.",
+    "emailLabel": "Correo electrónico",
+    "passwordLabel": "Contraseña"
   },
   "studies": {
     "upload": {

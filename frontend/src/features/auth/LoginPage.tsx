@@ -33,21 +33,29 @@ export function LoginPage() {
   return (
     <section className="card auth-card">
       <h2>{t('auth.title')}</h2>
-      <form onSubmit={handleLogin}>
-        <input
-          type="email"
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-          placeholder={t('auth.emailPlaceholder')}
-          required
-        />
-        <input
-          type="password"
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-          placeholder={t('auth.passwordPlaceholder')}
-          required
-        />
+      <form className="auth-form" onSubmit={handleLogin}>
+        <label className="field">
+          <span>{t('auth.emailLabel')}</span>
+          <input
+            type="email"
+            autoComplete="username"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            placeholder={t('auth.emailPlaceholder')}
+            required
+          />
+        </label>
+        <label className="field">
+          <span>{t('auth.passwordLabel')}</span>
+          <input
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            placeholder={t('auth.passwordPlaceholder')}
+            required
+          />
+        </label>
         <button disabled={loading}>{loading ? t('auth.submitting') : t('auth.submit')}</button>
       </form>
       <p className="hint">{t('auth.hint')}</p>
