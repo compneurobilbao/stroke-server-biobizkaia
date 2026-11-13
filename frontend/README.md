@@ -20,7 +20,13 @@ Esta carpeta contiene la GUI web sencilla en castellano. Está implementada con 
 
 ## Estructura Del Código
 
-- `src/main.jsx`: contiene la aplicación React principal. Gestiona login, token, subida del fichero, consulta periódica de estudios, dashboard admin, descarga autenticada, usuarios admin, notificaciones, enlaces compartidos y revisión técnica.
+- `src/main.tsx`: entry point (router, i18n, styles).
+- `src/App.tsx`: providers and routes (`/login`, `/studies`, `/notifications`, `/admin`; `/` redirects to `/studies`).
+- `src/api/`: shared API client (`client.ts`: bearer token, 401 handling, `ApiError` with `detail` and optional `code`) and payload types.
+- `src/features/auth|studies|notifications|admin/`: one module per feature (pages, components, API calls).
+- `src/layout/`: page shell, navigation and language switch.
+- `src/shared/`: formatting helpers, message context, status badge.
+- `src/i18n/`: `react-i18next` setup; catalogues in `locales/en.json` (source) and `locales/es.json`. The language switch is persisted in `localStorage`.
 - `src/styles.css`: define el estilo visual de la interfaz.
 - `index.html`: punto de entrada HTML de Vite.
 - `package.json`: scripts y dependencias frontend.
@@ -32,11 +38,14 @@ Esta carpeta contiene la GUI web sencilla en castellano. Está implementada con 
 ## Desarrollo Y Validación
 
 ```bash
-npm install
+npm ci
+npm run typecheck
 npm run lint
+npm test
+npm run build
 ```
 
-`src/main.jsx` concentra los componentes actuales de la GUI. Si la interfaz crece, separar componentes solo cuando mejore claramente la legibilidad o reutilización.
+All dependencies are pinned to exact versions and `package-lock.json` is committed; use `npm ci`. New UI strings go into both catalogues (a test checks that the key sets match).
 
 ## Flujo En La UI
 
