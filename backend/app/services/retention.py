@@ -44,7 +44,7 @@ def apply_retention_policy(
     now: datetime | None = None,
 ) -> RetentionResult:
     if retention_days < 1:
-        raise ValueError("retention_days debe ser mayor o igual a 1")
+        raise ValueError("retention_days must be greater than or equal to 1")
 
     now = now or datetime.utcnow()
     cutoff = now - timedelta(days=retention_days)

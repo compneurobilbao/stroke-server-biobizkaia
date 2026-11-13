@@ -8,12 +8,13 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
+from app.core.errors import ErrorCode, api_error
 from app.db.session import get_db
 from app.models.user import User, UserRole
 
@@ -90,9 +91,7 @@ def decode_access_token(token: str, settings: Settings) -> dict:
             raise ValueError("expired token")
         return payload
     except (ValueError, json.JSONDecodeError, TypeError):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="No autenticado"
-        ) from None
+        raise api_error(ErrorCode.NOT_AUTHENTICATED) from None
 
 
 def get_current_user(
@@ -101,31 +100,22 @@ def get_current_user(
     settings: Settings = Depends(get_settings),
 ) -> User:
     if not credentials or credentials.scheme.lower() != "bearer":
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="No autenticado"
-        )
+        raise api_error(ErrorCode.NOT_AUTHENTICATED)
     payload = decode_access_token(credentials.credentials, settings)
     user_id = payload.get("sub")
     try:
         user_uuid = UUID(user_id)
     except (TypeError, ValueError):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="No autenticado"
-        ) from None
+        raise api_error(ErrorCode.NOT_AUTHENTICATED) from None
     user = db.get(User, user_uuid)
     if not user or not user.is_active or user.deleted_at:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="No autenticado"
-        )
+        raise api_error(ErrorCode.NOT_AUTHENTICATED)
     return user
 
 
 def require_admin(current_user: User = Depends(get_current_user)) -> User:
     if current_user.role != UserRole.admin.value:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tienes permisos para esta operación",
-        )
+        raise api_error(ErrorCode.PERMISSION_DENIED)
     return current_user
 
 
@@ -134,9 +124,7 @@ def require_study_access(study_owner_id: UUID, current_user: User) -> None:
         return
     if study_owner_id == current_user.id:
         return
-    raise HTTPException(
-        status_code=status.HTTP_404_NOT_FOUND, detail="Estudio no encontrado"
-    )
+    raise api_error(ErrorCode.STUDY_NOT_FOUND)
 
 
 def client_ip(request: Request) -> str | None:

@@ -1,56 +1,56 @@
 # API
 
-Swagger está disponible en `/api/docs`.
+Swagger is available at `/api/docs`.
 
 ## Endpoints
 
 - `GET /api/health`: healthcheck.
-- `POST /api/auth/login`: login local con correo electrónico y contraseña.
-- `POST /api/auth/logout`: registrar cierre de sesión cliente.
-- `GET /api/auth/me`: usuario autenticado actual.
-- `GET /api/me/notification-preferences`: preferencias de correo del usuario autenticado.
-- `PATCH /api/me/notification-preferences`: actualizar preferencias de correo del usuario autenticado.
-- `GET /api/notifications`: listar notificaciones internas del usuario autenticado.
-- `POST /api/notifications/{notification_id}/read`: marcar una notificación propia como leída.
-- `GET /api/admin/dashboard`: resumen operativo global. Solo admin.
-- `GET /api/users`: listar usuarios. Solo admin.
-- `POST /api/users`: crear usuario. Solo admin.
-- `PATCH /api/users/{user_id}`: actualizar estado activo o cuota de almacenamiento. Solo admin.
-- `DELETE /api/users/{user_id}`: borrar lógicamente un usuario. Solo admin.
-- `POST /api/studies/upload`: subir fichero y encolar procesamiento. Requiere autenticación.
-- `GET /api/studies`: listar estudios visibles. Admin ve todos; researcher solo los propios.
-- `GET /api/studies/{study_id}`: detalle si el usuario tiene permiso.
-- `GET /api/studies/{study_id}/detail`: detalle extendido con jobs asociados.
-- `GET /api/studies/{study_id}/status`: estado si el usuario tiene permiso.
-- `PATCH /api/studies/{study_id}/clinical-review`: marcar el resultado técnico como `technical_only`, `reviewed` o `validated`.
-- `GET /api/studies/{study_id}/logs`: logs técnicos truncados si el usuario tiene permiso.
-- `POST /api/studies/{study_id}/cancel`: cancelar job en cola o solicitar terminación de un procesamiento en ejecución.
-- `POST /api/studies/{study_id}/retry`: reintentar estudio fallido.
-- `DELETE /api/studies/{study_id}`: soft delete en DB y borrado físico de ficheros si el estudio no está procesando.
-- `GET /api/studies/{study_id}/download`: descargar PDF técnico si está completado. Alias compatible.
-- `GET /api/studies/{study_id}/download/pdf`: descargar PDF técnico si el usuario tiene permiso.
-- `GET /api/studies/{study_id}/download/zip`: descargar ZIP de resultados si existe y el usuario tiene permiso.
-- `POST /api/studies/{study_id}/share-links`: crear enlace temporal para descargar el PDF técnico. Requiere propietario o admin.
-- `GET /api/studies/{study_id}/share-links`: listar enlaces compartidos de un estudio. Requiere propietario o admin.
-- `POST /api/studies/{study_id}/share-links/{link_id}/revoke`: revocar un enlace compartido. Requiere propietario o admin.
-- `GET /api/share/{token}/pdf`: descargar PDF técnico mediante token temporal, sin login.
+- `POST /api/auth/login`: local login with email and password.
+- `POST /api/auth/logout`: record a client-side logout.
+- `GET /api/auth/me`: current authenticated user.
+- `GET /api/me/notification-preferences`: email preferences of the authenticated user.
+- `PATCH /api/me/notification-preferences`: update the email preferences of the authenticated user.
+- `GET /api/notifications`: list the internal notifications of the authenticated user.
+- `POST /api/notifications/{notification_id}/read`: mark one of the user's own notifications as read.
+- `GET /api/admin/dashboard`: global operational summary. Admin only.
+- `GET /api/users`: list users. Admin only.
+- `POST /api/users`: create a user. Admin only.
+- `PATCH /api/users/{user_id}`: update active state or storage quota. Admin only.
+- `DELETE /api/users/{user_id}`: soft-delete a user. Admin only.
+- `POST /api/studies/upload`: upload a file and enqueue processing. Requires authentication.
+- `GET /api/studies`: list visible studies. Admin sees all; researcher sees only their own.
+- `GET /api/studies/{study_id}`: details if the user has permission.
+- `GET /api/studies/{study_id}/detail`: extended details with associated jobs.
+- `GET /api/studies/{study_id}/status`: status if the user has permission.
+- `PATCH /api/studies/{study_id}/clinical-review`: mark the technical result as `technical_only`, `reviewed` or `validated`.
+- `GET /api/studies/{study_id}/logs`: truncated technical logs if the user has permission.
+- `POST /api/studies/{study_id}/cancel`: cancel a queued job or request termination of a running one.
+- `POST /api/studies/{study_id}/retry`: retry a failed study.
+- `DELETE /api/studies/{study_id}`: soft delete in the DB and physical deletion of files if the study is not processing.
+- `GET /api/studies/{study_id}/download`: download the technical PDF if completed. Compatible alias.
+- `GET /api/studies/{study_id}/download/pdf`: download the technical PDF if the user has permission.
+- `GET /api/studies/{study_id}/download/zip`: download the results ZIP if it exists and the user has permission.
+- `POST /api/studies/{study_id}/share-links`: create a temporary link to download the technical PDF. Requires owner or admin.
+- `GET /api/studies/{study_id}/share-links`: list the share links of a study. Requires owner or admin.
+- `POST /api/studies/{study_id}/share-links/{link_id}/revoke`: revoke a share link. Requires owner or admin.
+- `GET /api/share/{token}/pdf`: download the technical PDF with a temporary token, without login.
 
-Salvo `GET /api/health` y `POST /api/auth/login`, los endpoints funcionales requieren `Authorization: Bearer <token>`.
+Except for `GET /api/health` and `POST /api/auth/login`, functional endpoints require `Authorization: Bearer <token>`.
 
-La excepción funcional adicional es `GET /api/share/{token}/pdf`: no requiere JWT porque el propio token opaco habilita una descarga temporal del PDF.
+The additional functional exception is `GET /api/share/{token}/pdf`: it needs no JWT because the opaque token itself enables a temporary PDF download.
 
-## Autenticación
+## Authentication
 
-`POST /api/auth/login` usa JSON:
+`POST /api/auth/login` uses JSON:
 
 ```json
 {
-  "email": "usuario@example.org",
-  "password": "contraseña"
+  "email": "user@example.org",
+  "password": "password"
 }
 ```
 
-Respuesta:
+Response:
 
 ```json
 {
@@ -58,61 +58,61 @@ Respuesta:
   "token_type": "bearer",
   "user": {
     "id": "...",
-    "email": "usuario@example.org",
-    "full_name": "Usuario",
+    "email": "user@example.org",
+    "full_name": "User",
     "role": "researcher",
     "is_active": true
   }
 }
 ```
 
-Roles iniciales:
+Initial roles:
 
-- `admin`: ve todos los estudios, gestiona usuarios/cuotas, accede al dashboard operativo y puede marcar revisión técnica.
-- `researcher`: sube estudios, consulta cuota, lista y descarga solo los propios y puede marcar revisión técnica de sus estudios.
+- `admin`: sees all studies, manages users/quotas, accesses the operational dashboard and can mark technical review.
+- `researcher`: uploads studies, checks their quota, lists and downloads only their own studies and can mark technical review of their own studies.
 
-## Dashboard Admin
+## Admin Dashboard
 
-`GET /api/admin/dashboard` devuelve una foto operativa global para administración:
+`GET /api/admin/dashboard` returns a global operational snapshot for administration:
 
-- cola: jobs en cola, procesando, fallidos y activos.
-- usuarios: totales, activos, admins y researchers.
-- estudios y jobs agrupados por estado.
-- almacenamiento: ruta configurada, existencia, bytes registrados y disco libre/usado.
-- servicios: PostgreSQL, Redis y Worker con estado `ok`, `warning`, `down` o `unknown`.
-- últimos jobs fallidos.
-- alertas básicas no bloqueantes.
+- queue: queued, processing, failed and active jobs.
+- users: totals, active, admins and researchers.
+- studies and jobs grouped by status.
+- storage: configured path, existence, registered bytes and free/used disk.
+- services: PostgreSQL, Redis and Worker with status `ok`, `warning`, `down` or `unknown`.
+- latest failed jobs.
+- basic non-blocking alerts.
 
-Este endpoint no expone datos clínicos ni ejecuta procesamiento; agrega estado ya registrado en la plataforma.
+This endpoint exposes no clinical data and runs no processing; it aggregates state already recorded in the platform.
 
-## Subida
+## Upload
 
-`POST /api/studies/upload` usa `multipart/form-data`:
+`POST /api/studies/upload` uses `multipart/form-data`:
 
-- `file`: fichero de estudio.
-- `bids_subject_id`: opcional, formato `sub-XXXX`, por ejemplo `sub-O01`.
+- `file`: study file.
+- `bids_subject_id`: optional, format `sub-XXXX`, for example `sub-O01`.
 
-Con `PROCESSOR_BACKEND=compneuro`, el fichero debe ser `.nii.gz` y la API prepara automáticamente `bids_project/data`.
+With `PROCESSOR_BACKEND=compneuro`, the file must be `.nii.gz` and the API automatically prepares `bids_project/data`.
 
-Cada estudio queda asociado al usuario autenticado mediante `owner_user_id`.
+Each study is associated with the authenticated user through `owner_user_id`.
 
-Si el usuario tiene `storage_quota_bytes` definido, la API rechaza la subida cuando el tamaño del nuevo fichero supera su cuota disponible.
+If the user has `storage_quota_bytes` defined, the API rejects the upload when the size of the new file exceeds their available quota.
 
-## Gestión De Jobs
+## Job Management
 
-`GET /api/studies/{study_id}/detail` devuelve los metadatos del estudio y la lista de `ProcessingJob` asociados.
+`GET /api/studies/{study_id}/detail` returns the study metadata and the list of associated `ProcessingJob`s.
 
-`GET /api/studies/{study_id}/logs?lines=200` devuelve, si existen, `processor.log` y `rendering.log` truncados a las últimas líneas solicitadas. El máximo permitido es 1000 líneas.
+`GET /api/studies/{study_id}/logs?lines=200` returns, if they exist, `processor.log` and `rendering.log` truncated to the last requested lines. The maximum allowed is 1000 lines.
 
-`POST /api/studies/{study_id}/cancel` funciona si el estudio está en estado `queued` o `processing`. En cola revoca la tarea pendiente y marca el estudio como `canceled`; durante procesamiento registra la solicitud, revoca la tarea Celery con `SIGTERM` y el worker/adaptador intentan propagar la cancelación al proceso externo. La respuesta inmediata puede seguir mostrando `processing` hasta que el worker cierre la tarea.
+`POST /api/studies/{study_id}/cancel` works if the study is in `queued` or `processing` state. When queued it revokes the pending task and marks the study as `canceled`; during processing it records the request, revokes the Celery task with `SIGTERM` and the worker/adapter try to propagate the cancellation to the external process. The immediate response may still show `processing` until the worker closes the task.
 
-`POST /api/studies/{study_id}/retry` solo funciona si el estudio está en estado `failed`. Crea un nuevo `ProcessingJob` y reencola el procesamiento.
+`POST /api/studies/{study_id}/retry` only works if the study is in `failed` state. It creates a new `ProcessingJob` and re-enqueues the processing.
 
-`DELETE /api/studies/{study_id}` aplica soft delete con `deleted_at`, registra auditoría y borra físicamente la carpeta del estudio. Si el estudio está `processing`, responde `409`.
+`DELETE /api/studies/{study_id}` applies a soft delete with `deleted_at`, records an audit event and physically deletes the study folder. If the study is `processing`, it responds `409`.
 
-## Compartición De Informes
+## Report Sharing
 
-`POST /api/studies/{study_id}/share-links` crea un enlace temporal para un estudio completado con PDF disponible. El body es opcional:
+`POST /api/studies/{study_id}/share-links` creates a temporary link for a completed study with an available PDF. The body is optional:
 
 ```json
 {
@@ -120,7 +120,7 @@ Si el usuario tiene `storage_quota_bytes` definido, la API rechaza la subida cua
 }
 ```
 
-La respuesta incluye el enlace completo solo en el momento de creación:
+The response includes the full link only at creation time:
 
 ```json
 {
@@ -137,28 +137,30 @@ La respuesta incluye el enlace completo solo en el momento de creación:
 }
 ```
 
-El token no se almacena en claro: la base de datos guarda solo un hash. `GET /api/studies/{study_id}/share-links` lista metadatos de enlaces, pero no puede recuperar tokens ya creados. Si se pierde un enlace, hay que revocarlo o crear uno nuevo.
+The token is not stored in clear text: the database keeps only a hash. `GET /api/studies/{study_id}/share-links` lists link metadata but cannot recover tokens already created. If a link is lost, it must be revoked or a new one created.
 
-`GET /api/share/{token}/pdf` descarga únicamente el PDF técnico si el token existe, no caducó y no fue revocado. Tokens inválidos, caducados o revocados responden `404` para no facilitar enumeración.
+`GET /api/share/{token}/pdf` downloads only the technical PDF if the token exists, has not expired and has not been revoked. Invalid, expired or revoked tokens respond `404` to avoid facilitating enumeration.
 
-Cada creación, revocación y descarga por token queda registrada en auditoría.
+Every creation, revocation and token download is recorded in the audit log.
 
-## Errores Esperados
+## Expected Errors
 
-- `400`: extensión no permitida.
-- `400`: sujeto BIDS inválido.
-- `401`: usuario no autenticado o token inválido.
-- `403`: usuario autenticado sin permisos suficientes.
-- `404`: estudio o PDF no encontrado.
-- `404`: ZIP no disponible.
-- `404`: enlace público inválido, caducado o revocado.
-- `409`: operación no permitida para el estado actual del job.
-- `409`: intento de compartir un estudio sin PDF completado.
-- `413`: fichero demasiado grande.
+The list below describes the status codes and the situations that trigger them. Error message texts are currently emitted in Spanish by the API; they are being translated in the code and are not documented here.
 
-## Extensiones Permitidas
+- `400`: extension not allowed.
+- `400`: invalid BIDS subject.
+- `401`: unauthenticated user or invalid token.
+- `403`: authenticated user without sufficient permissions.
+- `404`: study or PDF not found.
+- `404`: ZIP not available.
+- `404`: invalid, expired or revoked public link.
+- `409`: operation not allowed for the current job state.
+- `409`: attempt to share a study without a completed PDF.
+- `413`: file too large.
 
-La subida acepta las extensiones configuradas en `ALLOWED_EXTENSIONS`:
+## Allowed Extensions
+
+Upload accepts the extensions configured in `ALLOWED_EXTENSIONS`:
 
 - `.nii`
 - `.nii.gz`
@@ -170,4 +172,4 @@ La subida acepta las extensiones configuradas en `ALLOWED_EXTENSIONS`:
 - `.json`
 - `.txt`
 
-Para `compneuro`, configurar `ALLOWED_EXTENSIONS=.nii.gz`.
+For `compneuro`, set `ALLOWED_EXTENSIONS=.nii.gz`.

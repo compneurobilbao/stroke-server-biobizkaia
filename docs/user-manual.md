@@ -1,58 +1,60 @@
-# Manual De Usuario
+# User Manual
 
-1. Entra en la GUI.
-2. Inicia sesión con tu correo electrónico y contraseña.
-3. Confirma que la imagen está anonimizada.
-4. Selecciona una imagen anatómica T1w en formato `.nii.gz`.
-5. Introduce un identificador BIDS de sujeto, por ejemplo `sub-O01`. Si lo dejas vacío, el sistema genera uno seguro.
-6. Pulsa `Enviar a procesamiento`.
-7. Espera a que el estado pase de `En cola` a `Procesando` y luego a `Completado`. Puede tardar entre 10 minutos y 1 hora.
-8. Descarga el PDF técnico y, si aparece, el ZIP de resultados.
-9. Si necesitas compartir el PDF con alguien sin cuenta, usa `Compartir` para crear un enlace temporal y revocable.
+The GUI is currently in Spanish. Button and status labels are given below in English with the on-screen Spanish label in parentheses; an English interface is planned.
 
-Si el estado es `Fallido`, avisa al administrador y no uses ese resultado.
+1. Open the GUI.
+2. Log in with your email and password.
+3. Confirm that the image is anonymised.
+4. Select a T1w anatomical image in `.nii.gz` format.
+5. Enter a BIDS subject identifier, for example `sub-O01`. If you leave it empty, the system generates a safe one.
+6. Press "Send to processing" (`Enviar a procesamiento`).
+7. Wait for the status to go from "Queued" (`En cola`) to "Processing" (`Procesando`) and then to "Completed" (`Completado`). It can take between 10 minutes and 1 hour.
+8. Download the technical PDF and, if it appears, the results ZIP.
+9. If you need to share the PDF with someone without an account, use "Share" (`Compartir`) to create a temporary, revocable link.
 
-El PDF técnico lista metadatos, ficheros generados y PNG renderizados automáticamente desde resultados NIfTI mediante FSL `slicer`. No es un informe clínico validado y no debe usarse para tomar decisiones médicas sin revisión profesional.
+If the status is "Failed" (`Fallido`), notify the administrator and do not use that result.
 
-Si el estado aparece como completado con avisos, el procesamiento principal terminó pero algún NIfTI pudo no renderizarse a PNG. En ese caso revisa el PDF y avisa al administrador si faltan imágenes esperadas.
+The technical PDF lists metadata, generated files and PNGs rendered automatically from NIfTI results with FSL `slicer`. It is not a validated clinical report and must not be used to make medical decisions without professional review.
 
-## Gestión De Estudios
+If the status appears as completed with warnings, the main processing finished but some NIfTI file may not have been rendered to PNG. In that case check the PDF and notify the administrator if expected images are missing.
 
-Desde la tabla de estudios se puede, según rol y estado del estudio:
+## Study Management
 
-- Ver detalle técnico del estudio y sus trabajos.
-- Ver logs truncados si existen.
-- Cancelar estudios en cola o solicitar cancelación si ya están procesando, cuando la acción está disponible en la GUI.
-- Reintentar estudios fallidos.
-- Borrar estudios que no están procesando.
-- Compartir el PDF técnico de estudios completados mediante enlaces temporales.
-- Marcar resultados como `Solo técnico`, o como `Revisado`/`Validado` cuando están completados, para trazabilidad interna.
+From the studies table you can, depending on your role and the study status:
 
-El borrado elimina físicamente los ficheros asociados y deja auditoría mínima en base de datos.
+- View the technical detail of the study and its jobs.
+- View truncated logs if they exist.
+- Cancel queued studies or request cancellation if they are already processing, when the action is available in the GUI.
+- Retry failed studies.
+- Delete studies that are not processing.
+- Share the technical PDF of completed studies through temporary links.
+- Mark results as "Technical only" (`Solo técnico`), or as "Reviewed" (`Revisado`) / "Validated" (`Validado`) when completed, for internal traceability.
 
-## Compartición De Informes
+Deletion physically removes the associated files and leaves a minimal audit record in the database.
 
-En estudios `Completado` con PDF disponible, el botón `Compartir` permite crear un enlace temporal. Ese enlace permite descargar solo el PDF técnico, no el ZIP ni los logs, y no requiere crear una cuenta para el receptor.
+## Report Sharing
 
-Los enlaces caducan automáticamente y pueden revocarse desde la misma pantalla. Si se pierde un enlace ya creado, no se puede recuperar porque el sistema no guarda el token en claro; crea uno nuevo y revoca el anterior si corresponde.
+On "Completed" studies with an available PDF, the "Share" button lets you create a temporary link. That link allows downloading only the technical PDF, not the ZIP or the logs, and does not require the recipient to create an account.
 
-## Usuarios Y Roles
+Links expire automatically and can be revoked from the same screen. If an already created link is lost, it cannot be recovered because the system does not store the token in clear text; create a new one and revoke the previous one if appropriate.
 
-- `researcher`: puede subir estudios desde la GUI, ver su historial propio, consultar su cuota, descargar resultados propios, gestionar enlaces PDF de sus estudios y marcar revisión técnica de sus resultados.
-- `admin`: puede ver todos los estudios, crear/desactivar usuarios, definir cuotas, consultar el dashboard operativo, borrar estudios permitidos, gestionar enlaces PDF y marcar revisión técnica. El panel admin no expone subida, cancelación/retry ni ejecución de pipelines.
+## Users And Roles
 
-No hay registro público abierto. Los usuarios se crean desde una cuenta admin.
+- `researcher`: can upload studies from the GUI, see their own history, check their quota, download their own results, manage PDF links of their studies and mark technical review of their results.
+- `admin`: can see all studies, create/deactivate users, define quotas, view the operational dashboard, delete permitted studies, manage PDF links and mark technical review. The admin panel exposes no upload, cancel/retry or pipeline execution.
 
-## Administración Básica
+There is no open public registration. Users are created from an admin account.
 
-Para crear el primer admin, usar:
+## Basic Administration
+
+To create the first admin, use:
 
 ```bash
 make create-admin EMAIL=admin@example.org
 ```
 
-Después, el admin puede crear usuarios `researcher` o `admin` desde la GUI, asignar cuotas de almacenamiento y desactivar/borrar usuarios de forma lógica.
+After that, the admin can create `researcher` or `admin` users from the GUI, assign storage quotas and deactivate/soft-delete users.
 
-El dashboard admin muestra cola, jobs fallidos, servicios, uso de disco, usuarios y estudios por estado. Sirve para diagnóstico operativo; no sustituye la revisión de logs si un procesamiento falla.
+The admin dashboard shows the queue, failed jobs, services, disk usage, users and studies by status. It is meant for operational diagnosis; it does not replace reviewing logs if a processing run fails.
 
-Quedan para fases posteriores la subida múltiple, una pantalla GUI de retención y la revisión clínica formal.
+Multiple upload, a GUI retention screen and formal clinical review are left for later phases.

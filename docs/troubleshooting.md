@@ -1,39 +1,39 @@
 # Troubleshooting
 
-## La GUI No Carga
+## The GUI Does Not Load
 
-Revisar `docker compose ps` y logs de `reverse-proxy` y `frontend`.
+Check `docker compose ps` and the logs of `reverse-proxy` and `frontend`.
 
-## La API No Responde
+## The API Does Not Respond
 
-Comprobar `/api/health`, migraciones y conexión a PostgreSQL.
+Check `/api/health`, migrations and the connection to PostgreSQL.
 
-## El Estudio Queda En Cola
+## The Study Stays Queued
 
-Revisar que `worker` y `redis` estén levantados.
+Check that `worker` and `redis` are up.
 
-## El Procesamiento Falla
+## Processing Fails
 
-Revisar `data/studies/{study_id}/logs/processor.log` y el valor de `PROCESSOR_COMMAND`.
+Check `data/studies/{study_id}/logs/processor.log` and the value of `PROCESSOR_COMMAND`.
 
-## No Hay PDF
+## No PDF
 
-En modo `dummy`, el script externo debe generar al menos un `.pdf` dentro del directorio `output`.
+In `dummy` mode, the external script must generate at least one `.pdf` inside the `output` directory.
 
-En modo `compneuro`, el flujo no genera PDF clínico. La plataforma genera `output/reports/technical_report.pdf` después de detectar resultados en `output/Preproc` y renderizar PNG en `output/rendered_png/`.
+In `compneuro` mode, the flow does not generate a clinical PDF. The platform generates `output/reports/technical_report.pdf` after detecting results in `output/Preproc` and rendering PNGs into `output/rendered_png/`.
 
-## No Hay PNG Renderizados
+## No Rendered PNGs
 
-Revisar `GENERATE_RENDERED_PNG=true`, `NIFTI_RENDERER=slicer` y `data/studies/{study_id}/logs/rendering.log`. En el worker compneuro, `slicer` debe estar disponible en el `PATH` porque proviene de FSL dentro de la imagen base.
+Check `GENERATE_RENDERED_PNG=true`, `NIFTI_RENDERER=slicer` and `data/studies/{study_id}/logs/rendering.log`. In the compneuro worker, `slicer` must be available in the `PATH` because it comes from FSL inside the base image.
 
-## No Hay ZIP
+## No ZIP
 
-Revisar que `GENERATE_OUTPUT_ZIP=true`, que el estudio esté `completed` y que existan ficheros en `data/studies/{study_id}/output/Preproc`.
+Check that `GENERATE_OUTPUT_ZIP=true`, that the study is `completed` and that files exist in `data/studies/{study_id}/output/Preproc`.
 
-## Compneuro Falla Por `/project`
+## Compneuro Fails On `/project`
 
-`compneuro-anatproc` espera `/project/data/participants.tsv` y escribe en `/project/Preproc`. El worker crea un symlink gestionado hacia `runtime_project`. Si `/project` existe dentro del contenedor y no es un symlink gestionado, el procesamiento falla para no pisar rutas externas.
+`compneuro-anatproc` expects `/project/data/participants.tsv` and writes to `/project/Preproc`. The worker creates a managed symlink to `runtime_project`. If `/project` exists inside the container and is not a managed symlink, processing fails so that external paths are not overwritten.
 
-## Outputs Faltantes
+## Missing Outputs
 
-El procesamiento compneuro solo se marca correcto si existen `Preproc/BET` y `Preproc/ProbTissue`. Si falta una carpeta, revisar `logs/processor.log` y permisos del volumen `./data:/app/data`.
+Compneuro processing is only marked successful if `Preproc/BET` and `Preproc/ProbTissue` exist. If a folder is missing, check `logs/processor.log` and the permissions of the `./data:/app/data` volume.

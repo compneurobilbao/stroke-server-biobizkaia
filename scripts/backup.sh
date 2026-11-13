@@ -28,25 +28,25 @@ trap cleanup EXIT
 trap 'cleanup; exit 130' INT TERM
 
 if [ ! -d "${STUDIES_DIR}" ]; then
-  printf 'No existe %s\n' "${STUDIES_DIR}" >&2
+  printf '%s does not exist\n' "${STUDIES_DIR}" >&2
   exit 1
 fi
 
 if [ -e "${final_backup_dir}" ]; then
-  printf 'No se puede crear el backup: ya existe %s\n' "${final_backup_dir}" >&2
+  printf 'Cannot create the backup: %s already exists\n' "${final_backup_dir}" >&2
   exit 1
 fi
 
 mkdir -p "${backup_dir}"
 
-printf 'Pausando api y worker para evitar escrituras durante el backup.\n'
+printf 'Pausing api and worker to avoid writes during the backup.\n'
 docker compose pause api worker
 paused_services=1
 
 active_jobs="$(docker compose exec -T postgres sh -c "psql -At -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -c \"select count(*) from processing_jobs where status in ('queued','processing');\"")"
 
 if [ "${active_jobs}" != "0" ]; then
-  printf 'Backup cancelado: hay %s jobs queued/processing. Esperá a que terminen o resolvelos antes de respaldar.\n' "${active_jobs}" >&2
+  printf 'Backup canceled: there are %s queued/processing jobs. Wait for them to finish or resolve them before backing up.\n' "${active_jobs}" >&2
   exit 1
 fi
 
@@ -71,22 +71,22 @@ while IFS= read -r study_row; do
   if [ -d "${STUDIES_DIR}/${study_id}" ]; then
     printf 'studies/%s\n' "${study_id}" >> "${tar_paths}"
   elif [ -n "${deleted_at}" ]; then
-    printf 'Aviso: estudio borrado sin carpeta local para study_id=%s\n' "${study_id}" >&2
+    printf 'Warning: deleted study without a local folder for study_id=%s\n' "${study_id}" >&2
   else
-    printf 'Error: no existe carpeta local para study_id activo=%s\n' "${study_id}" >&2
+    printf 'Error: no local folder for active study_id=%s\n' "${study_id}" >&2
     missing_active_studies=1
   fi
 done < "${backup_dir}/studies-db-rows.txt"
 
 if [ "${missing_active_studies}" -ne 0 ]; then
-  printf 'Backup cancelado: faltan carpetas locales de estudios activos.\n' >&2
+  printf 'Backup canceled: local folders of active studies are missing.\n' >&2
   exit 1
 fi
 
-printf 'Creando backup de PostgreSQL en %s/db.sql\n' "${backup_dir}"
+printf 'Creating PostgreSQL backup at %s/db.sql\n' "${backup_dir}"
 docker compose exec -T postgres sh -c 'pg_dump --clean --if-exists --no-owner --no-privileges -U "$POSTGRES_USER" "$POSTGRES_DB"' > "${backup_dir}/db.sql"
 
-printf 'Creando backup de %s en %s/studies.tar.gz\n' "${STUDIES_DIR}" "${backup_dir}"
+printf 'Creating backup of %s at %s/studies.tar.gz\n' "${STUDIES_DIR}" "${backup_dir}"
 if [ -s "${tar_paths}" ]; then
   docker compose run --rm --no-deps -T \
     -v "${project_dir}/${backup_dir}:/backup-out" \
@@ -105,10 +105,10 @@ fi
   printf 'database_dump=db.sql\n'
   printf 'studies_archive=studies.tar.gz\n'
   printf 'studies_ids=studies.ids\n'
-  printf 'restore_note=Restaurar PostgreSQL y data/studies juntos para conservar trazabilidad.\n'
+  printf 'restore_note=Restore PostgreSQL and data/studies together to keep traceability.\n'
 } > "${backup_dir}/manifest.txt"
 
 mv "${backup_dir}" "${final_backup_dir}"
 backup_completed=1
 
-printf 'Backup creado en %s\n' "${final_backup_dir}"
+printf 'Backup created at %s\n' "${final_backup_dir}"
