@@ -61,7 +61,7 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: steps/sdk/requirements-image.txt
-      - name: Install SDK (host side: reference-test runner and validator)
+      - name: Install SDK (host side, for the reference-test runner and validator)
         run: |
           pip install -r steps/sdk/requirements-image.txt
           pip install --no-deps -e steps/sdk
