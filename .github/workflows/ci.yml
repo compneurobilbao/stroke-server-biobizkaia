@@ -198,13 +198,14 @@ jobs:
         run: npm run build
 
   frontend-e2e:
+    # Mocked API: seconds, no backend. The same wizard against the real Compose stack is the
+    # `e2e-real-stack` workflow (.github/workflows/e2e-real-stack.yml).
     name: Frontend Playwright (mocked API)
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     needs: frontend
     env:
-      # Pinned here, not in package.json, until the lockfile can be regenerated (see frontend/e2e/README.md).
-      PLAYWRIGHT_VERSION: "1.56.1"
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.playwright-browsers
     defaults:
       run:
         working-directory: frontend
@@ -216,14 +217,17 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - name: Install Playwright
-        run: |
-          npm install --no-save --no-package-lock "@playwright/test@${PLAYWRIGHT_VERSION}"
-          npx playwright install --with-deps chromium
+      - name: Playwright browser cache
+        uses: actions/cache@v4.2.0
+        with:
+          path: ${{ env.PLAYWRIGHT_BROWSERS_PATH }}
+          key: playwright-chromium-1.56.1-${{ runner.os }}
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
       - name: Build
         run: npm run build
       - name: Playwright tests (API mocked in the browser)
-        run: npx playwright test
+        run: npx playwright test --project=mocked
       - name: Upload report on failure
         if: failure()
         uses: actions/upload-artifact@v4.6.0

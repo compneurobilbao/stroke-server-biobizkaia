@@ -1,9 +1,9 @@
 /**
- * Mocked `/api` for the Playwright tests (mock mode of card F0-31).
+ * Mocked `/api` for the `mocked` Playwright project (card F0-31).
  *
  * The shapes follow docs/api/openapi-v1.json. Every request is answered from memory through
- * Playwright route interception, so the tests need no backend. When the Compose `ci` profile
- * is available to this job, the tests are meant to run against it instead (see e2e/README.md).
+ * Playwright route interception, so the tests need no backend. The same wizard runs against
+ * the real Compose stack in the `real-stack` project (e2e/real/, card F0-31a, e2e/README.md).
  */
 import type { Page, Route } from '@playwright/test';
 
