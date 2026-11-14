@@ -137,6 +137,31 @@ async function expectPdfDownload(page: Page) {
   expect(bytes.subarray(0, 5).toString('latin1')).toBe('%PDF-');
 }
 
+/**
+ * Opens the read-only viewer on the finished run (card F0-32): the lesion mask and the
+ * functional-disconnection stub map are downloaded with the session token and drawn by NiiVue
+ * in the real browser. MNI-mask mode has no CT in MNI space, so there is no background and the
+ * page says so. Requests to other origins would mean a CDN asset: none are allowed.
+ */
+async function expectViewer(page: Page) {
+  const baseOrigin = new URL(page.url()).origin;
+  const external: string[] = [];
+  page.on('request', (request) => {
+    const url = request.url();
+    if (!/^(data|blob):/.test(url) && new URL(url).origin !== baseOrigin) external.push(url);
+  });
+  await page.getByRole('link', { name: 'View images' }).click();
+  await expect(page).toHaveURL(/\/runs\/[0-9a-f-]{36}\/view$/);
+  const viewer = page.locator('.viewer-layout');
+  await expect(viewer).toHaveAttribute('data-state', 'ready', { timeout: 60_000 });
+  await expect(viewer).toHaveAttribute('data-layers', 'lesion,disconnection');
+  await expect(page.getByTestId('no-template')).toBeVisible();
+  await expect(page.getByRole('group', { name: /Disconnection map/ })).toContainText('synthetic');
+  const box = await page.getByRole('img', { name: /Three-plane view/ }).boundingBox();
+  expect(box?.width ?? 0).toBeGreaterThan(200);
+  expect(external, 'requests to other origins').toEqual([]);
+}
+
 test.describe.configure({ mode: 'serial' });
 
 test.describe('case creation wizard (real stack)', () => {
@@ -164,6 +189,8 @@ test.describe('case creation wizard (real stack)', () => {
     // The log of the real lesion-QC step is readable through the API.
     await timeline(page).locator('[data-slot="lesion-intake"]').getByRole('button', { name: 'Show log' }).click();
     await expect(page.getByLabel(/^Log of lesion-intake/)).toBeVisible();
+
+    await expectViewer(page);
   });
 
   test('lesion mask already in MNI: a non-default report implementation is sent and run', async ({ page }) => {

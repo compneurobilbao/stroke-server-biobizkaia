@@ -22,6 +22,7 @@ import { useFormatters } from '../../shared/useFormatters';
 import { useAuth } from '../auth/AuthContext';
 import { RunStatusBadge } from './RunStatusBadge';
 import { RunTimeline } from './RunTimeline';
+import { selectLayers } from '../viewer/layers';
 
 const POLL_INTERVAL_MS = 3000;
 
@@ -120,6 +121,7 @@ export function RunPage() {
     );
   }
 
+  const viewable = selectLayers(artifacts).some((layer) => layer.kind !== 'template');
   const canResume = run.status === 'failed' || run.status === 'canceled';
   const slots = run.slots ?? [];
   const steps = run.steps ?? [];
@@ -162,6 +164,11 @@ export function RunPage() {
             <button type="button" disabled={acting} onClick={() => void act('resume')}>
               {run.status === 'failed' ? t('cases.run.retry') : t('cases.run.resume')}
             </button>
+          )}
+          {viewable && (
+            <Link className="download" to={`/runs/${run.id}/view`}>
+              {t('cases.run.view')}
+            </Link>
           )}
           <Link className="download secondary" to={`/cases/${run.case_id}`}>
             {t('cases.run.openCase')}
