@@ -114,11 +114,13 @@ def test_dry_run_writes_nothing(factory, capsys):
 def test_admin_changes_survive_a_rerun_and_reset_overwrites_them(factory, capsys):
     run(factory, "--profile", "deployment")
     with factory() as db:
-        for r in db.scalars(select(SlotImplementationSetting)):
-            if r.implementation_id == "research-report-es":
-                r.is_default = True
-            if r.implementation_id == "research-report":
-                r.is_default = False
+        by_impl = {
+            r.implementation_id: r
+            for r in db.scalars(select(SlotImplementationSetting))
+        }
+        by_impl["research-report"].is_default = False
+        db.flush()  # free the one-default-per-slot index first
+        by_impl["research-report-es"].is_default = True
         db.flush()
         for r in db.scalars(select(SlotImplementationSetting)):
             if r.implementation_id == "fdisconnection-stub":
