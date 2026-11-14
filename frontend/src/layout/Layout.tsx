@@ -78,6 +78,7 @@ export function Layout() {
           <div className="subnav">
             <nav className="main-nav" aria-label={t('nav.label')}>
               <NavLink to="/studies">{t('nav.studies')}</NavLink>
+              <NavLink to="/cases">{t('nav.cases')}</NavLink>
               <NavLink to="/notifications">{t('nav.notifications')}</NavLink>
               {user.role === 'admin' && <NavLink to="/admin">{t('nav.admin')}</NavLink>}
             </nav>
