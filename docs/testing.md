@@ -91,8 +91,9 @@ The multi-user tests do not require the real `compneuro` flow; they use a tempor
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and on pushes to `develop` and `main`. The jobs are:
 
-- `backend`: `make lint` (ruff) and `make test` (pytest). The suite uses SQLite and in-memory Celery, so no Postgres or Redis service is needed.
+- `backend`: `make lint` (ruff) and `make test` (pytest). The suite uses SQLite and in-memory Celery, so no Postgres or Redis service is needed (the PostgreSQL runs are the `tests-postgres` job).
 - `migrations-postgres`: starts a `postgres:16-alpine` service container (same major version as `docker-compose.yml`), runs `alembic upgrade head`, `alembic downgrade base` and `alembic upgrade head` again from `backend/`, publishes the output in the job summary, then runs `pytest tests -m postgres`. Tests that need PostgreSQL carry the `postgres` marker and read the connection URL from `TEST_POSTGRES_URL`; without that variable they are skipped, so `make test` stays SQLite-only. New migration tests go in `tests/test_migrations_postgres.py` (or other tests with the marker) and run in this job. To run locally, start any PostgreSQL 16 instance and `export TEST_POSTGRES_URL=postgresql+psycopg://user:pass@localhost:5432/db`; the tests reset the `public` schema, so use a scratch database.
+- `tests-postgres`: runs `tests/test_api_v1.py`, `tests/test_api_v1_hardening.py`, `tests/test_orchestrator.py`, `tests/test_orchestrator_legacy.py`, `tests/test_data_model.py`, `tests/test_bundles.py`, `tests/test_seed_implementations.py` and `tests/test_postgres_concurrency.py` against a `postgres:16-alpine` service with `TEST_DB=postgres`. The same files run on SQLite in `make test` (fast path); only the database behind them changes. See "Running the suites on PostgreSQL" below.
 - `bids-validator`: `tests/test_bids.py` writes a synthetic case tree (raw inputs from `fixtures/`, two step derivatives, run provenance) to `BIDS_TREE_EXPORT`; the job then runs the pinned BIDS validator (JSR `@bids/validator`, version in the job's `BIDS_VALIDATOR_VERSION`, run with a pinned Deno) on the raw dataset and on every derivative dataset. The standard has no CT datatype and no `statmap`, `qc` or `report` suffixes, so the case store lists such files in each dataset's `.bidsignore` (card F0-17, `backend/app/services/bids.py`); everything else is validated. Locally: `BIDS_TREE_EXPORT=/tmp/bids PYTHONPATH=.:backend pytest tests/test_bids.py -k test_export_tree_for_bids_validator`, then `deno run -A jsr:@bids/validator@<version> <dataset>`.
 - `frontend`: `npm ci`, `npm run lint` and `npm run build` in `frontend/`.
 - `repo-checks`: `make check-docs` and `make check-secrets`.
@@ -102,6 +103,24 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and on pu
 The step SDK and template tests (`steps/`) are not part of `make test`: they use their own pinned dependencies (`steps/sdk/requirements-image.txt`, e.g. a different numpy pin than `backend/requirements.txt`) and need the SDK installed. Run them with `make test-steps` in a separate virtualenv; CI runs them in `.github/workflows/steps.yml`. Synthetic fixtures are already checked by `tests/test_fixtures.py`, which `make test` collects.
 
 All of these can be reproduced locally with the make targets above. Third-party actions are pinned to exact versions.
+
+## Running the suites on PostgreSQL
+
+SQLite does not enforce foreign keys or `SELECT ... FOR UPDATE`, so a suite that passes there can still hide an insert-order bug or a missing lock. Tests that need a database build it through `tests/pgdb.py` (`new_engine(tmp_path, name)`), which has two modes:
+
+- default: a SQLite file under `tmp_path`, built with `Base.metadata.create_all` (fast, no services);
+- `TEST_DB=postgres` with `TEST_POSTGRES_URL` pointing at a server where the user may create databases: the first call of the pytest process creates a template database and runs `alembic upgrade head` on it, so the schema is the production one (constraints, partial unique indexes, foreign keys); every test then gets its own database cloned with `CREATE DATABASE ... TEMPLATE`, and `tests/conftest.py` drops it after the test and the template at the end of the session. Commits made by the code under test therefore never leak between tests, and several sessions can work on the same database.
+
+Locally (any PostgreSQL 16, for example `docker run --rm -e POSTGRES_PASSWORD=p -p 5432:5432 postgres:16-alpine`):
+
+```bash
+export TEST_DB=postgres TEST_POSTGRES_URL=postgresql+psycopg://postgres:p@localhost:5432/postgres
+PYTHONPATH=.:backend pytest tests/test_api_v1.py tests/test_api_v1_hardening.py tests/test_orchestrator.py   tests/test_orchestrator_legacy.py tests/test_data_model.py tests/test_bundles.py   tests/test_seed_implementations.py tests/test_postgres_concurrency.py
+```
+
+New tests that open their own engine should use `pgdb.new_engine` rather than `create_engine("sqlite:///...")` so they can run in both modes; add their file to the `tests-postgres` job when the behaviour depends on constraints or locks. Do not rely in a test on SQLite leniency (random foreign key values, ids of rows that do not exist).
+
+`tests/test_postgres_concurrency.py` (skipped unless `TEST_DB=postgres`) runs real concurrent requests against the v1 locks (`lock_case`, `lock_user`): a gate pauses the first request right after it took its row lock, the second request is started and must block on it (checked through `pg_stat_activity`), then both outcomes are asserted. Scenarios: upload vs run creation (both orders), delete vs run creation (both orders), two uploads of one owner against the quota (gated and ungated), the lock itself with `lock_timeout`, and an audit-row check of every v1 write (each `audit_events` row references rows that exist, which PostgreSQL enforces and SQLite does not).
 
 ## End-to-end test with a public T1w image
 
