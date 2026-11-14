@@ -26,6 +26,7 @@ from app.models import (
     Case,
     InputFile,
     PipelineRun,
+    Report,
     StepRun,
     User,
 )
@@ -448,16 +449,11 @@ def test_quota_counts_inputs_and_artefacts(v1):
     from app.api.v1.quota import storage_used
 
     with v1.Session() as db:
-        inputs = sum(
-            i.size_bytes
-            for i in db.scalars(
-                select(InputFile).where(InputFile.case_id == uuid.UUID(case2))
-            )
-        )
+        inputs = sum(i.size_bytes for i in db.scalars(select(InputFile)))
         artefacts = sum(a.size_bytes for a in db.scalars(select(Artifact)))
         assert artefacts > 0
         used = storage_used(db, v1.alice_id)
-        assert used >= inputs + artefacts
+        assert used == inputs + artefacts
 
 
 def test_legacy_cases_are_not_served(v1):
@@ -853,6 +849,33 @@ def test_authentication_is_required_everywhere(v1):
         assert r.json()["code"] == "not_authenticated"
 
 
+def add_report(v1, run_id):
+    """A report row for the run (its PDF is an existing artefact; only ids matter here)."""
+    with v1.Session() as db:
+        artifact = db.scalars(
+            select(Artifact).where(Artifact.pipeline_run_id == uuid.UUID(run_id))
+        ).first()
+        report = Report(
+            case_id=artifact.case_id,
+            pipeline_run_id=artifact.pipeline_run_id,
+            step_run_id=artifact.step_run_id,
+            pdf_artifact_id=artifact.id,
+            json_artifact_id=artifact.id,
+            template="demo-report",
+            language="en",
+            content_sha256=artifact.sha256,
+        )
+        db.add(report)
+        db.commit()
+        return str(report.id)
+
+
+def first_step_id(v1, run_id):
+    return v1.client.get(f"/api/v1/runs/{run_id}/steps", headers=v1.alice).json()[0][
+        "id"
+    ]
+
+
 def test_other_researchers_see_nothing_of_a_case(v1):
     c = v1.client
     v1.enable_all()
@@ -860,6 +883,8 @@ def test_other_researchers_see_nothing_of_a_case(v1):
     artifact_id = c.get(f"/api/v1/runs/{run_id}/artifacts", headers=v1.alice).json()[0][
         "id"
     ]
+    report_id = add_report(v1, run_id)
+    step_id = first_step_id(v1, run_id)
     bob = v1.bob
     expect_404 = [
         ("get", f"/api/v1/cases/{case_id}", {}),
@@ -882,6 +907,8 @@ def test_other_researchers_see_nothing_of_a_case(v1):
         ("get", f"/api/v1/runs/{run_id}/artifacts", {}),
         ("get", f"/api/v1/runs/{run_id}/artifacts/{artifact_id}/download", {}),
         ("get", f"/api/v1/runs/{run_id}/reports", {}),
+        ("get", f"/api/v1/runs/{run_id}/reports/{report_id}/pdf", {}),
+        ("get", f"/api/v1/runs/{run_id}/steps/{step_id}/log", {}),
         ("post", f"/api/v1/runs/{run_id}/cancel", {}),
         ("post", f"/api/v1/runs/{run_id}/resume", {}),
         ("post", f"/api/v1/runs/{run_id}/retry", {}),
@@ -1003,6 +1030,10 @@ def test_researcher_cannot_use_admin_endpoints(v1):
     )
 
 
+def first_step_id_of(v1, run_id):
+    return first_step_id(v1, run_id)
+
+
 def test_artifact_of_another_run_cannot_be_fetched_through_this_run(v1):
     c = v1.client
     v1.enable_all()
@@ -1011,11 +1042,32 @@ def test_artifact_of_another_run_cannot_be_fetched_through_this_run(v1):
     art_b = c.get(f"/api/v1/runs/{run_b}/artifacts", headers=v1.alice).json()[0]["id"]
     r = c.get(f"/api/v1/runs/{run_a}/artifacts/{art_b}/download", headers=v1.alice)
     assert r.status_code == 404 and r.json()["code"] == "artifact_not_found"
+    report_b = add_report(v1, run_b)
+    r = c.get(f"/api/v1/runs/{run_a}/reports/{report_b}/pdf", headers=v1.alice)
+    assert r.status_code == 404 and r.json()["code"] == "report_not_found"
+    step_b = first_step_id_of(v1, run_b)
+    r = c.get(f"/api/v1/runs/{run_a}/steps/{step_b}/log", headers=v1.alice)
+    assert r.status_code == 404 and r.json()["code"] == "step_run_not_found"
 
 
 def test_legacy_endpoints_are_untouched(v1):
-    # The legacy study list still works next to the v1 routes.
-    assert v1.client.get("/api/studies", headers=v1.alice).status_code == 200
+    from tests.test_api import upload_test_study
+
+    c = v1.client
+    study_id = upload_test_study(c, v1.alice)
+    assert c.get(f"/api/studies/{study_id}/status", headers=v1.alice).status_code == 200
+    assert (
+        c.get(f"/api/studies/{study_id}", headers=v1.alice).json()["status"] == "queued"
+    )
+    assert [x["id"] for x in c.get("/api/studies", headers=v1.alice).json()] == [
+        str(study_id)
+    ]
+    assert c.get(f"/api/studies/{study_id}/status", headers=v1.bob).status_code == 404
+    # The legacy upload creates no case and is invisible to v1.
+    assert c.get("/api/v1/cases", headers=v1.alice).json() == []
+    assert c.get(f"/api/v1/cases/{study_id}", headers=v1.alice).status_code == 404
+    with v1.Session() as db:
+        assert db.scalar(select(Case)) is None
 
 
 # ------------------------------------------------------------------- OpenAPI

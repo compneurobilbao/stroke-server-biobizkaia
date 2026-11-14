@@ -37,6 +37,7 @@ from app.models.case import Case, DeploymentProfile
 from app.models.pipeline_run import LEGACY_PIPELINE_ID, PipelineRun
 from app.models.user import User
 from app.services.storage import LocalStudyStorage
+from pathlib import Path
 from orchestrator.bundle_resolver import BundleResolver, RegistryBundleResolver
 from orchestrator.catalog import (
     DirectoryPipelineRegistry,
@@ -219,3 +220,54 @@ class CeleryRunQueue:
 
 def get_run_queue() -> RunQueue:
     return CeleryRunQueue()
+
+
+def lock_case(db: Session, case_id: UUID) -> Case:
+    """Re-read the case row under ``SELECT ... FOR UPDATE`` (a no-op on SQLite).
+
+    Everything that changes a case's inputs, creates a run for it or deletes it takes
+    this lock first, then re-checks its conditions, so those operations serialise.
+    A case deleted meanwhile is 404. Lock order: case row, then owner user row.
+    """
+    case = db.scalar(
+        select(Case)
+        .where(Case.id == case_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if case is None or case.deleted_at is not None:
+        raise case_not_found()
+    return case
+
+
+def lock_user(db: Session, user_id: UUID) -> User:
+    """Lock the user row so that quota checks of concurrent uploads serialise."""
+    return db.scalar(
+        select(User)
+        .where(User.id == user_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+
+
+def case_file(storage: LocalStudyStorage, case_id: UUID, relative: str) -> Path | None:
+    """Path of a stored file of the case, or None unless it is a regular file inside
+    the case directory reached without a symbolic link."""
+    if not relative.startswith(f"{case_id}/"):
+        return None
+    try:
+        storage.resolve_relative(relative)
+    except ValueError:
+        return None
+    base = storage.case_dir(case_id)
+    path = storage.root / relative
+    current = base
+    for part in Path(relative).parts[1:]:
+        current = current / part
+        if current.is_symlink():
+            return None
+    try:
+        path.resolve().relative_to(base.resolve())
+    except ValueError:
+        return None
+    return path if path.is_file() else None

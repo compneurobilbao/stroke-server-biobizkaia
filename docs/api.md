@@ -219,9 +219,13 @@ The storage quota of the case owner counts legacy uploads, input files and store
 | Status | Codes |
 |---|---|
 | 404 | `pipeline_not_found`, `case_not_found`, `run_not_found`, `input_not_found`, `artifact_not_found`, `report_not_found`, `step_run_not_found`, `log_not_available`, `provenance_not_available`, `file_missing_in_storage` |
-| 422 | `unknown_slot`, `implementation_not_enabled` (a user choice that is not allowed or not enabled; body names the slot), `no_matching_input_set`, `input_type_mismatch`, `unknown_input_role`, `ambiguous_input_role`, `file_extension_not_allowed`, `invalid_input_file` |
-| 409 | `no_implementation` (a required slot has no enabled implementation; names the slot), `no_inputs`, `active_run_exists`, `case_has_runs`, `case_has_active_run`, `case_keep_forever`; resume and cancel: `run_not_active`, `run_succeeded`, `cancel_in_progress`, `input_rejected`, `pipeline_unavailable`, `implementation_disabled`, `bundle_unavailable`; resolution: `slot_unsatisfiable`, `manifest_unavailable`, `implementation_invalid`, `invalid_parameters`, `bundle_unavailable` |
+| 422 | `unknown_slot`, `implementation_not_enabled` (a user choice that is not allowed or not enabled; body names the slot), `no_matching_input_set`, `input_type_mismatch`, `invalid_parameters`, `implementation_invalid`, `unknown_input_role`, `ambiguous_input_role`, `file_extension_not_allowed`, `invalid_input_file` |
+| 409 | `no_implementation` (a required slot has no enabled implementation; names the slot), `no_inputs`, `active_run_exists`, `case_has_runs`, `case_has_active_run`, `case_keep_forever`; resume and cancel: `run_not_active`, `run_succeeded`, `cancel_in_progress`, `input_rejected`, `pipeline_unavailable`, `implementation_disabled`, `bundle_unavailable`; resolution: `slot_unsatisfiable`, `manifest_unavailable`, `bundle_unavailable`; `input_conflict` (an input was changed by a concurrent request) |
 | 413 | `upload_too_large`, `storage_quota_exceeded` |
+
+### Concurrency
+
+Input changes, run creation and case deletion take the case row lock (`SELECT ... FOR UPDATE` on PostgreSQL), then re-check their conditions: a run cannot be created on a case that was deleted meanwhile, inputs cannot change once a run exists, and a case with a run cannot be deleted while it is active. Uploads are streamed to a private temporary directory, checked, and swapped into the case store by an atomic rename while the case row and the owner row are locked, so the quota check sees every earlier upload. Downloads, logs and provenance are served only from regular files inside the case directory, never through a symbolic link.
 
 ### Configuration
 

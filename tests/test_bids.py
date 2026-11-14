@@ -31,7 +31,10 @@ def test_prepare_single_subject_t1w_bids(tmp_path):
 
     assert paths.t1w_path.exists()
     assert paths.t1w_path.name == "sub-O01_T1w.nii.gz"
-    assert paths.participants_path.read_text(encoding="utf-8") == "participant_id\nsub-O01\n"
+    assert (
+        paths.participants_path.read_text(encoding="utf-8")
+        == "participant_id\nsub-O01\n"
+    )
     assert paths.dataset_description_path.exists()
 
 
@@ -175,16 +178,32 @@ def populated(store_root, tmp_path):
     storage = LocalStudyStorage(store_root)
     ct_src = FIXTURE_CASE / "ct.nii.gz"
     ct = bids.store_raw_input(
-        storage, CASE, _naming("ct_native"), ct_src,
-        expected_sha256=_sha(ct_src), platform_version="0.3.0",
+        storage,
+        CASE,
+        _naming("ct_native"),
+        ct_src,
+        expected_sha256=_sha(ct_src),
+        platform_version="0.3.0",
     )
     mask = bids.store_raw_input(
-        storage, CASE, _naming("lesion_mask_native"), FIXTURE_CASE / "lesion_mask_native.nii.gz"
+        storage,
+        CASE,
+        _naming("lesion_mask_native"),
+        FIXTURE_CASE / "lesion_mask_native.nii.gz",
     )
     inputs = [
-        {"name": "ct", "type": "ct_native", "sha256": ct.sha256, "size_bytes": ct.size_bytes},
-        {"name": "lesion", "type": "lesion_mask_native", "sha256": mask.sha256,
-         "size_bytes": mask.size_bytes},
+        {
+            "name": "ct",
+            "type": "ct_native",
+            "sha256": ct.sha256,
+            "size_bytes": ct.size_bytes,
+        },
+        {
+            "name": "lesion",
+            "type": "lesion_mask_native",
+            "sha256": mask.sha256,
+            "size_bytes": mask.size_bytes,
+        },
     ]
     bids.init_run_provenance(storage, CASE_ID, RUN_ID, _header(inputs))
 
@@ -194,51 +213,92 @@ def populated(store_root, tmp_path):
         json.dumps(
             _step_provenance(
                 "lesion-qc",
-                [_file_record("lesion_qc", "lesion_qc", out["lesion_qc"]),
-                 _file_record("qc_figure", "qc_figure", out["qc_figure"])],
-                [{"port": "ct", "type": "ct_native", "sha256": ct.sha256,
-                  "size_bytes": ct.size_bytes}],
+                [
+                    _file_record("lesion_qc", "lesion_qc", out["lesion_qc"]),
+                    _file_record("qc_figure", "qc_figure", out["qc_figure"]),
+                ],
+                [
+                    {
+                        "port": "ct",
+                        "type": "ct_native",
+                        "sha256": ct.sha256,
+                        "size_bytes": ct.size_bytes,
+                    }
+                ],
             ),
             indent=2,
         ),
         encoding="utf-8",
     )
     r1 = bids.store_step_result(
-        storage, CASE, RUN_ID, slot="lesion-intake", step_name="lesion-qc",
-        step_version="1.0.0", execution=_execution(IMAGE_QC), image=IMAGE_QC,
+        storage,
+        CASE,
+        RUN_ID,
+        slot="lesion-intake",
+        step_name="lesion-qc",
+        step_version="1.0.0",
+        execution=_execution(IMAGE_QC),
+        image=IMAGE_QC,
         provenance_path=prov1,
-        outputs=[bids.StepOutput("lesion_qc", _naming("lesion_qc"), out["lesion_qc"]),
-                 bids.StepOutput("qc_figure", _naming("qc_figure"), out["qc_figure"])],
+        outputs=[
+            bids.StepOutput("lesion_qc", _naming("lesion_qc"), out["lesion_qc"]),
+            bids.StepOutput("qc_figure", _naming("qc_figure"), out["qc_figure"]),
+        ],
     )
     prov2 = tmp_path / "prov2.json"
     prov2.write_text(
         json.dumps(
             _step_provenance(
                 "norm-stub",
-                [_file_record("mask_a", "lesion_mask_mni", out["mask_a"]),
-                 _file_record("mask_b", "lesion_mask_mni", out["mask_b"])],
-                [{"port": "lesion_qc", "type": "lesion_qc", "sha256": _sha(out["lesion_qc"]),
-                  "size_bytes": out["lesion_qc"].stat().st_size}],
+                [
+                    _file_record("mask_a", "lesion_mask_mni", out["mask_a"]),
+                    _file_record("mask_b", "lesion_mask_mni", out["mask_b"]),
+                ],
+                [
+                    {
+                        "port": "lesion_qc",
+                        "type": "lesion_qc",
+                        "sha256": _sha(out["lesion_qc"]),
+                        "size_bytes": out["lesion_qc"].stat().st_size,
+                    }
+                ],
             ),
             indent=2,
         ),
         encoding="utf-8",
     )
     r2 = bids.store_step_result(
-        storage, CASE, RUN_ID, slot="normalisation", step_name="norm-stub",
-        step_version="1.0.0", execution=_execution(IMAGE_NORM), image=IMAGE_NORM,
+        storage,
+        CASE,
+        RUN_ID,
+        slot="normalisation",
+        step_name="norm-stub",
+        step_version="1.0.0",
+        execution=_execution(IMAGE_NORM),
+        image=IMAGE_NORM,
         provenance_path=prov2,
-        outputs=[bids.StepOutput("mask_a", _naming("lesion_mask_mni"), out["mask_a"]),
-                 bids.StepOutput("mask_b", _naming("lesion_mask_mni"), out["mask_b"])],
+        outputs=[
+            bids.StepOutput("mask_a", _naming("lesion_mask_mni"), out["mask_a"]),
+            bids.StepOutput("mask_b", _naming("lesion_mask_mni"), out["mask_b"]),
+        ],
     )
     bids.update_run_provenance(
         storage, CASE_ID, RUN_ID, status="succeeded", finished_at="2026-11-13T11:41:27Z"
     )
-    return storage, {"ct": ct, "mask": mask, "r1": r1, "r2": r2, "prov1": prov1,
-                     "prov2": prov2, "out": out}
+    return storage, {
+        "ct": ct,
+        "mask": mask,
+        "r1": r1,
+        "r2": r2,
+        "prov1": prov1,
+        "prov2": prov2,
+        "out": out,
+    }
 
 
-@pytest.mark.skipif(not os.environ.get("BIDS_TREE_EXPORT"), reason="BIDS_TREE_EXPORT not set")
+@pytest.mark.skipif(
+    not os.environ.get("BIDS_TREE_EXPORT"), reason="BIDS_TREE_EXPORT not set"
+)
 def test_export_tree_for_bids_validator(populated):
     """Produces the tree that the CI job feeds to the BIDS validator (raw and derivatives)."""
     storage, _ = populated
@@ -253,7 +313,9 @@ def test_raw_tree_layout_and_privacy(populated):
         f"{CASE_ID}/rawdata/{SUB}/ses-acute/ct/{SUB}_ses-acute_ct.nii.gz"
     )
     assert (raw / SUB / "ses-acute" / "ct" / f"{SUB}_ses-acute_ct.nii.gz").is_file()
-    assert parts["mask"].relative_path.endswith(f"{SUB}_ses-acute_label-lesion_mask.nii.gz")
+    assert parts["mask"].relative_path.endswith(
+        f"{SUB}_ses-acute_label-lesion_mask.nii.gz"
+    )
     description = json.loads((raw / "dataset_description.json").read_text())
     assert description["DatasetType"] == "raw"
     assert description["GeneratedBy"][0]["Name"] == "stroke-server"
@@ -265,18 +327,25 @@ def test_raw_tree_layout_and_privacy(populated):
         if path.is_file() and path.suffix in {".tsv", ".json"}:
             text = path.read_text(encoding="utf-8").lower()
             assert "birth" not in text
-            assert "	age	" not in text and "\"age\"" not in text
+            assert "	age	" not in text and '"age"' not in text
 
 
 def test_derivative_layout_generated_by_and_collisions(populated):
     storage, parts = populated
     deriv = storage.derivatives_dir(CASE_ID, RUN_ID)
-    assert sorted(p.name for p in deriv.iterdir()) == ["lesion-qc-1.0.0", "norm-stub-1.0.0"]
+    assert sorted(p.name for p in deriv.iterdir()) == [
+        "lesion-qc-1.0.0",
+        "norm-stub-1.0.0",
+    ]
     qc = deriv / "lesion-qc-1.0.0"
     description = json.loads((qc / "dataset_description.json").read_text())
     assert description["DatasetType"] == "derivative"
     assert description["GeneratedBy"] == [
-        {"Name": "lesion-qc", "Version": "1.0.0", "Container": {"Type": "docker", "Tag": IMAGE_QC}}
+        {
+            "Name": "lesion-qc",
+            "Version": "1.0.0",
+            "Container": {"Type": "docker", "Tag": IMAGE_QC},
+        }
     ]
     assert (qc / SUB / "ses-acute" / f"{SUB}_ses-acute_label-lesion_qc.json").is_file()
     # Two ports of one type get distinct names through desc-<port>.
@@ -299,7 +368,9 @@ def test_derivative_layout_generated_by_and_collisions(populated):
 
 def test_step_provenance_kept_verbatim_and_merged(populated):
     storage, parts = populated
-    stored = storage.derivatives_dir(CASE_ID, RUN_ID) / "lesion-qc-1.0.0" / "provenance.json"
+    stored = (
+        storage.derivatives_dir(CASE_ID, RUN_ID) / "lesion-qc-1.0.0" / "provenance.json"
+    )
     assert stored.read_bytes() == parts["prov1"].read_bytes()
     assert parts["r1"].provenance.sha256 == _sha(parts["prov1"])
     record = bids.load_run_provenance(storage, CASE_ID, RUN_ID)
@@ -316,13 +387,22 @@ def test_retry_replaces_same_attempt_and_adds_new_one(populated):
     out = parts["out"]
     for attempt in (1, 2):
         bids.store_step_result(
-            storage, CASE, RUN_ID, slot="lesion-intake", step_name="lesion-qc",
-            step_version="1.0.0", execution=_execution(IMAGE_QC, attempt),
-            outputs=[bids.StepOutput("qc_figure", _naming("qc_figure"), out["qc_figure"])],
+            storage,
+            CASE,
+            RUN_ID,
+            slot="lesion-intake",
+            step_name="lesion-qc",
+            step_version="1.0.0",
+            execution=_execution(IMAGE_QC, attempt),
+            outputs=[
+                bids.StepOutput("qc_figure", _naming("qc_figure"), out["qc_figure"])
+            ],
         )
     record = bids.load_run_provenance(storage, CASE_ID, RUN_ID)
     attempts = sorted(
-        s["execution"]["attempt"] for s in record["steps"] if s["slot"] == "lesion-intake"
+        s["execution"]["attempt"]
+        for s in record["steps"]
+        if s["slot"] == "lesion-intake"
     )
     assert attempts == [1, 2]
 
@@ -333,7 +413,9 @@ def test_checksum_manifest_detects_tampering(populated):
     manifest = json.loads(storage.run_checksums_path(CASE_ID, RUN_ID).read_text())
     assert manifest["algorithm"] == "sha256"
     assert "provenance.json" in manifest["files"]
-    victim = storage.derivatives_dir(CASE_ID, RUN_ID) / "lesion-qc-1.0.0" / "provenance.json"
+    victim = (
+        storage.derivatives_dir(CASE_ID, RUN_ID) / "lesion-qc-1.0.0" / "provenance.json"
+    )
     victim.write_text("{}")
     assert bids.verify_run_tree(storage, CASE_ID, RUN_ID) == [
         "modified: derivatives/lesion-qc-1.0.0/provenance.json"
@@ -350,12 +432,22 @@ def test_output_not_matching_provenance_is_refused(tmp_path):
     )
     prov.write_text(json.dumps(record), encoding="utf-8")
     out["qc_figure"].write_bytes(b"changed after the step wrote its record")
-    kwargs = {"slot": "lesion-intake", "step_name": "lesion-qc", "step_version": "1.0.0",
-              "execution": _execution(IMAGE_QC), "provenance_path": prov}
+    kwargs = {
+        "slot": "lesion-intake",
+        "step_name": "lesion-qc",
+        "step_version": "1.0.0",
+        "execution": _execution(IMAGE_QC),
+        "provenance_path": prov,
+    }
     with pytest.raises(bids.ChecksumMismatch):
         bids.store_step_result(
-            storage, CASE, RUN_ID, **kwargs,
-            outputs=[bids.StepOutput("qc_figure", _naming("qc_figure"), out["qc_figure"])],
+            storage,
+            CASE,
+            RUN_ID,
+            **kwargs,
+            outputs=[
+                bids.StepOutput("qc_figure", _naming("qc_figure"), out["qc_figure"])
+            ],
         )
     deriv = storage.derivatives_dir(CASE_ID, RUN_ID)
     assert list(deriv.rglob("*.png")) == []
@@ -365,7 +457,10 @@ def test_output_not_matching_provenance_is_refused(tmp_path):
     # An output the record does not declare is refused as well.
     with pytest.raises(bids.ChecksumMismatch):
         bids.store_step_result(
-            storage, CASE, RUN_ID, **kwargs,
+            storage,
+            CASE,
+            RUN_ID,
+            **kwargs,
             outputs=[bids.StepOutput("extra", _naming("qc_figure"), out["qc_figure"])],
         )
     # And a record that belongs to another step.
@@ -379,7 +474,10 @@ def test_raw_input_checksum_and_identity_validation(tmp_path):
     storage = LocalStudyStorage(tmp_path / "studies")
     with pytest.raises(bids.ChecksumMismatch):
         bids.store_raw_input(
-            storage, CASE, _naming("ct_native"), FIXTURE_CASE / "ct.nii.gz",
+            storage,
+            CASE,
+            _naming("ct_native"),
+            FIXTURE_CASE / "ct.nii.gz",
             expected_sha256="0" * 64,
         )
     with pytest.raises(ValueError):

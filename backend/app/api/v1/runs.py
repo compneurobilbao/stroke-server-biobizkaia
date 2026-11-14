@@ -23,10 +23,12 @@ from app.api.v1.deps import (
     Orchestration,
     RunQueue,
     audit_event,
+    case_file,
     get_orchestration,
     get_run_queue,
     load_case,
     load_run,
+    lock_case,
     storage_for,
 )
 from app.api.v1.errors import V1Error, v1_error
@@ -61,6 +63,8 @@ _UNPROCESSABLE = {
     "input_type_mismatch",
     "no_matching_input_set",
     "input_not_in_case",
+    "invalid_parameters",
+    "implementation_invalid",
 }
 _ACTION_STATUS = {"run_not_found": 404, "legacy_run": 404}
 
@@ -124,7 +128,9 @@ def create_case_run(
 ) -> RunDetailRead:
     """Resolve the pipeline against the case's inputs, validate the per-slot choices
     (422 when a choice is not enabled), store the run as ``queued`` and enqueue it."""
-    case = load_case(db, case_id, current_user, "run.create")
+    load_case(db, case_id, current_user, "run.create")
+    # Serialise with input changes and deletion of the case, then read the inputs.
+    case = lock_case(db, case_id)
     pipeline = find_pipeline(orch, body.pipeline_id, body.pipeline_version)
     files = {
         f.role: f
@@ -249,13 +255,12 @@ def get_step_log(
     step = db.get(StepRun, step_run_id)
     if step is None or step.pipeline_run_id != run.id:
         raise v1_error(404, "step_run_not_found", "Step attempt not found")
-    path = None
-    if step.log_path:
-        try:
-            path = storage_for(settings).resolve_relative(step.log_path)
-        except ValueError:
-            path = None
-    if path is None or not path.is_file():
+    path = (
+        case_file(storage_for(settings), run.case_id, step.log_path)
+        if step.log_path
+        else None
+    )
+    if path is None:
         raise v1_error(404, "log_not_available", "No log is available for this attempt")
     size = path.stat().st_size
     with path.open("rb") as handle:
@@ -277,13 +282,12 @@ def get_provenance(
     settings: Settings = Depends(get_settings),
 ) -> JSONResponse:
     run, _case = load_run(db, run_id, current_user, "run.read")
-    path = None
-    if run.provenance_path:
-        try:
-            path = storage_for(settings).resolve_relative(run.provenance_path)
-        except ValueError:
-            path = None
-    if path is None or not path.is_file():
+    path = (
+        case_file(storage_for(settings), run.case_id, run.provenance_path)
+        if run.provenance_path
+        else None
+    )
+    if path is None:
         raise v1_error(404, "provenance_not_available", "No provenance record yet")
     return JSONResponse(json.loads(path.read_text(encoding="utf-8")))
 
@@ -314,11 +318,8 @@ def list_artifacts(
 
 
 def _send(settings: Settings, artifact: Artifact) -> FileResponse:
-    try:
-        path = storage_for(settings).resolve_relative(artifact.storage_path)
-    except ValueError:
-        path = None
-    if path is None or not path.is_file():
+    path = case_file(storage_for(settings), artifact.case_id, artifact.storage_path)
+    if path is None:
         raise v1_error(
             404, "file_missing_in_storage", "The file does not exist in storage"
         )

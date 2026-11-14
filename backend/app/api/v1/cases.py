@@ -8,8 +8,10 @@ Inputs can be added, replaced or removed until the first run of the case is crea
 from __future__ import annotations
 
 import gzip
+import hashlib
 import logging
 import os
+import shutil
 import tempfile
 import uuid
 from pathlib import Path
@@ -25,9 +27,12 @@ from app.api.v1.deps import (
     Orchestration,
     audit_event,
     authorize,
+    case_file,
     deployment_profile,
     get_orchestration,
     load_case,
+    lock_case,
+    lock_user,
     storage_for,
     visible_cases,
 )
@@ -202,7 +207,9 @@ def delete_case(
 ) -> Response:
     """Soft-delete the case and remove its files. Refused while a run is active or when
     the case is flagged keep-forever."""
-    case = load_case(db, case_id, current_user, "case.delete")
+    load_case(db, case_id, current_user, "case.delete")
+    # Serialise with run creation and input changes, then re-check under the lock.
+    case = lock_case(db, case_id)
     if case.keep_forever:
         raise v1_error(409, "case_keep_forever", "The case is flagged keep-forever")
     active = db.scalar(
@@ -283,17 +290,20 @@ def put_input(
             "file_extension_not_allowed",
             f"Role '{role}' needs a {naming.extension} file",
         )
-    if _has_runs(db, case.id):
+    if _has_runs(db, case.id):  # early refusal; re-checked under the lock below
         raise v1_error(409, "case_has_runs", "Inputs cannot change after the first run")
 
     storage = storage_for(settings)
-    incoming = storage.case_dir(case.id) / "incoming"
+    # One private temp directory per request, outside every case directory. Only this
+    # request's directory is removed; leftovers of a crash are harmless.
+    incoming = storage.root / ".incoming"
     incoming.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(dir=incoming)
-    tmp = Path(tmp_name)
+    tmp_dir = Path(tempfile.mkdtemp(dir=incoming, prefix="up-"))
+    tmp = tmp_dir / "upload"
     try:
         size = 0
-        with os.fdopen(fd, "wb") as out:
+        hasher = hashlib.sha256()
+        with tmp.open("wb") as out:
             while chunk := file.file.read(_CHUNK):
                 size += len(chunk)
                 if size > settings.max_upload_size_bytes:
@@ -302,11 +312,23 @@ def put_input(
                         "upload_too_large",
                         "The file exceeds the maximum allowed size",
                     )
+                hasher.update(chunk)
                 out.write(chunk)
         if size == 0:
             raise v1_error(422, "invalid_input_file", "The file is empty")
         if type_def.get("format") == "nifti":
             _check_nifti(tmp)
+
+        # Critical section: case row, then owner row. Re-check everything that may
+        # have changed during the upload, then swap the file in atomically (the case
+        # store writes through a temporary file and renames) and commit before the
+        # locks are released.
+        case = lock_case(db, case_id)
+        if _has_runs(db, case.id):
+            raise v1_error(
+                409, "case_has_runs", "Inputs cannot change after the first run"
+            )
+        owner = lock_user(db, case.owner_user_id)
         existing = db.scalar(
             select(InputFile).where(
                 InputFile.case_id == case.id, InputFile.role == role
@@ -314,7 +336,7 @@ def put_input(
         )
         check_quota(
             db,
-            _owner(db, case),
+            owner,
             size,
             replaced_bytes=(existing.size_bytes or 0) if existing else 0,
         )
@@ -323,40 +345,52 @@ def put_input(
             CaseIdentity.from_case(case),
             naming,
             tmp,
+            expected_sha256=hasher.hexdigest(),
             platform_version=os.environ.get("PLATFORM_VERSION"),
         )
-    finally:
-        tmp.unlink(missing_ok=True)
-        try:
-            incoming.rmdir()
-        except OSError:
-            pass
-
-    if existing is None:
-        existing = InputFile(
+        created = existing is None
+        if created:
+            existing = InputFile(
+                case_id=case.id,
+                role=role,
+                artefact_type=atype,
+                uploaded_by_user_id=current_user.id,
+            )
+            db.add(existing)
+        else:
+            response.status_code = 200
+            existing.uploaded_by_user_id = current_user.id
+            existing.created_at = utcnow()
+        existing.storage_path = stored.relative_path
+        existing.sha256 = stored.sha256
+        existing.size_bytes = stored.size_bytes
+        case.updated_at = utcnow()
+        audit_event(
+            db,
+            "input_uploaded",
+            current_user,
             case_id=case.id,
-            role=role,
-            artefact_type=atype,
-            uploaded_by_user_id=current_user.id,
+            details={
+                "role": role,
+                "artefact_type": atype,
+                "size_bytes": stored.size_bytes,
+            },
+            ip_address=client_ip(request),
         )
-        db.add(existing)
-    else:
-        response.status_code = 200
-        existing.uploaded_by_user_id = current_user.id
-        existing.created_at = utcnow()
-    existing.storage_path = stored.relative_path
-    existing.sha256 = stored.sha256
-    existing.size_bytes = stored.size_bytes
-    case.updated_at = utcnow()
-    audit_event(
-        db,
-        "input_uploaded",
-        current_user,
-        case_id=case.id,
-        details={"role": role, "artefact_type": atype, "size_bytes": stored.size_bytes},
-        ip_address=client_ip(request),
-    )
-    db.commit()
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            if created:
+                storage.root.joinpath(stored.relative_path).unlink(missing_ok=True)
+            raise v1_error(
+                409, "input_conflict", "The input was changed by another request"
+            ) from None
+    except BaseException:
+        db.rollback()  # releases the row locks
+        raise
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
     db.refresh(existing)
     return existing
 
@@ -396,11 +430,8 @@ def download_input(
 ) -> FileResponse:
     case = load_case(db, case_id, current_user, "case.inputs.download")
     row = _input(db, case, role)
-    try:
-        path = storage_for(settings).resolve_relative(row.storage_path)
-    except ValueError:
-        path = None
-    if path is None or not path.is_file():
+    path = case_file(storage_for(settings), case.id, row.storage_path)
+    if path is None:
         raise v1_error(
             404, "file_missing_in_storage", "The file does not exist in storage"
         )
@@ -416,15 +447,12 @@ def delete_input(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> Response:
-    case = load_case(db, case_id, current_user, "case.inputs.write")
+    load_case(db, case_id, current_user, "case.inputs.write")
+    case = lock_case(db, case_id)
     if _has_runs(db, case.id):
         raise v1_error(409, "case_has_runs", "Inputs cannot change after the first run")
     row = _input(db, case, role)
-    path = None
-    try:
-        path = storage_for(settings).resolve_relative(row.storage_path)
-    except ValueError:
-        pass
+    path = case_file(storage_for(settings), case.id, row.storage_path)
     db.delete(row)
     audit_event(
         db,

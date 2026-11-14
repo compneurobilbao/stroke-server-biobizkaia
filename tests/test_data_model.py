@@ -134,7 +134,11 @@ def test_case_validators_and_defaults(db, user):
     with pytest.raises(ValueError):
         Case(owner_user_id=user.id, deployment_profile="research-public", sex="unknown")
     with pytest.raises(ValueError):
-        Case(owner_user_id=user.id, deployment_profile="research-public", subject_label="Z" * 12)
+        Case(
+            owner_user_id=user.id,
+            deployment_profile="research-public",
+            subject_label="Z" * 12,
+        )
 
 
 def test_case_constraints(db, user):
@@ -282,7 +286,9 @@ def test_run_slot_constraints(db, user):
     with pytest.raises(IntegrityError):
         make_slot(db, run, slot="bad-skip", position=2, status="skipped")
     db.rollback()
-    with pytest.raises(IntegrityError):  # selected without an image (not the legacy slot)
+    with pytest.raises(
+        IntegrityError
+    ):  # selected without an image (not the legacy slot)
         make_slot(db, run, slot="no-image", position=3, image=None)
     db.rollback()
     legacy = make_slot(db, run, slot="legacy", position=4, image=None)
@@ -307,7 +313,9 @@ def test_step_run_constraints_and_relations(db, user):
             outcome=outcome,
             executor="subprocess",
             runtime="none",
-            finished_at=run.created_at if status in ("succeeded", "failed", "canceled") else None,
+            finished_at=run.created_at
+            if status in ("succeeded", "failed", "canceled")
+            else None,
         )
         values.update(kw)
         row = StepRun(**values)
@@ -326,8 +334,13 @@ def test_step_run_constraints_and_relations(db, user):
         attempt(2, "failed", "failed")
     db.rollback()
     # status and outcome must agree
-    for status, outcome in (("running", "failed"), ("succeeded", "failed"), ("failed", None),
-                            ("canceled", "failed"), ("failed", "succeeded")):
+    for status, outcome in (
+        ("running", "failed"),
+        ("succeeded", "failed"),
+        ("failed", None),
+        ("canceled", "failed"),
+        ("failed", "succeeded"),
+    ):
         with pytest.raises(IntegrityError):
             attempt(9, status, outcome)
         db.rollback()
@@ -335,16 +348,27 @@ def test_step_run_constraints_and_relations(db, user):
         attempt(9, "failed", "rejected")
     db.rollback()
     attempt(9, "failed", "rejected", step_error={"code": "input_rejected"})
-    with pytest.raises(IntegrityError):  # docker attempts need image and granted resources
+    with pytest.raises(
+        IntegrityError
+    ):  # docker attempts need image and granted resources
         attempt(10, "failed", "failed", executor="docker", runtime="docker")
     db.rollback()
     attempt(
-        11, "failed", "failed", executor="docker", runtime="docker", image=IMAGE,
-        granted_cpus=2, granted_memory_mb=1024, granted_gpus=0, granted_wall_time_minutes=30,
+        11,
+        "failed",
+        "failed",
+        executor="docker",
+        runtime="docker",
+        image=IMAGE,
+        granted_cpus=2,
+        granted_memory_mb=1024,
+        granted_gpus=0,
+        granted_wall_time_minutes=30,
     )
     # success: the second one for the slot is refused (the live attempt 2 must end first)
-    db.query(StepRun).filter_by(attempt=2).update({"status": "succeeded", "outcome": "succeeded",
-                                                   "finished_at": run.created_at})
+    db.query(StepRun).filter_by(attempt=2).update(
+        {"status": "succeeded", "outcome": "succeeded", "finished_at": run.created_at}
+    )
     db.commit()
     with pytest.raises(IntegrityError):
         attempt(12, "succeeded", "succeeded")
@@ -359,17 +383,29 @@ def test_artifacts_reports_and_bundles(db, user):
     run = make_run(db, case)
     slot = make_slot(db, run)
     step = StepRun(
-        pipeline_run_id=run.id, run_slot_id=slot.id, attempt=1, trigger="initial",
-        status="queued", executor="subprocess", runtime="none",
+        pipeline_run_id=run.id,
+        run_slot_id=slot.id,
+        attempt=1,
+        trigger="initial",
+        status="queued",
+        executor="subprocess",
+        runtime="none",
     )
     db.add(step)
     db.commit()
 
     def artifact(port, **kw):
         values = dict(
-            case_id=case.id, pipeline_run_id=run.id, step_run_id=step.id, origin="step",
-            port=port, artefact_type="report_pdf", storage_path=f"derivatives/{port}.pdf",
-            sha256=SHA, size_bytes=5, synthetic=True,
+            case_id=case.id,
+            pipeline_run_id=run.id,
+            step_run_id=step.id,
+            origin="step",
+            port=port,
+            artefact_type="report_pdf",
+            storage_path=f"derivatives/{port}.pdf",
+            sha256=SHA,
+            size_bytes=5,
+            synthetic=True,
         )
         values.update(kw)
         row = Artifact(**values)
@@ -388,23 +424,37 @@ def test_artifacts_reports_and_bundles(db, user):
     with pytest.raises(IntegrityError):  # step artefacts need a step run
         artifact("other", step_run_id=None)
     db.rollback()
-    artifact("legacy-port".replace("-", "_"), origin="legacy", sha256=None, size_bytes=None)
+    artifact(
+        "legacy-port".replace("-", "_"), origin="legacy", sha256=None, size_bytes=None
+    )
     # a review artefact may supersede one and has no step run
-    edited = artifact("report", origin="review", step_run_id=None,
-                      supersedes_artifact_id=pdf.id)
+    edited = artifact(
+        "report", origin="review", step_run_id=None, supersedes_artifact_id=pdf.id
+    )
     assert edited.supersedes_artifact_id == pdf.id
 
     report = Report(
-        case_id=case.id, pipeline_run_id=run.id, step_run_id=step.id, pdf_artifact_id=pdf.id,
-        json_artifact_id=js.id, template="research", language="en", content_sha256=SHA,
+        case_id=case.id,
+        pipeline_run_id=run.id,
+        step_run_id=step.id,
+        pdf_artifact_id=pdf.id,
+        json_artifact_id=js.id,
+        template="research",
+        language="en",
+        content_sha256=SHA,
     )
     db.add(report)
     db.commit()
     db.add(
         Report(
-            case_id=case.id, pipeline_run_id=run.id, step_run_id=step.id,
-            pdf_artifact_id=pdf.id, json_artifact_id=js.id, template="research",
-            language="en", content_sha256=SHA,
+            case_id=case.id,
+            pipeline_run_id=run.id,
+            step_run_id=step.id,
+            pdf_artifact_id=pdf.id,
+            json_artifact_id=js.id,
+            template="research",
+            language="en",
+            content_sha256=SHA,
         )
     )
     with pytest.raises(IntegrityError):
@@ -412,18 +462,30 @@ def test_artifacts_reports_and_bundles(db, user):
     db.rollback()
     db.add(
         Report(
-            case_id=case.id, pipeline_run_id=run.id, step_run_id=step.id,
-            pdf_artifact_id=pdf.id, template="research", language="es",
+            case_id=case.id,
+            pipeline_run_id=run.id,
+            step_run_id=step.id,
+            pdf_artifact_id=pdf.id,
+            template="research",
+            language="es",
         )
     )
-    with pytest.raises(IntegrityError):  # JSON artefact and hash required outside legacy
+    with pytest.raises(
+        IntegrityError
+    ):  # JSON artefact and hash required outside legacy
         db.commit()
     db.rollback()
 
     bundle = ReferenceBundle(
-        bundle_id="ventricle-templates", version="1.0.0", bundle_type="template-set",
-        title="Templates", content_digest="sha256:" + SHA, manifest_sha256=SHA,
-        synthetic=True, licence_spdx="CC0-1.0", redistributable=True,
+        bundle_id="ventricle-templates",
+        version="1.0.0",
+        bundle_type="template-set",
+        title="Templates",
+        content_digest="sha256:" + SHA,
+        manifest_sha256=SHA,
+        synthetic=True,
+        licence_spdx="CC0-1.0",
+        redistributable=True,
         storage_path="ventricle-templates/1.0.0",
     )
     db.add(bundle)
@@ -432,9 +494,16 @@ def test_artifacts_reports_and_bundles(db, user):
     assert bundle.verification_status == "verified"
     db.add(
         ReferenceBundle(
-            bundle_id="ventricle-templates", version="1.0.0", bundle_type="template-set",
-            title="Dup", content_digest="sha256:" + SHA, manifest_sha256=SHA, synthetic=True,
-            licence_spdx="CC0-1.0", redistributable=True, storage_path="x",
+            bundle_id="ventricle-templates",
+            version="1.0.0",
+            bundle_type="template-set",
+            title="Dup",
+            content_digest="sha256:" + SHA,
+            manifest_sha256=SHA,
+            synthetic=True,
+            licence_spdx="CC0-1.0",
+            redistributable=True,
+            storage_path="x",
         )
     )
     with pytest.raises(IntegrityError):
@@ -442,8 +511,13 @@ def test_artifacts_reports_and_bundles(db, user):
     db.rollback()
     with pytest.raises(ValueError):
         ReferenceBundle(content_digest="md5:abc")
-    db.add(RunSlotBundle(run_slot_id=slot.id, requirement_name="templates",
-                         reference_bundle_id=bundle.id))
+    db.add(
+        RunSlotBundle(
+            run_slot_id=slot.id,
+            requirement_name="templates",
+            reference_bundle_id=bundle.id,
+        )
+    )
     db.commit()
     assert slot.bundles[0].reference_bundle.bundle_id == "ventricle-templates"
     db.add(RunInput(pipeline_run_id=run.id, role="ct", input_file_id=uuid.uuid4()))
@@ -454,8 +528,11 @@ def test_artifacts_reports_and_bundles(db, user):
 def test_slot_implementation_settings(db):
     def setting(impl, enabled, default):
         row = SlotImplementationSetting(
-            pipeline_id="ct-pipeline", slot="normalise", implementation_id=impl,
-            enabled=enabled, is_default=default,
+            pipeline_id="ct-pipeline",
+            slot="normalise",
+            implementation_id=impl,
+            enabled=enabled,
+            is_default=default,
         )
         db.add(row)
         db.commit()
@@ -486,8 +563,13 @@ def test_user_role_check(db):
 def test_case_schemas():
     assert CaseCreate(sex="male", age_band="90-104").age_band == "90-104"
     assert CaseCreate().sex is None
-    for bad in ({"age_band": "67"}, {"age_band": "90-94"}, {"sex": "x"}, {"age": 67},
-                {"subject_label": "abcdef012345"}):
+    for bad in (
+        {"age_band": "67"},
+        {"age_band": "90-94"},
+        {"sex": "x"},
+        {"age": 67},
+        {"subject_label": "abcdef012345"},
+    ):
         with pytest.raises(ValidationError):
             CaseCreate(**bad)
     with pytest.raises(ValidationError):
@@ -506,8 +588,13 @@ def test_read_schemas_from_orm(db, user):
     assert PipelineRunRead.model_validate(run).seed == 42
     assert RunSlotRead.model_validate(slot).implementation_id == "synthetic-stub"
     step = StepRun(
-        pipeline_run_id=run.id, run_slot_id=slot.id, attempt=1, trigger="initial",
-        status="queued", executor="subprocess", runtime="none",
+        pipeline_run_id=run.id,
+        run_slot_id=slot.id,
+        attempt=1,
+        trigger="initial",
+        status="queued",
+        executor="subprocess",
+        runtime="none",
     )
     db.add(step)
     db.commit()
@@ -520,14 +607,20 @@ def test_0011_relative_rejects_paths_escaping_the_storage_root(tmp_path):
 
     import pytest
 
-    migration = Path(__file__).resolve().parents[1] / "backend/alembic/versions/0011_case_model.py"
+    migration = (
+        Path(__file__).resolve().parents[1]
+        / "backend/alembic/versions/0011_case_model.py"
+    )
     spec = importlib.util.spec_from_file_location("migration_0011", migration)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
     root = tmp_path / "studies"
     assert module._relative(str(root / "abc" / "report.pdf"), root) == "abc/report.pdf"
-    assert module._relative(str(root / "abc" / ".." / "def" / "x.zip"), root) == "def/x.zip"
+    assert (
+        module._relative(str(root / "abc" / ".." / "def" / "x.zip"), root)
+        == "def/x.zip"
+    )
     with pytest.raises(ValueError):
         module._relative(str(root / "abc" / ".." / ".." / "other" / "x.pdf"), root)
     with pytest.raises(ValueError):
