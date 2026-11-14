@@ -14,6 +14,7 @@ from app.models.study import Study, StudyStatus
 from app.services.audit import record_event
 from app.services.notifications import notify_processing_finished
 from app.services.storage import LocalStudyStorage
+from orchestrator.legacy import mirror_safely
 from processor_adapter import create_processor_adapter
 from processor_adapter.cancellation import ProcessorCanceled
 from processor_adapter.nifti_renderer import render_nifti_outputs
@@ -35,6 +36,7 @@ def process_study(self, study_id: str, job_id: str) -> None:
     study_uuid = UUID(study_id)
     job_uuid = UUID(job_id)
     previous_signal_handlers = None
+    started = False
 
     try:
         study = db.get(Study, study_uuid)
@@ -64,7 +66,14 @@ def process_study(self, study_id: str, job_id: str) -> None:
         job.worker_name = socket.gethostname()
         record_event(db, "processing_started", study.id, {"job_id": str(job.id)})
         db.commit()
+        started = True
         previous_signal_handlers = _install_cancel_signal_handlers()
+        # Dual write (docs/data-model.md 10.1 stage 1b); never affects the legacy
+        # result. Installed handlers first: a cancel SIGTERM arriving during the
+        # mirror raises ProcessorCanceled, which is handled exactly as before.
+        mirror_safely(
+            db, study_uuid, settings.storage_root, reraise=(ProcessorCanceled,)
+        )
 
         processor_backend = study.processor_backend or settings.processor_backend
         adapter = create_processor_adapter(
@@ -260,6 +269,8 @@ def process_study(self, study_id: str, job_id: str) -> None:
     finally:
         if previous_signal_handlers:
             _restore_signal_handlers(previous_signal_handlers)
+        if started:
+            mirror_safely(db, study_uuid, settings.storage_root)
         db.close()
 
 
@@ -325,3 +336,43 @@ def _notify_processing_finished(db, study: Study, settings) -> None:
     except Exception:
         db.rollback()
         logger.exception("Notification dispatch failed for study %s", study.id)
+
+
+# --------------------------------------------------------------- pipeline runs (F0-15)
+
+
+def _orchestrator():
+    from orchestrator.config import build_orchestrator
+
+    settings = get_settings()
+    return build_orchestrator(SessionLocal, settings.storage_root, settings=settings)
+
+
+@celery_app.task(name="worker.tasks.run_pipeline", bind=True, max_retries=0)
+def run_pipeline(self, run_id: str) -> str:
+    """Drive one pipeline run to a final state (orchestrator.engine).
+
+    Cancellation is requested through ``pipeline_runs.cancel_requested_at``, not
+    by revoking this task: the orchestrator propagates it to the executor and
+    records the outcome. ``self.request.id`` is the lease owner.
+    """
+    owner = self.request.id or f"local-{socket.gethostname()}"
+    result = _orchestrator().drive(UUID(run_id), owner)
+    logger.info("Pipeline run %s: %s", run_id, result.value)
+    return result.value
+
+
+@celery_app.task(name="worker.tasks.recover_pipeline_runs")
+def recover_pipeline_runs() -> int:
+    """Re-enqueue active runs whose driver stopped heartbeating (data-model.md 7.1)."""
+    from orchestrator.config import config_from_env
+    from orchestrator.engine import stale_runs
+
+    db = SessionLocal()
+    try:
+        run_ids = stale_runs(db, config_from_env().lease_seconds)
+    finally:
+        db.close()
+    for run_id in run_ids:
+        run_pipeline.delay(str(run_id))
+    return len(run_ids)
