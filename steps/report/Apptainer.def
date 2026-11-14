@@ -1,0 +1,31 @@
+# Apptainer recipe for the report step (contract section 6).
+# The SIF is built from the Docker image of the same step, so both runtimes run the same
+# bits. In production the source is the registry image pinned by digest:
+#   apptainer build step.sif docker://<repository>@sha256:<digest>
+# This recipe adds the checks that matter for Apptainer; build it from a local Docker image:
+#   apptainer build --build-arg IMAGE=research-report-step:dev step.sif steps/report/Apptainer.def
+# and run it as the executor does:
+#   apptainer exec --containall --cleanenv --no-home --bind IN:/in:ro --bind OUT:/out \
+#       --env STEP_CPUS=1 step.sif /usr/local/bin/run --in /in --out /out --params /in/params.json
+Bootstrap: docker-daemon
+From: {{ IMAGE }}
+
+%post
+    # Bind targets must exist in the image (contract 6.3).
+    mkdir -p /in /out /ref /tmp
+    chmod 0755 /in /out /ref
+    chmod 1777 /tmp
+    chmod -R a+rX /opt/step
+
+%runscript
+    # Not used by executors (they call /usr/local/bin/run directly); handy by hand.
+    exec /usr/local/bin/run "$@"
+
+%test
+    test -x /usr/local/bin/run
+    test -r /opt/step/step.yaml
+    /usr/local/bin/run --help > /dev/null
+
+%labels
+    org.opencontainers.image.title research-report
+    contract.version 1.0

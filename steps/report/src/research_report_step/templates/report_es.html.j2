@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Informe de investigación</title>
+{% if created_meta %}
+<meta name="dcterms.created" content="{{ created_meta }}">
+{% endif %}
+<style>
+@page {
+  size: A4;
+  margin: 24mm 16mm 20mm 16mm;
+  @top-center { content: "SOLO PARA USO EN INVESTIGACIÓN - NO PARA DECISIONES CLÍNICAS"; font: bold 8.5pt "DejaVu Sans", sans-serif; color: #8a2a17; border-bottom: 0.3mm solid #b5452f; padding-bottom: 2mm; width: 100%; text-align: center; }
+  @bottom-center { content: "Página " counter(page) " de " counter(pages); font: 8pt "DejaVu Sans", sans-serif; color: #555; }
+}
+{% include "_style.css" %}
+</style>
+</head>
+<body>
+{% set run = r.provenance.run %}
+{% set hemi = {'left': 'Izquierdo', 'right': 'Derecho', 'bilateral': 'Bilateral', 'midline': 'Línea media', 'not_assessed': 'No evaluado'} %}
+{% set measure = {'disconnection_positive': 'Desconexión positiva', 'disconnection_negative': 'Desconexión negativa', 'lesion_overlap': 'Solapamiento con la lesión'} %}
+
+<h1>Informe de investigación</h1>
+<p class="muted">Análisis de lesión y desconexión, flujo de cartografía de redes de lesión en ictus</p>
+<div class="box">Solo para uso en investigación, no para decisiones clínicas. Los valores de este informe son resultados de investigación y no se han validado para diagnóstico, pronóstico ni tratamiento.</div>
+
+<table class="kv">
+<tr><td>Ejecución</td><td class="mono">{{ run.run_id }}</td></tr>
+<tr><td>Caso</td><td class="mono">{{ run.case_id }}</td></tr>
+<tr><td>Flujo de procesamiento</td><td>{{ run.pipeline.id }} {{ run.pipeline.version }}</td></tr>
+<tr><td>Versión de la plataforma</td><td>{{ run.platform.version }} (tipos de artefacto {{ run.platform.artefact_types_version }})</td></tr>
+<tr><td>Conjunto de entradas</td><td>{{ run.input_set if run.input_set else "-" }}</td></tr>
+<tr><td>Ejecución creada</td><td>{{ run.created_at }}</td></tr>
+<tr><td>Generador del informe</td><td>{{ r.generator.step }} {{ r.generator.version }}</td></tr>
+</table>
+
+<h2>1. Resumen</h2>
+<table>
+<tr><th>Sección</th><th>Estado</th></tr>
+<tr><td>Lesión</td><td>disponible</td></tr>
+<tr><td>Mapa de desconexión funcional</td><td>{{ "disponible" if r.sections.functional_disconnection == "available" else "ausente (entrada no proporcionada)" }}</td></tr>
+<tr><td>Desconexión de tractos</td><td>{{ "disponible" if r.sections.tract_disconnection == "available" else "ausente (entrada no proporcionada)" }}</td></tr>
+<tr><td>Perfil cognitivo</td><td>{{ "disponible" if r.sections.cognitive_profile == "available" else "ausente (entrada no proporcionada)" }}</td></tr>
+</table>
+<ul>
+<li>Volumen de la lesión {{ r.lesion.volume_ml | fixed(3) }} mL, hemisferio: {{ hemi[r.lesion.hemisphere] }}, {{ r.lesion.components.count }} componente(s) conexo(s).</li>
+{% if r.tract_disconnection.status == "available" %}
+<li>Tracto más desconectado: {{ r.tract_disconnection.max_tract }} ({{ r.tract_disconnection.max_disconnection | fixed(3) }}); {{ r.tract_disconnection.n_tracts_above_0_5 }} de {{ r.tract_disconnection.n_tracts }} tractos por encima de 0.5.</li>
+{% endif %}
+{% if r.cognitive_profile.status == "available" %}
+<li>Perfil cognitivo: {{ r.cognitive_profile.significant_concepts | length }} de {{ r.cognitive_profile.n_concepts }} conceptos significativos tras la corrección.</li>
+{% endif %}
+</ul>
+
+<h2>2. Lesión</h2>
+<figure>
+<img src="{{ fig.lesion }}" alt="Lesión en vistas ortogonales">
+<figcaption>Figura 1. Vistas ortogonales por el centroide de la lesión (espacio MNI152, L y R indican izquierda y derecha).
+{% if fig.background == "ct" %}Fondo: el TC normalizado por el flujo de procesamiento.{% else %}Fondo: una plantilla T1 MNI152 incluida en la biblioteca de figuras (no la versión NLin6Asym), solo como orientación; son esperables pequeños desplazamientos respecto a la rejilla de la lesión.{% endif %}</figcaption>
+</figure>
+<table class="kv">
+<tr><td>Volumen</td><td>{{ r.lesion.volume_ml | fixed(3) }} mL ({{ r.lesion.n_voxels }} vóxeles)</td></tr>
+<tr><td>Hemisferio</td><td>{{ hemi[r.lesion.hemisphere] }}{% if r.lesion.hemisphere_voxels.left is not none %} (izquierdo {{ r.lesion.hemisphere_voxels.left }}, derecho {{ r.lesion.hemisphere_voxels.right }}, línea media {{ r.lesion.hemisphere_voxels.midline }} vóxeles){% endif %}</td></tr>
+<tr><td>Componentes conexos</td><td>{{ r.lesion.components.count }}, el mayor contiene el {{ r.lesion.components.largest_fraction | percent }} del volumen</td></tr>
+<tr><td>Centroide (mm)</td><td>{{ r.lesion.centroid_mm | join(", ") }}</td></tr>
+<tr><td>Rejilla</td><td>{{ r.lesion.grid.name if r.lesion.grid.name else "nativa" }}, forma {{ r.lesion.grid.shape | join(" x ") }}, vóxel {{ r.lesion.grid.voxel_size_mm | join(" x ") }} mm</td></tr>
+<tr><td>Máscara en la rejilla de trabajo</td><td>{{ r.lesion.mask_on_working_grid.volume_ml | fixed(3) }} mL, {{ r.lesion.mask_on_working_grid.n_voxels }} vóxeles ({{ "coherente con el control de calidad" if r.lesion.mask_agrees_with_qc else "difiere del control de calidad" }})</td></tr>
+</table>
+{% if r.lesion.qc_warnings %}
+<p>Avisos registrados por el control de calidad de la lesión:</p>
+<ul>
+{% for w in r.lesion.qc_warnings %}
+<li>{{ w.code }}: {{ w.message }}</li>
+{% endfor %}
+</ul>
+{% else %}
+<p>El control de calidad de la lesión no registró avisos.</p>
+{% endif %}
+
+<h2>3. Desconexión</h2>
+<h3>3.1 Mapa de desconexión funcional</h3>
+{% if r.functional_disconnection.status == "available" %}
+{% if fig.functional %}
+<figure>
+<img src="{{ fig.functional }}" alt="Mapa de desconexión funcional">
+<figcaption>Figura 2. Mapa de desconexión funcional en los cortes por el centroide de la lesión; valores mayores significan más desconexión.</figcaption>
+</figure>
+{% else %}
+<p class="absent">El mapa de desconexión funcional no tiene vóxeles positivos; no se dibujó figura.</p>
+{% endif %}
+<table class="kv">
+<tr><td>Máximo</td><td>{{ r.functional_disconnection.max | fixed(4) }}</td></tr>
+<tr><td>Vóxeles mayores que cero</td><td>{{ r.functional_disconnection.n_positive_voxels }}</td></tr>
+<tr><td>Media de los vóxeles positivos</td><td>{{ r.functional_disconnection.mean_of_positive | fixed(4) }}</td></tr>
+</table>
+{% else %}
+<p class="absent">No disponible: el mapa de desconexión funcional no se proporcionó a este informe, por lo que esta sección está vacía.</p>
+{% endif %}
+
+<h3>3.2 Desconexión de tractos</h3>
+{% if r.tract_disconnection.status == "available" %}
+<p>La desconexión es la fracción de las fibras de un tracto que intersectan la lesión (de 0 a 1). {{ r.tract_disconnection.n_tracts }} tractos; media {{ r.tract_disconnection.mean_disconnection | fixed(3) }}.</p>
+<figure>
+<img src="{{ fig.tracts }}" alt="Barras de desconexión de tractos">
+<figcaption>Figura 3. Desconexión de los tractos más desconectados (hasta 20), eje horizontal de 0 a 1.</figcaption>
+</figure>
+<table>
+<tr><th>Tracto</th><th class="num">Desconexión</th></tr>
+{% for t in r.tract_disconnection.tracts %}
+<tr><td>{{ t.tract }}</td><td class="num">{{ t.disconnection | fixed(3) }}</td></tr>
+{% endfor %}
+</table>
+{% else %}
+<p class="absent">No disponible: la tabla de desconexión de tractos no se proporcionó a este informe, por lo que esta sección está vacía.</p>
+{% endif %}
+
+<h2>4. Perfil cognitivo</h2>
+{% if r.cognitive_profile.status == "available" %}
+{% set cp = r.cognitive_profile %}
+<p>Método {{ cp.method.name }}, versión del perfil {{ cp.profile_version }}; {{ cp.method.n_nulls }} mapas nulos, {{ cp.method.n_parcels }} parcelas, corrección {{ cp.method.correction }}, alfa {{ cp.method.alpha }}. Paquete de mapas de conceptos: {{ cp.bundle.id }} {{ cp.bundle.version }}{% if cp.bundle.synthetic %} (sintético){% endif %}, huella del contenido <span class="mono">{{ cp.bundle.content_digest }}</span>.</p>
+<table>
+<tr><th>Dominio</th><th class="num">Conceptos</th><th>Medida</th><th class="num">Puntuación</th><th class="num">p</th><th class="num">p corregida</th><th>Significativo</th></tr>
+{% for d in cp.domains %}
+{% for m in ["disconnection_positive", "disconnection_negative", "lesion_overlap"] %}
+<tr>
+{% if loop.first %}
+<td rowspan="3">{{ d.domain }}</td><td class="num" rowspan="3">{{ d.n_concepts }}</td>
+{% endif %}
+<td>{{ measure[m] }}</td><td class="num">{{ d[m].score | fixed(4) }}</td><td class="num">{{ d[m].p_value | pval }}</td><td class="num">{{ d[m].p_corrected | pval }}</td><td>{{ "sí" if d[m].significant else "no" }}</td>
+</tr>
+{% endfor %}
+{% endfor %}
+</table>
+{% if cp.significant_concepts %}
+<h3>Conceptos significativos</h3>
+<table>
+<tr><th>Concepto</th><th>Dominio</th><th>Medidas</th></tr>
+{% for c in cp.significant_concepts %}
+<tr><td>{{ c.concept }}</td><td>{{ c.domain }}</td><td>{% for m in c.significant_measures %}{{ measure[m] }} (p corregida {{ c[m].p_corrected | pval }}){% if not loop.last %}; {% endif %}{% endfor %}</td></tr>
+{% endfor %}
+</table>
+{% else %}
+<p>Ningún concepto es significativo tras la corrección.</p>
+{% endif %}
+{% else %}
+<p class="absent">No disponible: el perfil cognitivo no se proporcionó a este informe, por lo que esta sección está vacía.</p>
+{% endif %}
+
+<h2>5. Procedencia</h2>
+<p>Flujo {{ run.pipeline.id }} {{ run.pipeline.version }}, huella de la definición <span class="mono">sha256:{{ run.pipeline.sha256 }}</span>. Estado de la ejecución al construir el informe: {{ run.status }}.</p>
+<h3>5.1 Pasos e imágenes de contenedor</h3>
+<table>
+<tr><th>Ranura</th><th>Estado</th><th>Paso</th><th>Imagen de contenedor (con huella)</th><th>Software</th></tr>
+{% for s in r.provenance.slots %}
+<tr>
+<td>{{ s.slot }}</td>
+<td>{{ s.status }}{% if s.reason %} ({{ s.reason }}){% endif %}</td>
+{% if s.implementation %}
+<td>{{ s.implementation.step_name }} {{ s.implementation.step_version }}{% if s.implementation.stub %} (simulado){% endif %}</td>
+<td class="mono">{{ s.implementation.image }}</td>
+<td>{% for st in r.provenance.steps if st.slot == s.slot %}{% for sw in st.software %}{{ sw.name }} {{ sw.version }}{% if not loop.last %}, {% endif %}{% endfor %}{% endfor %}</td>
+{% else %}
+<td>-</td><td>-</td><td>-</td>
+{% endif %}
+</tr>
+{% endfor %}
+</table>
+{% set bundled = [] %}
+{% for s in r.provenance.slots %}{% for b in s.bundles %}{% if bundled.append(b) %}{% endif %}{% endfor %}{% endfor %}
+{% if bundled %}
+<h3>5.2 Paquetes de referencia</h3>
+<table>
+<tr><th>Paquete</th><th>Versión</th><th>Huella del contenido</th></tr>
+{% for b in bundled %}
+<tr><td>{{ b.name }} ({{ b.id }})</td><td>{{ b.version }}</td><td class="mono">{{ b.content_digest }}</td></tr>
+{% endfor %}
+</table>
+{% endif %}
+<h3>5.3 Artefactos leídos por este informe</h3>
+<table>
+<tr><th>Entrada</th><th>Tipo</th><th>SHA-256</th><th class="num">Bytes</th></tr>
+{% for a in r.inputs %}
+<tr><td>{{ a.port }}</td><td>{{ a.type }}</td>
+{% if a.present %}
+<td class="mono">{{ a.sha256 }}</td><td class="num">{{ a.size_bytes }}</td>
+{% else %}
+<td>no proporcionado</td><td class="num">-</td>
+{% endif %}
+</tr>
+{% endfor %}
+</table>
+
+<h2>6. Notas</h2>
+<ul>
+<li>Este documento es solo para uso en investigación, no para decisiones clínicas.</li>
+<li>El contenido legible por máquina de este informe está en report.json; sus bytes son la base del sellado.</li>
+{% if "synthetic_reference_data" in r.notes %}
+<li>Los datos de referencia usados para el perfil cognitivo están marcados como sintéticos.</li>
+{% endif %}
+{% if "lesion_mask_differs_from_qc" in r.notes %}
+<li>La máscara de lesión entregada a este informe difiere del volumen registrado por el control de calidad de la lesión; revise la configuración del flujo.</li>
+{% endif %}
+</ul>
+</body>
+</html>

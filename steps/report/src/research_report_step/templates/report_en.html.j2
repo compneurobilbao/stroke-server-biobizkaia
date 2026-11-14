@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Research report</title>
+{% if created_meta %}
+<meta name="dcterms.created" content="{{ created_meta }}">
+{% endif %}
+<style>
+@page {
+  size: A4;
+  margin: 24mm 16mm 20mm 16mm;
+  @top-center { content: "FOR RESEARCH USE ONLY - NOT FOR CLINICAL DECISIONS"; font: bold 8.5pt "DejaVu Sans", sans-serif; color: #8a2a17; border-bottom: 0.3mm solid #b5452f; padding-bottom: 2mm; width: 100%; text-align: center; }
+  @bottom-center { content: "Page " counter(page) " of " counter(pages); font: 8pt "DejaVu Sans", sans-serif; color: #555; }
+}
+{% include "_style.css" %}
+</style>
+</head>
+<body>
+{% set run = r.provenance.run %}
+{% set hemi = {'left': 'Left', 'right': 'Right', 'bilateral': 'Bilateral', 'midline': 'Midline', 'not_assessed': 'Not assessed'} %}
+{% set measure = {'disconnection_positive': 'Positive disconnection', 'disconnection_negative': 'Negative disconnection', 'lesion_overlap': 'Lesion overlap'} %}
+
+<h1>Research report</h1>
+<p class="muted">Lesion and disconnection analysis, stroke lesion-network mapping pipeline</p>
+<div class="box">For research use only, not for clinical decisions. The values in this report are research outputs and have not been validated for diagnosis, prognosis or treatment.</div>
+
+<table class="kv">
+<tr><td>Run</td><td class="mono">{{ run.run_id }}</td></tr>
+<tr><td>Case</td><td class="mono">{{ run.case_id }}</td></tr>
+<tr><td>Pipeline</td><td>{{ run.pipeline.id }} {{ run.pipeline.version }}</td></tr>
+<tr><td>Platform version</td><td>{{ run.platform.version }} (artefact types {{ run.platform.artefact_types_version }})</td></tr>
+<tr><td>Input set</td><td>{{ run.input_set if run.input_set else "-" }}</td></tr>
+<tr><td>Run created</td><td>{{ run.created_at }}</td></tr>
+<tr><td>Report generator</td><td>{{ r.generator.step }} {{ r.generator.version }}</td></tr>
+</table>
+
+<h2>1. Summary</h2>
+<table>
+<tr><th>Section</th><th>Status</th></tr>
+<tr><td>Lesion</td><td>available</td></tr>
+<tr><td>Functional disconnection map</td><td>{{ "available" if r.sections.functional_disconnection == "available" else "absent (input not provided)" }}</td></tr>
+<tr><td>Tract disconnection</td><td>{{ "available" if r.sections.tract_disconnection == "available" else "absent (input not provided)" }}</td></tr>
+<tr><td>Cognitive profile</td><td>{{ "available" if r.sections.cognitive_profile == "available" else "absent (input not provided)" }}</td></tr>
+</table>
+<ul>
+<li>Lesion volume {{ r.lesion.volume_ml | fixed(3) }} mL, hemisphere: {{ hemi[r.lesion.hemisphere] }}, {{ r.lesion.components.count }} connected component(s).</li>
+{% if r.tract_disconnection.status == "available" %}
+<li>Most disconnected tract: {{ r.tract_disconnection.max_tract }} ({{ r.tract_disconnection.max_disconnection | fixed(3) }}); {{ r.tract_disconnection.n_tracts_above_0_5 }} of {{ r.tract_disconnection.n_tracts }} tracts above 0.5.</li>
+{% endif %}
+{% if r.cognitive_profile.status == "available" %}
+<li>Cognitive profile: {{ r.cognitive_profile.significant_concepts | length }} of {{ r.cognitive_profile.n_concepts }} concepts significant after correction.</li>
+{% endif %}
+</ul>
+
+<h2>2. Lesion</h2>
+<figure>
+<img src="{{ fig.lesion }}" alt="Lesion in orthogonal views">
+<figcaption>Figure 1. Orthogonal views through the lesion centroid (MNI152 space, L and R marked).
+{% if fig.background == "ct" %}Background: the CT normalised by the pipeline.{% else %}Background: an MNI152 T1 template bundled with the figure library (not the NLin6Asym version), shown for orientation only; small offsets to the lesion grid are expected.{% endif %}</figcaption>
+</figure>
+<table class="kv">
+<tr><td>Volume</td><td>{{ r.lesion.volume_ml | fixed(3) }} mL ({{ r.lesion.n_voxels }} voxels)</td></tr>
+<tr><td>Hemisphere</td><td>{{ hemi[r.lesion.hemisphere] }}{% if r.lesion.hemisphere_voxels.left is not none %} (left {{ r.lesion.hemisphere_voxels.left }}, right {{ r.lesion.hemisphere_voxels.right }}, midline {{ r.lesion.hemisphere_voxels.midline }} voxels){% endif %}</td></tr>
+<tr><td>Connected components</td><td>{{ r.lesion.components.count }}, largest holds {{ r.lesion.components.largest_fraction | percent }} of the volume</td></tr>
+<tr><td>Centroid (mm)</td><td>{{ r.lesion.centroid_mm | join(", ") }}</td></tr>
+<tr><td>Grid</td><td>{{ r.lesion.grid.name if r.lesion.grid.name else "native" }}, shape {{ r.lesion.grid.shape | join(" x ") }}, voxel {{ r.lesion.grid.voxel_size_mm | join(" x ") }} mm</td></tr>
+<tr><td>Mask on the working grid</td><td>{{ r.lesion.mask_on_working_grid.volume_ml | fixed(3) }} mL, {{ r.lesion.mask_on_working_grid.n_voxels }} voxels ({{ "consistent with the QC" if r.lesion.mask_agrees_with_qc else "differs from the QC" }})</td></tr>
+</table>
+{% if r.lesion.qc_warnings %}
+<p>Warnings recorded by the lesion QC:</p>
+<ul>
+{% for w in r.lesion.qc_warnings %}
+<li>{{ w.code }}: {{ w.message }}</li>
+{% endfor %}
+</ul>
+{% else %}
+<p>The lesion QC recorded no warnings.</p>
+{% endif %}
+
+<h2>3. Disconnection</h2>
+<h3>3.1 Functional disconnection map</h3>
+{% if r.functional_disconnection.status == "available" %}
+{% if fig.functional %}
+<figure>
+<img src="{{ fig.functional }}" alt="Functional disconnection map">
+<figcaption>Figure 2. Functional disconnection map on the lesion centroid cuts; larger values mean more disconnection.</figcaption>
+</figure>
+{% else %}
+<p class="absent">The functional disconnection map has no positive voxels; no figure was drawn.</p>
+{% endif %}
+<table class="kv">
+<tr><td>Maximum</td><td>{{ r.functional_disconnection.max | fixed(4) }}</td></tr>
+<tr><td>Voxels above zero</td><td>{{ r.functional_disconnection.n_positive_voxels }}</td></tr>
+<tr><td>Mean of positive voxels</td><td>{{ r.functional_disconnection.mean_of_positive | fixed(4) }}</td></tr>
+</table>
+{% else %}
+<p class="absent">Not available: the functional disconnection map was not provided to this report, so this section is empty.</p>
+{% endif %}
+
+<h3>3.2 Tract disconnection</h3>
+{% if r.tract_disconnection.status == "available" %}
+<p>Disconnection is the fraction of the streamlines of a tract that intersect the lesion (0 to 1). {{ r.tract_disconnection.n_tracts }} tracts; mean {{ r.tract_disconnection.mean_disconnection | fixed(3) }}.</p>
+<figure>
+<img src="{{ fig.tracts }}" alt="Tract disconnection bars">
+<figcaption>Figure 3. Disconnection of the most disconnected tracts (up to 20), horizontal axis from 0 to 1.</figcaption>
+</figure>
+<table>
+<tr><th>Tract</th><th class="num">Disconnection</th></tr>
+{% for t in r.tract_disconnection.tracts %}
+<tr><td>{{ t.tract }}</td><td class="num">{{ t.disconnection | fixed(3) }}</td></tr>
+{% endfor %}
+</table>
+{% else %}
+<p class="absent">Not available: the tract disconnection table was not provided to this report, so this section is empty.</p>
+{% endif %}
+
+<h2>4. Cognitive profile</h2>
+{% if r.cognitive_profile.status == "available" %}
+{% set cp = r.cognitive_profile %}
+<p>Method {{ cp.method.name }}, profile version {{ cp.profile_version }}; {{ cp.method.n_nulls }} null maps, {{ cp.method.n_parcels }} parcels, {{ cp.method.correction }} correction, alpha {{ cp.method.alpha }}. Concept maps bundle: {{ cp.bundle.id }} {{ cp.bundle.version }}{% if cp.bundle.synthetic %} (synthetic){% endif %}, content digest <span class="mono">{{ cp.bundle.content_digest }}</span>.</p>
+<table>
+<tr><th>Domain</th><th class="num">Concepts</th><th>Measure</th><th class="num">Score</th><th class="num">p</th><th class="num">p corrected</th><th>Significant</th></tr>
+{% for d in cp.domains %}
+{% for m in ["disconnection_positive", "disconnection_negative", "lesion_overlap"] %}
+<tr>
+{% if loop.first %}
+<td rowspan="3">{{ d.domain }}</td><td class="num" rowspan="3">{{ d.n_concepts }}</td>
+{% endif %}
+<td>{{ measure[m] }}</td><td class="num">{{ d[m].score | fixed(4) }}</td><td class="num">{{ d[m].p_value | pval }}</td><td class="num">{{ d[m].p_corrected | pval }}</td><td>{{ "yes" if d[m].significant else "no" }}</td>
+</tr>
+{% endfor %}
+{% endfor %}
+</table>
+{% if cp.significant_concepts %}
+<h3>Significant concepts</h3>
+<table>
+<tr><th>Concept</th><th>Domain</th><th>Measures</th></tr>
+{% for c in cp.significant_concepts %}
+<tr><td>{{ c.concept }}</td><td>{{ c.domain }}</td><td>{% for m in c.significant_measures %}{{ measure[m] }} (p corrected {{ c[m].p_corrected | pval }}){% if not loop.last %}; {% endif %}{% endfor %}</td></tr>
+{% endfor %}
+</table>
+{% else %}
+<p>No concept is significant after correction.</p>
+{% endif %}
+{% else %}
+<p class="absent">Not available: the cognitive profile was not provided to this report, so this section is empty.</p>
+{% endif %}
+
+<h2>5. Provenance</h2>
+<p>Pipeline {{ run.pipeline.id }} {{ run.pipeline.version }}, definition digest <span class="mono">sha256:{{ run.pipeline.sha256 }}</span>. Run status when the report was built: {{ run.status }}.</p>
+<h3>5.1 Steps and container images</h3>
+<table>
+<tr><th>Slot</th><th>Status</th><th>Step</th><th>Container image (with digest)</th><th>Software</th></tr>
+{% for s in r.provenance.slots %}
+<tr>
+<td>{{ s.slot }}</td>
+<td>{{ s.status }}{% if s.reason %} ({{ s.reason }}){% endif %}</td>
+{% if s.implementation %}
+<td>{{ s.implementation.step_name }} {{ s.implementation.step_version }}{% if s.implementation.stub %} (stub){% endif %}</td>
+<td class="mono">{{ s.implementation.image }}</td>
+<td>{% for st in r.provenance.steps if st.slot == s.slot %}{% for sw in st.software %}{{ sw.name }} {{ sw.version }}{% if not loop.last %}, {% endif %}{% endfor %}{% endfor %}</td>
+{% else %}
+<td>-</td><td>-</td><td>-</td>
+{% endif %}
+</tr>
+{% endfor %}
+</table>
+{% set bundled = [] %}
+{% for s in r.provenance.slots %}{% for b in s.bundles %}{% if bundled.append(b) %}{% endif %}{% endfor %}{% endfor %}
+{% if bundled %}
+<h3>5.2 Reference bundles</h3>
+<table>
+<tr><th>Bundle</th><th>Version</th><th>Content digest</th></tr>
+{% for b in bundled %}
+<tr><td>{{ b.name }} ({{ b.id }})</td><td>{{ b.version }}</td><td class="mono">{{ b.content_digest }}</td></tr>
+{% endfor %}
+</table>
+{% endif %}
+<h3>5.3 Artefacts read by this report</h3>
+<table>
+<tr><th>Input</th><th>Type</th><th>SHA-256</th><th class="num">Bytes</th></tr>
+{% for a in r.inputs %}
+<tr><td>{{ a.port }}</td><td>{{ a.type }}</td>
+{% if a.present %}
+<td class="mono">{{ a.sha256 }}</td><td class="num">{{ a.size_bytes }}</td>
+{% else %}
+<td>not provided</td><td class="num">-</td>
+{% endif %}
+</tr>
+{% endfor %}
+</table>
+
+<h2>6. Notes</h2>
+<ul>
+<li>This document is for research use only, not for clinical decisions.</li>
+<li>The machine-readable content of this report is in report.json; its bytes are the basis for sealing.</li>
+{% if "synthetic_reference_data" in r.notes %}
+<li>The reference data used for the cognitive profile are flagged as synthetic.</li>
+{% endif %}
+{% if "lesion_mask_differs_from_qc" in r.notes %}
+<li>The lesion mask given to this report differs from the volume recorded by the lesion QC; check the pipeline wiring.</li>
+{% endif %}
+</ul>
+</body>
+</html>
