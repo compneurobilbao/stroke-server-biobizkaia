@@ -30,7 +30,8 @@
     "label": "Main navigation",
     "studies": "Studies",
     "notifications": "Notifications",
-    "admin": "Administration"
+    "admin": "Administration",
+    "cases": "Cases"
   },
   "common": {
     "logout": "Sign out",
@@ -231,6 +232,151 @@
       "confirmDelete": "Are you sure you want to logically delete {{email}}? They will no longer be able to sign in.",
       "deleteFailed": "Could not delete the user.",
       "deleted": "User deleted."
+    }
+  },
+  "cases": {
+    "backToCases": "Back to cases",
+    "ageBand": "Age band",
+    "sex": {
+      "label": "Sex",
+      "female": "Female",
+      "male": "Male"
+    },
+    "roles": {
+      "ct": "CT scan (.nii.gz)",
+      "lesion_native": "Lesion mask on the CT (.nii.gz)",
+      "lesion_mni": "Lesion mask in MNI space (.nii.gz)"
+    },
+    "state": {
+      "queued": "Queued",
+      "running": "Running",
+      "awaiting_review": "Awaiting review",
+      "succeeded": "Succeeded",
+      "failed": "Failed",
+      "canceled": "Canceled",
+      "pending": "Not started",
+      "skipped": "Skipped",
+      "unavailable": "Unavailable"
+    },
+    "slots": {
+      "default": "deployment default",
+      "stub": "stub",
+      "optional": "Optional",
+      "notUsed": "Not used in this mode",
+      "unavailable": "Unavailable",
+      "unavailableOptional": "No implementation is available in this deployment. This optional step will be skipped.",
+      "unavailableRequired": "No implementation is available in this deployment. A run that needs this step cannot start."
+    },
+    "list": {
+      "title": "Cases",
+      "new": "New case",
+      "hint": "Cases and runs of the versioned pipeline platform. The existing studies remain available under Studies.",
+      "empty": "No cases yet.",
+      "failed": "Could not load the cases.",
+      "case": "Case",
+      "created": "Created"
+    },
+    "detail": {
+      "loading": "Loading case...",
+      "failed": "Could not load the case.",
+      "inputs": "Inputs",
+      "runs": "Runs",
+      "noRuns": "This case has no runs."
+    },
+    "wizard": {
+      "title": "New case",
+      "privacy": "A case stores only a platform-generated label, an optional sex and an age band. Do not enter names or identifiers. File names are not stored.",
+      "progress": "Wizard progress",
+      "step": {
+        "mode": "Mode and case data",
+        "files": "Files",
+        "steps": "Pipeline steps"
+      },
+      "modeLegend": "Input mode",
+      "mode": {
+        "ct": "CT and lesion mask",
+        "mni": "Lesion mask already in MNI"
+      },
+      "modeHint": {
+        "ct": "Upload a CT scan and a lesion mask drawn on it. The pipeline normalises the lesion to MNI space.",
+        "mni": "Upload a lesion mask that is already in MNI space; normalisation is skipped."
+      },
+      "sex": "Sex (optional)",
+      "ageBand": "Age band (optional)",
+      "ageBandOption": "{{band}} years",
+      "notSpecified": "Not specified",
+      "ageHint": "Only the age band is stored. The exact age is never sent to the server.",
+      "locked": "The case has been created; these values can no longer be changed here.",
+      "filesHint": "Select the files for this mode (.nii.gz only).",
+      "uploaded": "Uploaded",
+      "stepsHint": "Each step uses the deployment default unless you pick another implementation.",
+      "pipeline": "Pipeline",
+      "noPipeline": "No loaded pipeline accepts this input mode.",
+      "loading": "Loading pipeline steps...",
+      "blocked": "This mode cannot start in this deployment because a required step is unavailable: {{slots}}.",
+      "back": "Back",
+      "next": "Next",
+      "start": "Create case and start run",
+      "starting": "Starting...",
+      "failed": "Could not create the case or start the run.",
+      "pipelinesFailed": "Could not load the pipelines.",
+      "slotsFailed": "Could not load the pipeline steps."
+    },
+    "run": {
+      "title": "Run",
+      "loading": "Loading run...",
+      "loadFailed": "Could not load the run.",
+      "pipeline": "Pipeline",
+      "inputSet": "Input set",
+      "created": "Created",
+      "finished": "Finished",
+      "failure": "Failure",
+      "cancel": "Cancel run",
+      "cancelPending": "Cancellation requested; the run stops after the current step.",
+      "cancelRequested": "Cancellation requested.",
+      "cancelFailed": "Could not cancel the run.",
+      "retry": "Retry from failed step",
+      "resume": "Resume from canceled step",
+      "resumeQueued": "Run queued to resume.",
+      "resumeFailed": "Could not resume the run.",
+      "openCase": "Open case",
+      "researchOnly": "Research use only. Not for clinical decisions.",
+      "timeline": "Step timeline",
+      "implementation": "Implementation",
+      "attempt": "Attempt {{n}}",
+      "chosenBy": {
+        "user": "chosen by you",
+        "deployment_default": "deployment default",
+        "pipeline_default": "pipeline default"
+      },
+      "trigger": {
+        "initial": "initial",
+        "auto_retry": "automatic retry",
+        "user_resume": "resumed by user"
+      },
+      "reason": {
+        "condition_false": "Skipped: not needed for this input mode.",
+        "upstream_absent": "Skipped: an earlier step produced no output.",
+        "no_implementation": "No implementation was available."
+      },
+      "showLog": "Show log",
+      "refreshLog": "Refresh log",
+      "logLabel": "Log of {{slot}}, attempt {{attempt}}",
+      "logTruncated": "The beginning of this log is not shown.",
+      "logEmpty": "The log is empty.",
+      "logFailed": "Could not load the log.",
+      "reports": "Reports",
+      "noReports": "No report yet.",
+      "downloadReport": "Download PDF report",
+      "artifacts": "Artefacts",
+      "noArtifacts": "No artefacts yet.",
+      "artifactPort": "Output",
+      "artifactType": "Type",
+      "artifactSize": "Size",
+      "synthetic": "synthetic",
+      "download": "Download",
+      "downloadArtifact": "Download {{port}}",
+      "downloadFailed": "Could not download the file."
     }
   }
 }

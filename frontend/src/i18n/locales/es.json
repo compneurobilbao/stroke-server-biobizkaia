@@ -30,7 +30,8 @@
     "label": "Navegación principal",
     "studies": "Estudios",
     "notifications": "Notificaciones",
-    "admin": "Administración"
+    "admin": "Administración",
+    "cases": "Casos"
   },
   "common": {
     "logout": "Cerrar sesión",
@@ -231,6 +232,151 @@
       "confirmDelete": "¿Seguro que quieres borrar lógicamente a {{email}}? No podrá iniciar sesión.",
       "deleteFailed": "No se pudo borrar el usuario.",
       "deleted": "Usuario borrado."
+    }
+  },
+  "cases": {
+    "backToCases": "Volver a los casos",
+    "ageBand": "Banda de edad",
+    "sex": {
+      "label": "Sexo",
+      "female": "Mujer",
+      "male": "Hombre"
+    },
+    "roles": {
+      "ct": "TC (.nii.gz)",
+      "lesion_native": "Máscara de lesión sobre la TC (.nii.gz)",
+      "lesion_mni": "Máscara de lesión en espacio MNI (.nii.gz)"
+    },
+    "state": {
+      "queued": "En cola",
+      "running": "En ejecución",
+      "awaiting_review": "Pendiente de revisión",
+      "succeeded": "Completado",
+      "failed": "Fallido",
+      "canceled": "Cancelado",
+      "pending": "No iniciado",
+      "skipped": "Omitido",
+      "unavailable": "No disponible"
+    },
+    "slots": {
+      "default": "predeterminado del despliegue",
+      "stub": "simulado",
+      "optional": "Opcional",
+      "notUsed": "No se usa en este modo",
+      "unavailable": "No disponible",
+      "unavailableOptional": "Este despliegue no tiene ninguna implementación disponible. Este paso opcional se omitirá.",
+      "unavailableRequired": "Este despliegue no tiene ninguna implementación disponible. Una ejecución que necesite este paso no puede iniciarse."
+    },
+    "list": {
+      "title": "Casos",
+      "new": "Nuevo caso",
+      "hint": "Casos y ejecuciones de la plataforma de pipelines versionada. Los estudios existentes siguen disponibles en Estudios.",
+      "empty": "Todavía no hay casos.",
+      "failed": "No se pudieron cargar los casos.",
+      "case": "Caso",
+      "created": "Creado"
+    },
+    "detail": {
+      "loading": "Cargando caso...",
+      "failed": "No se pudo cargar el caso.",
+      "inputs": "Entradas",
+      "runs": "Ejecuciones",
+      "noRuns": "Este caso no tiene ejecuciones."
+    },
+    "wizard": {
+      "title": "Nuevo caso",
+      "privacy": "Un caso guarda solo una etiqueta generada por la plataforma, el sexo (opcional) y una banda de edad. No introduzca nombres ni identificadores. Los nombres de archivo no se guardan.",
+      "progress": "Progreso del asistente",
+      "step": {
+        "mode": "Modo y datos del caso",
+        "files": "Archivos",
+        "steps": "Pasos del pipeline"
+      },
+      "modeLegend": "Modo de entrada",
+      "mode": {
+        "ct": "TC y máscara de lesión",
+        "mni": "Máscara de lesión ya en MNI"
+      },
+      "modeHint": {
+        "ct": "Suba una TC y una máscara de lesión dibujada sobre ella. El pipeline normaliza la lesión al espacio MNI.",
+        "mni": "Suba una máscara de lesión que ya esté en espacio MNI; se omite la normalización."
+      },
+      "sex": "Sexo (opcional)",
+      "ageBand": "Banda de edad (opcional)",
+      "ageBandOption": "{{band}} años",
+      "notSpecified": "No indicado",
+      "ageHint": "Solo se guarda la banda de edad. La edad exacta nunca se envía al servidor.",
+      "locked": "El caso ya se ha creado; estos valores no se pueden cambiar aquí.",
+      "filesHint": "Seleccione los archivos de este modo (solo .nii.gz).",
+      "uploaded": "Subido",
+      "stepsHint": "Cada paso usa la implementación predeterminada del despliegue salvo que elija otra.",
+      "pipeline": "Pipeline",
+      "noPipeline": "Ningún pipeline cargado acepta este modo de entrada.",
+      "loading": "Cargando los pasos del pipeline...",
+      "blocked": "Este modo no puede iniciarse en este despliegue porque falta un paso obligatorio: {{slots}}.",
+      "back": "Atrás",
+      "next": "Siguiente",
+      "start": "Crear caso e iniciar ejecución",
+      "starting": "Iniciando...",
+      "failed": "No se pudo crear el caso ni iniciar la ejecución.",
+      "pipelinesFailed": "No se pudieron cargar los pipelines.",
+      "slotsFailed": "No se pudieron cargar los pasos del pipeline."
+    },
+    "run": {
+      "title": "Ejecución",
+      "loading": "Cargando ejecución...",
+      "loadFailed": "No se pudo cargar la ejecución.",
+      "pipeline": "Pipeline",
+      "inputSet": "Conjunto de entradas",
+      "created": "Creada",
+      "finished": "Finalizada",
+      "failure": "Fallo",
+      "cancel": "Cancelar ejecución",
+      "cancelPending": "Cancelación solicitada; la ejecución se detiene tras el paso actual.",
+      "cancelRequested": "Cancelación solicitada.",
+      "cancelFailed": "No se pudo cancelar la ejecución.",
+      "retry": "Reintentar desde el paso fallido",
+      "resume": "Reanudar desde el paso cancelado",
+      "resumeQueued": "Ejecución en cola para reanudarse.",
+      "resumeFailed": "No se pudo reanudar la ejecución.",
+      "openCase": "Abrir caso",
+      "researchOnly": "Solo para uso en investigación. No apto para decisiones clínicas.",
+      "timeline": "Cronología de pasos",
+      "implementation": "Implementación",
+      "attempt": "Intento {{n}}",
+      "chosenBy": {
+        "user": "elegida por usted",
+        "deployment_default": "predeterminada del despliegue",
+        "pipeline_default": "predeterminada del pipeline"
+      },
+      "trigger": {
+        "initial": "inicial",
+        "auto_retry": "reintento automático",
+        "user_resume": "reanudado por el usuario"
+      },
+      "reason": {
+        "condition_false": "Omitido: no es necesario para este modo de entrada.",
+        "upstream_absent": "Omitido: un paso anterior no produjo salida.",
+        "no_implementation": "No había ninguna implementación disponible."
+      },
+      "showLog": "Ver registro",
+      "refreshLog": "Actualizar registro",
+      "logLabel": "Registro de {{slot}}, intento {{attempt}}",
+      "logTruncated": "No se muestra el principio de este registro.",
+      "logEmpty": "El registro está vacío.",
+      "logFailed": "No se pudo cargar el registro.",
+      "reports": "Informes",
+      "noReports": "Todavía no hay informe.",
+      "downloadReport": "Descargar informe PDF",
+      "artifacts": "Artefactos",
+      "noArtifacts": "Todavía no hay artefactos.",
+      "artifactPort": "Salida",
+      "artifactType": "Tipo",
+      "artifactSize": "Tamaño",
+      "synthetic": "sintético",
+      "download": "Descargar",
+      "downloadArtifact": "Descargar {{port}}",
+      "downloadFailed": "No se pudo descargar el archivo."
     }
   }
 }
