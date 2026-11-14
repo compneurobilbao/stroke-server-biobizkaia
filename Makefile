@@ -1,4 +1,4 @@
-.PHONY: e2e up down logs test test-steps lint format migrate seed clean smoke check-docs check-secrets frontend-rebuild rebuild create-admin backup restore retention-dry-run retention-execute
+.PHONY: e2e up down logs test test-steps lint format migrate seed clean smoke check-docs check-secrets frontend-rebuild rebuild create-admin backup restore retention-dry-run retention-execute seed-implementations
 
 WORKER_REPLICAS ?=
 DAYS ?= 90
@@ -54,6 +54,12 @@ retention-dry-run:
 
 retention-execute:
 	docker compose exec api python -m app.cli.retention --days "$(DAYS)" --execute
+
+# Fill slot_implementation_settings from pipelines/<id>/registry.yaml (card F0-30a).
+# PROFILE=deployment|ci; add ARGS=--dry-run to preview, ARGS=--reset to overwrite admin changes.
+PROFILE ?= deployment
+seed-implementations:
+	docker compose exec api python -m app.cli.seed_implementations --profile "$(PROFILE)" $(ARGS)
 
 backup:
 	sh ./scripts/backup.sh
