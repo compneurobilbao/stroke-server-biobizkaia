@@ -157,6 +157,38 @@ If it is empty or wrong, step containers start with missing or empty inputs. The
 
 All variables are listed in `.env.example` and described in `docs/configuration.md` (section "Pipeline runs"). The orchestrator ones (`PIPELINES_DIR`, `STEP_MANIFESTS_DIR`, `BUNDLE_ROOT`, `ORCHESTRATOR_*`) are defined in `docs/processing-pipeline.md`.
 
+### Enabling pipelines on a host (API side)
+
+The `api` service reads pipelines and step manifests through its own variables, so that it behaves exactly as before while they are unset: `PIPELINES_DIR` and `STEP_MANIFESTS_DIR` of the `api` default to `/app/pipelines-disabled` and `/app/steps-disabled` (directories that do not exist), and `GET /api/v1/pipelines` answers an empty list. `./pipelines` and `./steps` are always mounted read-only into `api` (inert unless pointed at), `./data` (and so `BUNDLE_ROOT`, default `/app/data/bundles`) is the mount it already had, and `DEPLOYMENT_PROFILE` (default `research-public`) is passed through.
+
+Steps, in order:
+
+1. **Profile and API variables.** In `.env`: `COMPOSE_PROFILES=pipelines`, `API_PIPELINES_DIR=/app/pipelines`, `API_STEP_MANIFESTS_DIR=/app/steps`. Then `make up` (or `make rebuild`) and `make migrate`.
+2. **Host path map.** Set `DOCKER_EXECUTOR_HOST_PATH_MAP` as described above.
+3. **Pipelines and manifests.** `./pipelines/<id>/` must hold `pipeline.yaml` and `registry.yaml` with the **published image digests** (`python pipelines/stroke-lnm/registry.py materialize --digests FILE --out DIR`, then use `DIR` as the mounted `pipelines` tree), and `./steps` (or another directory mounted over `/app/steps`) must hold the `step.yaml` read from each image (`/opt/step/step.yaml`). The repository tree has placeholder digests and only the manifests of the steps built here, so a step whose manifest is missing is listed with `available: false`.
+4. **Reference bundles.** Register each bundle the enabled steps need into the database store, from inside `api` (the bundle directory must be under `./data`, so the container sees it):
+
+   ```bash
+   docker compose exec api python -m orchestrator.bundles --store db --root /app/data/bundles register /app/data/incoming/<bundle-dir>
+   docker compose exec api python -m orchestrator.bundles --store db --root /app/data/bundles list
+   ```
+
+5. **Seed the implementation settings** (once; safe to repeat):
+
+   ```bash
+   make seed-implementations PROFILE=deployment ARGS=--dry-run   # preview
+   make seed-implementations PROFILE=deployment
+   ```
+
+   This runs `python -m app.cli.seed_implementations --profile deployment` in `api`. It reads `<PIPELINES_DIR>/<id>/registry.yaml` and writes one `slot_implementation_settings` row per allowed implementation, enabled as the profile says. Stubs and planned entries are never enabled under `deployment` (the command refuses a registry that does so). Existing rows are not touched, so changes an admin made with `PUT /api/v1/admin/implementations/...` survive a re-run; `--reset` overwrites every row with the profile. The command logs each row (`insert`, `update`, `unchanged`, `warning`) and warns about enabled implementations whose image digest is still a placeholder.
+6. **Use `/api/v1`.** `GET /api/v1/pipelines` and `.../versions/<v>/slots` show what is enabled; admins refine it through `/api/v1/admin/implementations`; researchers create cases, upload inputs and start runs (`docs/api.md`). Restart `api` after changing the mounted pipelines or manifests: they are loaded once per process.
+
+#### What is not available yet
+
+Image digests in `pipelines/stroke-lnm/registry.yaml` are placeholders (64 zeros) until the step images are published (card F1-14). The executor only starts images pinned by digest and never pulls a placeholder, and run creation needs the step manifests. **A real deployment therefore cannot run stroke-lnm yet**: with the repository tree, listing and seeding work, but runs cannot complete. Also unavailable: functional disconnection (only a stub, enabled in `ci` only) and CT normalisation (planned, not merged), so the CT input set is refused.
+
+The reference path is the CI one: the `e2e-stroke-lnm` workflow (`.github/workflows/e2e-stroke-lnm.yml`, `docs/processing-pipeline.md`) builds the steps, obtains digests from a throwaway registry, materialises the pipeline, registers toy bundles, seeds the `ci` profile and runs the pipeline on synthetic fixtures. Reproduce a deployment the same way by replacing the throwaway digests with the published ones.
+
 ### Validation
 
 CI runs `docker compose config` with and without the profile, and `tests/test_deploy_wiring.py` checks the queue routing and the structure of the services. Neither starts containers.

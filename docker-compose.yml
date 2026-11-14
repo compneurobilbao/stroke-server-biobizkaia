@@ -70,6 +70,16 @@ services:
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-noreply@example.org}
       SMTP_USE_TLS: ${SMTP_USE_TLS:-false}
+      # Pipeline API (F0-30a). The directories default to paths that do not exist, so
+      # without the `pipelines` profile /api/v1/pipelines is empty, exactly as before the
+      # mounts below were added. A pipelines deployment sets API_PIPELINES_DIR=/app/pipelines
+      # and API_STEP_MANIFESTS_DIR=/app/steps (docs/deployment.md). Bundles live under
+      # ./data, which is already mounted; a missing directory means no bundles.
+      PIPELINES_DIR: ${API_PIPELINES_DIR:-/app/pipelines-disabled}
+      STEP_MANIFESTS_DIR: ${API_STEP_MANIFESTS_DIR:-/app/steps-disabled}
+      BUNDLE_ROOT: ${BUNDLE_ROOT:-/app/data/bundles}
+      DEPLOYMENT_PROFILE: ${DEPLOYMENT_PROFILE:-research-public}
+      PLATFORM_VERSION: ${PLATFORM_VERSION:-0.0.0-dev}
     depends_on:
       postgres:
         condition: service_healthy
@@ -79,6 +89,10 @@ services:
         condition: service_started
     volumes:
       - ./data:/app/data
+      # Read-only and inert unless API_PIPELINES_DIR / API_STEP_MANIFESTS_DIR point at them;
+      # the seeding CLI also reads registry.yaml from here.
+      - ./pipelines:/app/pipelines:ro
+      - ./steps:/app/steps:ro
     command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]

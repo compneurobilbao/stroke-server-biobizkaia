@@ -80,6 +80,11 @@ Only used when the Compose profile `pipelines` is enabled (see `docs/deployment.
 | `DOCKER_EXECUTOR_PIDS_LIMIT` | Maximum processes per step container. | `512` |
 | `DOCKER_EXECUTOR_PULL_MISSING` | Pull allow-listed images missing on the host. | `false` |
 | `DOCKER_EXECUTOR_ALLOW_GPUS` | Grant GPUs to step containers. | `false` |
+| `API_PIPELINES_DIR` | `PIPELINES_DIR` of the `api` service (compose only). Set to `/app/pipelines` to let the API list pipelines; unset, the API lists none. | unset (`/app/pipelines-disabled`) |
+| `API_STEP_MANIFESTS_DIR` | `STEP_MANIFESTS_DIR` of the `api` service. Set to `/app/steps` together with the previous one. | unset (`/app/steps-disabled`) |
+| `DEPLOYMENT_PROFILE` | Profile recorded on new cases by the API: `research-public`, `mask-only` or `on-premise`. | `research-public` |
+
+The `api` also reads `BUNDLE_ROOT` and `PLATFORM_VERSION`; a missing directory means an empty pipeline list or no bundles, never a start-up failure. Implementation settings are seeded with `make seed-implementations` (`PROFILE=deployment|ci`, `ARGS=--dry-run` or `--reset`), see `docs/deployment.md`.
 
 ## Initial Admin User
 
