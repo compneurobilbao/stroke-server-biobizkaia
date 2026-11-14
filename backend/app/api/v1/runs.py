@@ -23,7 +23,6 @@ from app.api.v1.deps import (
     Orchestration,
     RunQueue,
     audit_event,
-    authorize,
     get_orchestration,
     get_run_queue,
     load_case,

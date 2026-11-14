@@ -1,0 +1,3616 @@
+{
+  "components": {
+    "schemas": {
+      "ArtifactV1Read": {
+        "properties": {
+          "artefact_type": {
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*$",
+            "title": "Artefact Type",
+            "type": "string"
+          },
+          "case_id": {
+            "format": "uuid",
+            "title": "Case Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "filename": {
+            "title": "Filename",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "origin": {
+            "enum": [
+              "step",
+              "review",
+              "legacy"
+            ],
+            "title": "Origin",
+            "type": "string"
+          },
+          "pipeline_run_id": {
+            "format": "uuid",
+            "title": "Pipeline Run Id",
+            "type": "string"
+          },
+          "port": {
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*$",
+            "title": "Port",
+            "type": "string"
+          },
+          "sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sha256"
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Bytes"
+          },
+          "step_run_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step Run Id"
+          },
+          "supersedes_artifact_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supersedes Artifact Id"
+          },
+          "synthetic": {
+            "title": "Synthetic",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "case_id",
+          "pipeline_run_id",
+          "origin",
+          "port",
+          "artefact_type",
+          "synthetic",
+          "created_at",
+          "filename"
+        ],
+        "title": "ArtifactV1Read",
+        "type": "object"
+      },
+      "Body_put_input_api_v1_cases__case_id__inputs__role__put": {
+        "properties": {
+          "file": {
+            "format": "binary",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_put_input_api_v1_cases__case_id__inputs__role__put",
+        "type": "object"
+      },
+      "CaseCreate": {
+        "additionalProperties": false,
+        "description": "Metadata a client may supply. An exact age is never accepted, only a band.",
+        "properties": {
+          "age_band": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Age Band"
+          },
+          "sex": {
+            "anyOf": [
+              {
+                "enum": [
+                  "female",
+                  "male"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sex"
+          }
+        },
+        "title": "CaseCreate",
+        "type": "object"
+      },
+      "CaseDetailRead": {
+        "properties": {
+          "age_band": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Age Band"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "deleted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deleted At"
+          },
+          "deployment_profile": {
+            "title": "Deployment Profile",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "inputs": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/InputFileRead"
+            },
+            "title": "Inputs",
+            "type": "array"
+          },
+          "keep_forever": {
+            "default": false,
+            "title": "Keep Forever",
+            "type": "boolean"
+          },
+          "owner_user_id": {
+            "format": "uuid",
+            "title": "Owner User Id",
+            "type": "string"
+          },
+          "session_label": {
+            "title": "Session Label",
+            "type": "string"
+          },
+          "sex": {
+            "anyOf": [
+              {
+                "enum": [
+                  "female",
+                  "male"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sex"
+          },
+          "subject_label": {
+            "pattern": "^[0-9a-f]{12}$",
+            "title": "Subject Label",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "owner_user_id",
+          "subject_label",
+          "session_label",
+          "deployment_profile",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "CaseDetailRead",
+        "type": "object"
+      },
+      "CaseRead": {
+        "properties": {
+          "age_band": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Age Band"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "deleted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deleted At"
+          },
+          "deployment_profile": {
+            "title": "Deployment Profile",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "keep_forever": {
+            "default": false,
+            "title": "Keep Forever",
+            "type": "boolean"
+          },
+          "owner_user_id": {
+            "format": "uuid",
+            "title": "Owner User Id",
+            "type": "string"
+          },
+          "session_label": {
+            "title": "Session Label",
+            "type": "string"
+          },
+          "sex": {
+            "anyOf": [
+              {
+                "enum": [
+                  "female",
+                  "male"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sex"
+          },
+          "subject_label": {
+            "pattern": "^[0-9a-f]{12}$",
+            "title": "Subject Label",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "owner_user_id",
+          "subject_label",
+          "session_label",
+          "deployment_profile",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "CaseRead",
+        "type": "object"
+      },
+      "CaseUpdateV1": {
+        "additionalProperties": false,
+        "description": "Metadata edits; ``keep_forever`` is accepted from administrators only.",
+        "properties": {
+          "age_band": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Age Band"
+          },
+          "keep_forever": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Keep Forever"
+          },
+          "sex": {
+            "anyOf": [
+              {
+                "enum": [
+                  "female",
+                  "male"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sex"
+          }
+        },
+        "title": "CaseUpdateV1",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "ImplementationAdminRead": {
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "image": {
+            "title": "Image",
+            "type": "string"
+          },
+          "implementation_id": {
+            "title": "Implementation Id",
+            "type": "string"
+          },
+          "is_default": {
+            "title": "Is Default",
+            "type": "boolean"
+          },
+          "pipeline_id": {
+            "title": "Pipeline Id",
+            "type": "string"
+          },
+          "slot": {
+            "title": "Slot",
+            "type": "string"
+          },
+          "step_name": {
+            "title": "Step Name",
+            "type": "string"
+          },
+          "step_version": {
+            "title": "Step Version",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "updated_by_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated By User Id"
+          }
+        },
+        "required": [
+          "pipeline_id",
+          "slot",
+          "implementation_id",
+          "step_name",
+          "step_version",
+          "image",
+          "enabled",
+          "is_default"
+        ],
+        "title": "ImplementationAdminRead",
+        "type": "object"
+      },
+      "InputFileRead": {
+        "properties": {
+          "artefact_type": {
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*$",
+            "title": "Artefact Type",
+            "type": "string"
+          },
+          "case_id": {
+            "format": "uuid",
+            "title": "Case Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "role": {
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*$",
+            "title": "Role",
+            "type": "string"
+          },
+          "sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sha256"
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Bytes"
+          },
+          "uploaded_by_user_id": {
+            "format": "uuid",
+            "title": "Uploaded By User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "case_id",
+          "role",
+          "artefact_type",
+          "uploaded_by_user_id",
+          "created_at"
+        ],
+        "title": "InputFileRead",
+        "type": "object"
+      },
+      "InputSetRead": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "inputs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Inputs",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "inputs"
+        ],
+        "title": "InputSetRead",
+        "type": "object"
+      },
+      "PipelineDetail": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "input_sets": {
+            "items": {
+              "$ref": "#/components/schemas/InputSetRead"
+            },
+            "title": "Input Sets",
+            "type": "array"
+          },
+          "inputs": {
+            "items": {
+              "$ref": "#/components/schemas/PipelineInputRead"
+            },
+            "title": "Inputs",
+            "type": "array"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "slots": {
+            "items": {
+              "$ref": "#/components/schemas/SlotRead"
+            },
+            "title": "Slots",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "title",
+          "sha256",
+          "inputs",
+          "input_sets",
+          "slots"
+        ],
+        "title": "PipelineDetail",
+        "type": "object"
+      },
+      "PipelineInputRead": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "type"
+        ],
+        "title": "PipelineInputRead",
+        "type": "object"
+      },
+      "PipelineRunRead": {
+        "properties": {
+          "accounting_billing_account": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accounting Billing Account"
+          },
+          "accounting_submit_as": {
+            "enum": [
+              "service-account",
+              "per-user",
+              "chargeback"
+            ],
+            "title": "Accounting Submit As",
+            "type": "string"
+          },
+          "accounting_submitted_by": {
+            "title": "Accounting Submitted By",
+            "type": "string"
+          },
+          "artefact_types_version": {
+            "title": "Artefact Types Version",
+            "type": "string"
+          },
+          "cancel_requested_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cancel Requested At"
+          },
+          "case_id": {
+            "format": "uuid",
+            "title": "Case Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by_user_id": {
+            "format": "uuid",
+            "title": "Created By User Id",
+            "type": "string"
+          },
+          "failed_step_run_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failed Step Run Id"
+          },
+          "failure_code": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Code"
+          },
+          "failure_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Message"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "input_set": {
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+            "title": "Input Set",
+            "type": "string"
+          },
+          "pipeline_id": {
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+            "title": "Pipeline Id",
+            "type": "string"
+          },
+          "pipeline_sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pipeline Sha256"
+          },
+          "pipeline_version": {
+            "maxLength": 64,
+            "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$",
+            "title": "Pipeline Version",
+            "type": "string"
+          },
+          "platform_version": {
+            "title": "Platform Version",
+            "type": "string"
+          },
+          "requested_implementations": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "default": {},
+            "title": "Requested Implementations",
+            "type": "object"
+          },
+          "resume_count": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Resume Count",
+            "type": "integer"
+          },
+          "seed": {
+            "maximum": 4294967295.0,
+            "minimum": 0.0,
+            "title": "Seed",
+            "type": "integer"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "awaiting_review",
+              "succeeded",
+              "failed",
+              "canceled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "case_id",
+          "created_by_user_id",
+          "pipeline_id",
+          "pipeline_version",
+          "platform_version",
+          "artefact_types_version",
+          "input_set",
+          "seed",
+          "status",
+          "accounting_submitted_by",
+          "accounting_submit_as",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "PipelineRunRead",
+        "type": "object"
+      },
+      "PipelineSummary": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "input_sets": {
+            "items": {
+              "$ref": "#/components/schemas/InputSetRead"
+            },
+            "title": "Input Sets",
+            "type": "array"
+          },
+          "inputs": {
+            "items": {
+              "$ref": "#/components/schemas/PipelineInputRead"
+            },
+            "title": "Inputs",
+            "type": "array"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "title",
+          "sha256",
+          "inputs",
+          "input_sets"
+        ],
+        "title": "PipelineSummary",
+        "type": "object"
+      },
+      "PortRead": {
+        "properties": {
+          "optional": {
+            "default": false,
+            "title": "Optional",
+            "type": "boolean"
+          },
+          "port": {
+            "title": "Port",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "port",
+          "type"
+        ],
+        "title": "PortRead",
+        "type": "object"
+      },
+      "ReportV1Read": {
+        "properties": {
+          "case_id": {
+            "format": "uuid",
+            "title": "Case Id",
+            "type": "string"
+          },
+          "content_sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Sha256"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "json_artifact_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Json Artifact Id"
+          },
+          "language": {
+            "title": "Language",
+            "type": "string"
+          },
+          "pdf_artifact_id": {
+            "format": "uuid",
+            "title": "Pdf Artifact Id",
+            "type": "string"
+          },
+          "pdf_filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pdf Filename"
+          },
+          "pipeline_run_id": {
+            "format": "uuid",
+            "title": "Pipeline Run Id",
+            "type": "string"
+          },
+          "step_run_id": {
+            "format": "uuid",
+            "title": "Step Run Id",
+            "type": "string"
+          },
+          "template": {
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+            "title": "Template",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "case_id",
+          "pipeline_run_id",
+          "step_run_id",
+          "pdf_artifact_id",
+          "template",
+          "language",
+          "created_at"
+        ],
+        "title": "ReportV1Read",
+        "type": "object"
+      },
+      "RunActionResponse": {
+        "properties": {
+          "cancel_requested": {
+            "default": false,
+            "title": "Cancel Requested",
+            "type": "boolean"
+          },
+          "changed": {
+            "default": true,
+            "title": "Changed",
+            "type": "boolean"
+          },
+          "run_id": {
+            "format": "uuid",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "status"
+        ],
+        "title": "RunActionResponse",
+        "type": "object"
+      },
+      "RunCreate": {
+        "additionalProperties": false,
+        "description": "Start a run of a pipeline on the inputs currently stored in the case.",
+        "properties": {
+          "implementations": {
+            "description": "Per-slot choice: slot name to implementation id.",
+            "patternProperties": {
+              "^[a-z][a-z0-9]*(-[a-z0-9]+)*$": {
+                "maxLength": 64,
+                "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+                "type": "string"
+              }
+            },
+            "propertyNames": {
+              "maxLength": 64
+            },
+            "title": "Implementations",
+            "type": "object"
+          },
+          "input_roles": {
+            "anyOf": [
+              {
+                "items": {
+                  "maxLength": 64,
+                  "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*$",
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Subset of the case's input roles; default: all of them.",
+            "title": "Input Roles"
+          },
+          "pipeline_id": {
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+            "title": "Pipeline Id",
+            "type": "string"
+          },
+          "pipeline_version": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pipeline Version"
+          },
+          "seed": {
+            "anyOf": [
+              {
+                "maximum": 4294967295.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seed"
+          }
+        },
+        "required": [
+          "pipeline_id"
+        ],
+        "title": "RunCreate",
+        "type": "object"
+      },
+      "RunDetailRead": {
+        "properties": {
+          "accounting_billing_account": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accounting Billing Account"
+          },
+          "accounting_submit_as": {
+            "enum": [
+              "service-account",
+              "per-user",
+              "chargeback"
+            ],
+            "title": "Accounting Submit As",
+            "type": "string"
+          },
+          "accounting_submitted_by": {
+            "title": "Accounting Submitted By",
+            "type": "string"
+          },
+          "artefact_types_version": {
+            "title": "Artefact Types Version",
+            "type": "string"
+          },
+          "cancel_requested": {
+            "default": false,
+            "title": "Cancel Requested",
+            "type": "boolean"
+          },
+          "cancel_requested_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cancel Requested At"
+          },
+          "case_id": {
+            "format": "uuid",
+            "title": "Case Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by_user_id": {
+            "format": "uuid",
+            "title": "Created By User Id",
+            "type": "string"
+          },
+          "failed_step_run_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failed Step Run Id"
+          },
+          "failure_code": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Code"
+          },
+          "failure_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Message"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "input_set": {
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+            "title": "Input Set",
+            "type": "string"
+          },
+          "inputs": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/RunInputRead"
+            },
+            "title": "Inputs",
+            "type": "array"
+          },
+          "pipeline_id": {
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+            "title": "Pipeline Id",
+            "type": "string"
+          },
+          "pipeline_sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pipeline Sha256"
+          },
+          "pipeline_version": {
+            "maxLength": 64,
+            "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$",
+            "title": "Pipeline Version",
+            "type": "string"
+          },
+          "platform_version": {
+            "title": "Platform Version",
+            "type": "string"
+          },
+          "requested_implementations": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "default": {},
+            "title": "Requested Implementations",
+            "type": "object"
+          },
+          "resume_count": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Resume Count",
+            "type": "integer"
+          },
+          "seed": {
+            "maximum": 4294967295.0,
+            "minimum": 0.0,
+            "title": "Seed",
+            "type": "integer"
+          },
+          "slots": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/RunSlotRead"
+            },
+            "title": "Slots",
+            "type": "array"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "awaiting_review",
+              "succeeded",
+              "failed",
+              "canceled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "steps": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/StepAttemptRead"
+            },
+            "title": "Steps",
+            "type": "array"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "case_id",
+          "created_by_user_id",
+          "pipeline_id",
+          "pipeline_version",
+          "platform_version",
+          "artefact_types_version",
+          "input_set",
+          "seed",
+          "status",
+          "accounting_submitted_by",
+          "accounting_submit_as",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "RunDetailRead",
+        "type": "object"
+      },
+      "RunInputRead": {
+        "properties": {
+          "input_file_id": {
+            "format": "uuid",
+            "title": "Input File Id",
+            "type": "string"
+          },
+          "role": {
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*$",
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "input_file_id"
+        ],
+        "title": "RunInputRead",
+        "type": "object"
+      },
+      "RunSlotBundleRead": {
+        "properties": {
+          "reference_bundle_id": {
+            "format": "uuid",
+            "title": "Reference Bundle Id",
+            "type": "string"
+          },
+          "requirement_name": {
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*$",
+            "title": "Requirement Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "requirement_name",
+          "reference_bundle_id"
+        ],
+        "title": "RunSlotBundleRead",
+        "type": "object"
+      },
+      "RunSlotRead": {
+        "properties": {
+          "bundles": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/RunSlotBundleRead"
+            },
+            "title": "Bundles",
+            "type": "array"
+          },
+          "chosen_by": {
+            "anyOf": [
+              {
+                "enum": [
+                  "user",
+                  "deployment_default",
+                  "pipeline_default"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chosen By"
+          },
+          "effective_parameters": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Parameters"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "image": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image"
+          },
+          "implementation_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Implementation Id"
+          },
+          "optional": {
+            "title": "Optional",
+            "type": "boolean"
+          },
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "condition_false",
+                  "upstream_absent",
+                  "no_implementation"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "slot": {
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+            "title": "Slot",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "selected",
+              "skipped",
+              "unavailable"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "step_name": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step Name"
+          },
+          "step_version": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step Version"
+          },
+          "stub": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stub"
+          }
+        },
+        "required": [
+          "id",
+          "slot",
+          "position",
+          "optional",
+          "status"
+        ],
+        "title": "RunSlotRead",
+        "type": "object"
+      },
+      "SlotImplementationRead": {
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "image": {
+            "title": "Image",
+            "type": "string"
+          },
+          "is_default": {
+            "title": "Is Default",
+            "type": "boolean"
+          },
+          "is_pipeline_default": {
+            "title": "Is Pipeline Default",
+            "type": "boolean"
+          },
+          "step_name": {
+            "title": "Step Name",
+            "type": "string"
+          },
+          "step_version": {
+            "title": "Step Version",
+            "type": "string"
+          },
+          "stub": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stub"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "id",
+          "step_name",
+          "step_version",
+          "image",
+          "available",
+          "enabled",
+          "is_default",
+          "is_pipeline_default"
+        ],
+        "title": "SlotImplementationRead",
+        "type": "object"
+      },
+      "SlotImplementationSettingUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "is_default": {
+            "default": false,
+            "title": "Is Default",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "SlotImplementationSettingUpdate",
+        "type": "object"
+      },
+      "SlotRead": {
+        "properties": {
+          "consumes": {
+            "items": {
+              "$ref": "#/components/schemas/PortRead"
+            },
+            "title": "Consumes",
+            "type": "array"
+          },
+          "default_implementation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Implementation"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "implementations": {
+            "items": {
+              "$ref": "#/components/schemas/SlotImplementationRead"
+            },
+            "title": "Implementations",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "optional": {
+            "title": "Optional",
+            "type": "boolean"
+          },
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          },
+          "produces": {
+            "items": {
+              "$ref": "#/components/schemas/PortRead"
+            },
+            "title": "Produces",
+            "type": "array"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "when": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "When"
+          }
+        },
+        "required": [
+          "name",
+          "position",
+          "optional",
+          "consumes",
+          "produces",
+          "implementations"
+        ],
+        "title": "SlotRead",
+        "type": "object"
+      },
+      "StepAttemptRead": {
+        "properties": {
+          "attempt": {
+            "minimum": 1.0,
+            "title": "Attempt",
+            "type": "integer"
+          },
+          "executor": {
+            "enum": [
+              "subprocess",
+              "docker",
+              "slurm",
+              "external"
+            ],
+            "title": "Executor",
+            "type": "string"
+          },
+          "exit_code": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit Code"
+          },
+          "failure_code": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Code"
+          },
+          "failure_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Message"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "granted_cpus": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Granted Cpus"
+          },
+          "granted_gpus": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Granted Gpus"
+          },
+          "granted_memory_mb": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Granted Memory Mb"
+          },
+          "granted_wall_time_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Granted Wall Time Minutes"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "image": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image"
+          },
+          "log_available": {
+            "default": false,
+            "title": "Log Available",
+            "type": "boolean"
+          },
+          "log_truncated": {
+            "default": false,
+            "title": "Log Truncated",
+            "type": "boolean"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "enum": [
+                  "succeeded",
+                  "rejected",
+                  "failed",
+                  "canceled",
+                  "timed_out",
+                  "contract_violation"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome"
+          },
+          "pipeline_run_id": {
+            "format": "uuid",
+            "title": "Pipeline Run Id",
+            "type": "string"
+          },
+          "queued_at": {
+            "format": "date-time",
+            "title": "Queued At",
+            "type": "string"
+          },
+          "run_slot_id": {
+            "format": "uuid",
+            "title": "Run Slot Id",
+            "type": "string"
+          },
+          "runtime": {
+            "enum": [
+              "docker",
+              "apptainer",
+              "none"
+            ],
+            "title": "Runtime",
+            "type": "string"
+          },
+          "slot": {
+            "title": "Slot",
+            "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "awaiting_review",
+              "succeeded",
+              "failed",
+              "canceled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "step_error": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step Error"
+          },
+          "trigger": {
+            "enum": [
+              "initial",
+              "auto_retry",
+              "user_resume"
+            ],
+            "title": "Trigger",
+            "type": "string"
+          },
+          "usage_cpu_core_hours": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Usage Cpu Core Hours"
+          },
+          "usage_gpu_hours": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Usage Gpu Hours"
+          },
+          "usage_max_rss_mb": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Usage Max Rss Mb"
+          },
+          "usage_wall_seconds": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Usage Wall Seconds"
+          }
+        },
+        "required": [
+          "id",
+          "pipeline_run_id",
+          "run_slot_id",
+          "attempt",
+          "trigger",
+          "status",
+          "executor",
+          "runtime",
+          "queued_at",
+          "slot"
+        ],
+        "title": "StepAttemptRead",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "description": "Cases, pipelines, runs and artefacts. Research use only.",
+    "title": "Stroke Server API v1",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/admin/implementations": {
+      "get": {
+        "description": "Every implementation allowed by a loaded pipeline, with its deployment setting.\nAn implementation without a setting row is disabled.",
+        "operationId": "list_implementations_api_v1_admin_implementations_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "pipeline_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Pipeline Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ImplementationAdminRead"
+                  },
+                  "title": "Response List Implementations Api V1 Admin Implementations Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Implementations",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/implementations/{pipeline_id}/{slot}/{implementation_id}": {
+      "put": {
+        "description": "Enable or disable an implementation and optionally make it the slot's default.\nMaking one the default clears the default of the slot's other implementations.",
+        "operationId": "set_implementation_api_v1_admin_implementations__pipeline_id___slot___implementation_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pipeline_id",
+            "required": true,
+            "schema": {
+              "title": "Pipeline Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "slot",
+            "required": true,
+            "schema": {
+              "title": "Slot",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "implementation_id",
+            "required": true,
+            "schema": {
+              "title": "Implementation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SlotImplementationSettingUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImplementationAdminRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Implementation",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/cases": {
+      "get": {
+        "operationId": "list_cases_api_v1_cases_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CaseRead"
+                  },
+                  "title": "Response List Cases Api V1 Cases Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Cases",
+        "tags": [
+          "cases"
+        ]
+      },
+      "post": {
+        "operationId": "create_case_api_v1_cases_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CaseCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseDetailRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Case",
+        "tags": [
+          "cases"
+        ]
+      }
+    },
+    "/api/v1/cases/{case_id}": {
+      "delete": {
+        "description": "Soft-delete the case and remove its files. Refused while a run is active or when\nthe case is flagged keep-forever.",
+        "operationId": "delete_case_api_v1_cases__case_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Case Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Case",
+        "tags": [
+          "cases"
+        ]
+      },
+      "get": {
+        "operationId": "get_case_api_v1_cases__case_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Case Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseDetailRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Case",
+        "tags": [
+          "cases"
+        ]
+      },
+      "patch": {
+        "description": "Edit ``sex`` and ``age_band`` (null clears); ``keep_forever`` is for administrators.\nExisting runs keep the values frozen at their creation.",
+        "operationId": "update_case_api_v1_cases__case_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Case Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CaseUpdateV1"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseDetailRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Case",
+        "tags": [
+          "cases"
+        ]
+      }
+    },
+    "/api/v1/cases/{case_id}/inputs": {
+      "get": {
+        "operationId": "list_inputs_api_v1_cases__case_id__inputs_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Case Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/InputFileRead"
+                  },
+                  "title": "Response List Inputs Api V1 Cases  Case Id  Inputs Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Inputs",
+        "tags": [
+          "cases"
+        ]
+      }
+    },
+    "/api/v1/cases/{case_id}/inputs/{role}": {
+      "delete": {
+        "operationId": "delete_input_api_v1_cases__case_id__inputs__role__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Case Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "role",
+            "required": true,
+            "schema": {
+              "title": "Role",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Input",
+        "tags": [
+          "cases"
+        ]
+      },
+      "put": {
+        "description": "Upload or replace the input of one role (for example ``ct``, ``lesion_native``,\n``lesion_mni``), before the first run. 201 for a new role, 200 for a replacement.",
+        "operationId": "put_input_api_v1_cases__case_id__inputs__role__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Case Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "role",
+            "required": true,
+            "schema": {
+              "title": "Role",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_put_input_api_v1_cases__case_id__inputs__role__put"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InputFileRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Put Input",
+        "tags": [
+          "cases"
+        ]
+      }
+    },
+    "/api/v1/cases/{case_id}/inputs/{role}/download": {
+      "get": {
+        "operationId": "download_input_api_v1_cases__case_id__inputs__role__download_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Case Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "role",
+            "required": true,
+            "schema": {
+              "title": "Role",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Download Input",
+        "tags": [
+          "cases"
+        ]
+      }
+    },
+    "/api/v1/cases/{case_id}/runs": {
+      "get": {
+        "operationId": "list_case_runs_api_v1_cases__case_id__runs_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Case Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PipelineRunRead"
+                  },
+                  "title": "Response List Case Runs Api V1 Cases  Case Id  Runs Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Case Runs",
+        "tags": [
+          "runs"
+        ]
+      },
+      "post": {
+        "description": "Resolve the pipeline against the case's inputs, validate the per-slot choices\n(422 when a choice is not enabled), store the run as ``queued`` and enqueue it.",
+        "operationId": "create_case_run_api_v1_cases__case_id__runs_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Case Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunDetailRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Case Run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/pipelines": {
+      "get": {
+        "operationId": "list_pipelines_api_v1_pipelines_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PipelineSummary"
+                  },
+                  "title": "Response List Pipelines Api V1 Pipelines Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Pipelines",
+        "tags": [
+          "pipelines"
+        ]
+      }
+    },
+    "/api/v1/pipelines/{pipeline_id}/versions/{version}": {
+      "get": {
+        "operationId": "get_pipeline_api_v1_pipelines__pipeline_id__versions__version__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pipeline_id",
+            "required": true,
+            "schema": {
+              "title": "Pipeline Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "title": "Version",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Administrators only.",
+            "in": "query",
+            "name": "include_disabled",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Administrators only.",
+              "title": "Include Disabled",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Pipeline",
+        "tags": [
+          "pipelines"
+        ]
+      }
+    },
+    "/api/v1/pipelines/{pipeline_id}/versions/{version}/slots": {
+      "get": {
+        "description": "Slots of a pipeline with their enabled implementations and the default of each.",
+        "operationId": "list_slots_api_v1_pipelines__pipeline_id__versions__version__slots_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pipeline_id",
+            "required": true,
+            "schema": {
+              "title": "Pipeline Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "title": "Version",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Administrators only.",
+            "in": "query",
+            "name": "include_disabled",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Administrators only.",
+              "title": "Include Disabled",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SlotRead"
+                  },
+                  "title": "Response List Slots Api V1 Pipelines  Pipeline Id  Versions  Version  Slots Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Slots",
+        "tags": [
+          "pipelines"
+        ]
+      }
+    },
+    "/api/v1/runs/{run_id}": {
+      "get": {
+        "description": "Status, slot choices (implementation, image digest, parameters, bundles) and the\nstep timeline (one entry per attempt).",
+        "operationId": "get_run_api_v1_runs__run_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunDetailRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{run_id}/artifacts": {
+      "get": {
+        "operationId": "list_artifacts_api_v1_runs__run_id__artifacts_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ArtifactV1Read"
+                  },
+                  "title": "Response List Artifacts Api V1 Runs  Run Id  Artifacts Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Artifacts",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{run_id}/artifacts/{artifact_id}/download": {
+      "get": {
+        "operationId": "download_artifact_api_v1_runs__run_id__artifacts__artifact_id__download_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "artifact_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Artifact Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Download Artifact",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{run_id}/cancel": {
+      "post": {
+        "description": "Idempotent (docs/data-model.md 7.3): 200 when the run is canceled, 202 while a\nrunning run is asked to stop, 409 ``run_not_active`` for a finished run.",
+        "operationId": "cancel_api_v1_runs__run_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunActionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Cancel",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{run_id}/provenance": {
+      "get": {
+        "operationId": "get_provenance_api_v1_runs__run_id__provenance_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Provenance",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{run_id}/reports": {
+      "get": {
+        "operationId": "list_reports_api_v1_runs__run_id__reports_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ReportV1Read"
+                  },
+                  "title": "Response List Reports Api V1 Runs  Run Id  Reports Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Reports",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{run_id}/reports/{report_id}/pdf": {
+      "get": {
+        "operationId": "download_report_pdf_api_v1_runs__run_id__reports__report_id__pdf_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "report_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Report Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Download Report Pdf",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{run_id}/resume": {
+      "post": {
+        "description": "Resume a failed or canceled run from its failed step: succeeded slots are kept,\nthe seed, choices, parameters and bundles stay those of the run. 202 when queued,\n200 when the run is already active; refusals are 409 with the codes of data-model.md 7.3.",
+        "operationId": "resume_api_v1_runs__run_id__resume_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunActionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Resume",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{run_id}/retry": {
+      "post": {
+        "description": "Alias of ``resume`` (\"retry from the failed step\" is the same operation).",
+        "operationId": "retry_api_v1_runs__run_id__retry_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunActionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Retry",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{run_id}/steps": {
+      "get": {
+        "operationId": "list_steps_api_v1_runs__run_id__steps_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/StepAttemptRead"
+                  },
+                  "title": "Response List Steps Api V1 Runs  Run Id  Steps Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Steps",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{run_id}/steps/{step_run_id}/log": {
+      "get": {
+        "description": "The last ``tail_bytes`` of the attempt's log. ``X-Log-Truncated: true`` when the\nstart is missing (cut here or by the orchestrator).",
+        "operationId": "get_step_log_api_v1_runs__run_id__steps__step_run_id__log_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "step_run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Step Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tail_bytes",
+            "required": false,
+            "schema": {
+              "default": 262144,
+              "maximum": 4194304,
+              "minimum": 1,
+              "title": "Tail Bytes",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Step Log",
+        "tags": [
+          "runs"
+        ]
+      }
+    }
+  }
+}

@@ -173,3 +173,64 @@ Upload accepts the extensions configured in `ALLOWED_EXTENSIONS`:
 - `.txt`
 
 For `compneuro`, set `ALLOWED_EXTENSIONS=.nii.gz`.
+
+## Versioned API (`/api/v1`)
+
+The case and run API of the pipeline platform. It is served by the same application next to the legacy `/api/studies` endpoints, which are unchanged. Its OpenAPI document is published at `GET /api/v1/openapi.json` (Swagger UI at `/api/v1/docs`) and as a committed snapshot, [`docs/api/openapi-v1.json`](api/openapi-v1.json). A test fails when the snapshot is stale; regenerate it with `PYTHONPATH=.:backend python -m app.api.v1.openapi docs/api/openapi-v1.json`.
+
+All endpoints need `Authorization: Bearer <token>` (same login as the legacy API). Errors have the body `{"detail": "...", "code": "..."}`, plus `"slot"` when a slot is meant; clients key on `code`.
+
+### Endpoints
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /pipelines` | Loaded pipelines (id, version, inputs, input sets). |
+| `GET /pipelines/{id}/versions/{version}` | One pipeline with its slots. |
+| `GET /pipelines/{id}/versions/{version}/slots` | Slots with their **enabled** implementations, the deployment default and the pipeline default (`include_disabled=true`: administrators). |
+| `POST /cases` | Create a case (`sex`, `age_band` only). |
+| `GET /cases`, `GET /cases/{id}` | List and read cases (with their input list). |
+| `PATCH /cases/{id}` | Edit `sex` and `age_band` (`null` clears); `keep_forever` for administrators. Existing runs keep the values frozen at their creation. |
+| `DELETE /cases/{id}` | Soft delete and remove files; refused (409) while a run is active or when `keep_forever` is set. |
+| `PUT /cases/{id}/inputs/{role}` | Upload (201) or replace (200) the input of a role, multipart field `file`. Roles come from the loaded pipelines, for example `ct`, `lesion_native`, `lesion_mni`. Allowed until the first run is created. |
+| `GET /cases/{id}/inputs`, `GET .../inputs/{role}/download`, `DELETE .../inputs/{role}` | List, download, remove an input. |
+| `POST /cases/{id}/runs` | Start a run: `pipeline_id`, optional `pipeline_version` (default: highest), `implementations` (slot to implementation id), `input_roles` (subset), `seed`. Returns the queued run (201) and enqueues `worker.tasks.run_pipeline`. |
+| `GET /cases/{id}/runs` | Runs of a case, newest first. |
+| `GET /runs/{id}` | Status, slot choices (implementation, digest, parameters, bundles) and the step timeline (one entry per attempt). |
+| `GET /runs/{id}/steps` | The step timeline alone. |
+| `GET /runs/{id}/steps/{step_run_id}/log` | Last `tail_bytes` of an attempt log (`X-Log-Truncated`). |
+| `GET /runs/{id}/provenance` | The run provenance record. |
+| `GET /runs/{id}/artifacts`, `GET .../artifacts/{artifact_id}/download` | Artefacts of the run. |
+| `GET /runs/{id}/reports`, `GET .../reports/{report_id}/pdf` | Reports of the run. |
+| `POST /runs/{id}/cancel` | 200 when canceled, 202 while a running run is asked to stop; idempotent; 409 `run_not_active` for a finished run. |
+| `POST /runs/{id}/resume` (alias `/retry`) | Resume a failed or canceled run from the failed step: 202 when queued, 200 when already active. |
+| `GET /admin/implementations` | Administrators: every allowed implementation with its setting (no setting means disabled). |
+| `PUT /admin/implementations/{pipeline_id}/{slot}/{implementation_id}` | Administrators: `{"enabled": bool, "is_default": bool}`; a default must be enabled and replaces the slot's previous default. |
+
+### Permissions
+
+Matrix: [data-model.md section 9](data-model.md). Phase 0 enforces `admin` and `researcher`. Order of checks: 401 without a valid token; 403 when the role has no right to the action; 404 for a case or run the user cannot see (not theirs, deleted, or a legacy case), so that existence is not revealed. A researcher acts on their own cases; an administrator on all. `reviewer` and `coordinator` act on granted cases only and no grants exist before F1-03, so they see no case; `service` is refused everywhere. Only administrators set `keep_forever` and manage implementations.
+
+### Quota
+
+The storage quota of the case owner counts legacy uploads, input files and stored artefacts. An upload that would exceed it is refused with 413 `storage_quota_exceeded`, as is starting a run when the owner is already at or over the quota.
+
+### Run creation errors
+
+| Status | Codes |
+|---|---|
+| 404 | `pipeline_not_found`, `case_not_found`, `run_not_found`, `input_not_found`, `artifact_not_found`, `report_not_found`, `step_run_not_found`, `log_not_available`, `provenance_not_available`, `file_missing_in_storage` |
+| 422 | `unknown_slot`, `implementation_not_enabled` (a user choice that is not allowed or not enabled; body names the slot), `no_matching_input_set`, `input_type_mismatch`, `unknown_input_role`, `ambiguous_input_role`, `file_extension_not_allowed`, `invalid_input_file` |
+| 409 | `no_implementation` (a required slot has no enabled implementation; names the slot), `no_inputs`, `active_run_exists`, `case_has_runs`, `case_has_active_run`, `case_keep_forever`; resume and cancel: `run_not_active`, `run_succeeded`, `cancel_in_progress`, `input_rejected`, `pipeline_unavailable`, `implementation_disabled`, `bundle_unavailable`; resolution: `slot_unsatisfiable`, `manifest_unavailable`, `implementation_invalid`, `invalid_parameters`, `bundle_unavailable` |
+| 413 | `upload_too_large`, `storage_quota_exceeded` |
+
+### Configuration
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `PIPELINES_DIR`, `STEP_MANIFESTS_DIR`, `BUNDLE_ROOT` | as in [processing-pipeline.md](processing-pipeline.md) | Read by the API process too (loaded once at start). |
+| `PLATFORM_VERSION` | `0.0.0-dev` | Recorded on new runs. |
+| `DEPLOYMENT_PROFILE` | `research-public` | Profile stored on new cases (`research-public`, `mask-only`, `on-premise`). |
+
+### Privacy
+
+A case holds a platform-generated label, an optional sex and an age band; no exact age, name or free-text identifier is accepted (unknown fields are rejected). The name of an uploaded file is only used to check its extension and is stored nowhere, including the audit log.
