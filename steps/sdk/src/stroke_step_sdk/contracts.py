@@ -18,7 +18,7 @@ from types import ModuleType
 import yaml
 
 CONTRACTS_ENV = "STEP_CONTRACTS_DIR"
-SUPPORTED_CONTRACT_VERSION = "1.0"
+SUPPORTED_CONTRACT_VERSION = "1.1"
 
 
 def _looks_like_contracts(path: Path) -> bool:

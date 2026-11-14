@@ -1,8 +1,8 @@
-"""compneuro-step-sdk: the step side of the step contract 1.0."""
+"""compneuro-step-sdk: the step side of the step contract 1.1."""
 
 from . import _env  # noqa: F401  (must run before numerical libraries are imported)
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 from .cli import main
 from .context import StepContext

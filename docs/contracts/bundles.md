@@ -1,6 +1,6 @@
-# Reference bundles 1.0 (`bundle.yaml`)
+# Reference bundles 1.1 (`bundle.yaml`)
 
-Status: normative. Contract version `1.0`. Decision record: [ADR-0006](../adr/0006-reference-bundles-are-data.md).
+Status: normative. Contract version `1.1` (this document is unchanged since 1.0). Decision record: [ADR-0006](../adr/0006-reference-bundles-are-data.md).
 Schema: [`contracts/schemas/v1/bundle.schema.json`](../../contracts/schemas/v1/bundle.schema.json). Worked example: [`contracts/examples/bundle-toy-normative-connectome.yaml`](../../contracts/examples/bundle-toy-normative-connectome.yaml).
 
 A reference bundle is an immutable, versioned directory of data that steps read: normative connectomes, tract atlases, templates, concept maps, model weights and calibration tables. Bundles never live in Git. Consumers: bundle registry and verification (card F0-18), executors (mounting), steps (reading `bundle.yaml` for provenance), on-premise installer (redistribution), UI and report (titles, citations, synthetic flag).

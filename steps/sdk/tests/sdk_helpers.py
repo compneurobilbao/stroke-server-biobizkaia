@@ -11,7 +11,7 @@ import yaml
 from stroke_step_sdk import contracts, run_step
 
 MANIFEST = {
-    "contract_version": "1.0",
+    "contract_version": "1.1",
     "kind": "Step",
     "name": "sdk-test-step",
     "version": "1.0.0",

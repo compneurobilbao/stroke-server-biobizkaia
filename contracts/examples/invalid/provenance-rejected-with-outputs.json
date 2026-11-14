@@ -1,0 +1,15 @@
+{
+  "contract_version": "1.1",
+  "kind": "StepProvenance",
+  "step": { "name": "ct-lesion-to-mni152", "version": "1.0.0" },
+  "status": "rejected",
+  "started_at": "2026-11-13T10:02:11.204Z",
+  "finished_at": "2026-11-13T10:02:15.000Z",
+  "parameters": { "age_band": null, "skull_threshold_hu": 100, "mask_threshold": 0.5 },
+  "inputs": [],
+  "outputs": [
+    { "port": "qc_figure", "type": "qc_figure", "sha256": "d658380f98ddecfe227abbdb5029ef81600629ef04a4d15d3f01b273268d38b5", "size_bytes": 288140 }
+  ],
+  "bundles": [],
+  "software": [ { "name": "compneuro-step-sdk", "version": "1.1.0" } ]
+}

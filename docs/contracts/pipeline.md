@@ -1,6 +1,6 @@
-# Pipeline definition 1.0 (`pipeline.yaml`)
+# Pipeline definition 1.1 (`pipeline.yaml`)
 
-Status: normative. Contract version `1.0`. Decision records: [ADR-0002](../adr/0002-declarative-pipelines-own-orchestrator.md), [ADR-0015](../adr/0015-selectable-implementations-per-slot.md).
+Status: normative. Contract version `1.1` (this document is unchanged since 1.0). Decision records: [ADR-0002](../adr/0002-declarative-pipelines-own-orchestrator.md), [ADR-0015](../adr/0015-selectable-implementations-per-slot.md).
 Schema: [`contracts/schemas/v1/pipeline.schema.json`](../../contracts/schemas/v1/pipeline.schema.json). Worked example: [`contracts/examples/pipeline-stroke-lnm.yaml`](../../contracts/examples/pipeline-stroke-lnm.yaml).
 
 A pipeline is a small directed acyclic graph of **slots**. A slot is a named position defined by the artefact types it consumes and produces; any step whose manifest declares `provides: <slot>` and matches the slot's ports can fill it. The pipeline file lists, per slot, the implementations that are *allowed* (by image digest); a deployment *enables* a subset of them; the user *chooses* one per slot when creating a run.
@@ -38,7 +38,7 @@ Each slot has:
 | `produces[]` | MUST | Ports `{port, type, optional, when}`. |
 | `implementations` | MUST | `{default, allowed[]}` ([4](#4-slots-and-implementations)). |
 
-A pipeline can contain each slot name only once in contract 1.0.
+A pipeline can contain each slot name only once in contract 1.1.
 
 ### 3.1 Sources
 
@@ -109,11 +109,11 @@ Step outputs that the slot does not list are collected and stored but cannot be 
 ## 5. Parameters
 
 1. `parameters` sets literal values for the implementation; they MUST validate against the step's parameter schema.
-2. `parameter_bindings` maps a parameter to case metadata. Contract 1.0 defines two sources:
+2. `parameter_bindings` maps a parameter to case metadata. Contract 1.1 defines two sources:
    - `case.sex`: `"female"` or `"male"`;
    - `case.age_band`: a string `"<lo>-<hi>"` in whole years (e.g. `"65-69"`), as stored with the case (D4).
    If the case has no value, the binding is skipped and the default (or literal) applies. A parameter MUST NOT be both literal and bound. The bound parameter's schema MUST accept every possible source value.
-3. Users do not set step parameters at run creation in contract 1.0: they choose an implementation per slot, and configured variants (4, item 2) cover the useful alternatives.
+3. Users do not set step parameters at run creation in contract 1.1: they choose an implementation per slot, and configured variants (4, item 2) cover the useful alternatives.
 
 *Rationale:* keeping user input to "pick an implementation" keeps runs comparable and the provenance short; per-run parameter overrides can be added as a minor change if a real need appears.
 
@@ -127,7 +127,7 @@ At run creation the orchestrator, for each slot in topological order:
 4. If no implementation is enabled: an optional slot gets status `unavailable`, reason `no_implementation`, and downstream optional slots that need it are skipped; a non-optional slot makes the run impossible, and run creation is refused with a message naming the slot.
 5. Bundles are resolved per requirement: a pin in the implementation entry, else a pin in the deployment configuration, else the highest installed version of a matching bundle that satisfies the range.
 
-Execution: slots run in dependency order; independent slots MAY run concurrently. A step that ends with any outcome other than `succeeded` stops the run (no new steps are started; running independent steps are allowed to finish); the user may retry the failed step. Per-slot failure tolerance (`on_failure`) is not part of contract 1.0.
+Execution: slots run in dependency order; independent slots MAY run concurrently. A step that ends with any outcome other than `succeeded` stops the run (no new steps are started; running independent steps are allowed to finish); the user may retry the failed step. Per-slot failure tolerance (`on_failure`) is not part of contract 1.1.
 
 ## 7. Deployment configuration (not part of this file)
 

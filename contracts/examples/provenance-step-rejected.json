@@ -1,0 +1,16 @@
+{
+  "contract_version": "1.1",
+  "kind": "StepProvenance",
+  "step": { "name": "ct-lesion-to-mni152", "version": "1.0.0" },
+  "status": "rejected",
+  "started_at": "2026-11-13T10:02:11.204Z",
+  "finished_at": "2026-11-13T10:02:11.391Z",
+  "parameters": { "age_band": "65-69", "skull_threshold_hu": 100, "mask_threshold": 1.5 },
+  "inputs": [],
+  "outputs": [],
+  "bundles": [],
+  "software": [
+    { "name": "compneuro-step-sdk", "version": "1.1.0" },
+    { "name": "python", "version": "3.12.7" }
+  ]
+}

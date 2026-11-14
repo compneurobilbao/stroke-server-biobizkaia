@@ -11,7 +11,7 @@ from .runner import RunFunction, run_step
 
 
 def build_parser(
-    description: str = "Contract step (contract 1.0).",
+    description: str = "Contract step (contract 1.1).",
 ) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="run", description=description)
     parser.add_argument(

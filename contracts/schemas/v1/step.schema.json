@@ -195,6 +195,13 @@
       "required": ["inputs", "expected"],
       "properties": {
         "description": { "type": "string", "maxLength": 1000 },
+        "generator": {
+          "description": "Contract 1.1: Python script that writes the fixture files deterministically (step-contract.md 1.7).",
+          "allOf": [
+            { "$ref": "#/$defs/relative_path" },
+            { "pattern": "\\.py$" }
+          ]
+        },
         "inputs": {
           "type": "object",
           "propertyNames": { "$ref": "#/$defs/snake_id" },
