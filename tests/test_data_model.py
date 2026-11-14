@@ -518,7 +518,19 @@ def test_artifacts_reports_and_bundles(db, user):
     )
     db.commit()
     assert slot.bundles[0].reference_bundle.bundle_id == "ventricle-templates"
-    db.add(RunInput(pipeline_run_id=run.id, role="ct", input_file_id=uuid.uuid4()))
+    # The input file must exist: PostgreSQL enforces the foreign key, SQLite does not.
+    input_file = InputFile(
+        case_id=case.id,
+        role="ct",
+        artefact_type="ct_native",
+        storage_path="sub-abc/ses-acute/ct.nii.gz",
+        sha256=SHA,
+        size_bytes=10,
+        uploaded_by_user_id=user.id,
+    )
+    db.add(input_file)
+    db.commit()
+    db.add(RunInput(pipeline_run_id=run.id, role="ct", input_file_id=input_file.id))
     db.commit()
     assert run.inputs[0].role == "ct"
 
