@@ -117,17 +117,21 @@ def create_case(
             age_band=body.age_band,
         )
         db.add(case)
-        audit_event(
-            db,
-            "case_created",
-            current_user,
-            case_id=case.id,
-            ip_address=client_ip(request),
-        )
         try:
+            db.flush()
+            audit_event(
+                db,
+                "case_created",
+                current_user,
+                case_id=case.id,
+                ip_address=client_ip(request),
+            )
             db.commit()
             break
         except IntegrityError:
+            # Only a subject-label collision is expected here; log anything else so a
+            # real constraint failure is not hidden behind the generic 500.
+            log.warning("Case creation hit an integrity error", exc_info=True)
             db.rollback()
     else:
         raise v1_error(500, "case_creation_failed", "Could not create the case")
