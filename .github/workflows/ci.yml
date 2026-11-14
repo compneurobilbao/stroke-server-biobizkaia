@@ -198,6 +198,12 @@ jobs:
       - uses: actions/checkout@v4.2.2
       - run: make check-docs
       - run: make check-secrets
+      - name: Compose files are valid (legacy stack and pipelines profile)
+        run: |
+          docker compose config -q
+          docker compose --profile pipelines config -q
+          # The legacy stack must not contain any pipeline service.
+          ! docker compose config --services | grep -E '^(pipeline-worker|beat|docker-proxy)$'
 
   gitleaks:
     name: Gitleaks scan
