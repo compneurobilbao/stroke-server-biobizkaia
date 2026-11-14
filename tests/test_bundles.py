@@ -237,14 +237,12 @@ def test_json_store_persists(tmp_path, demo):
 
 
 def test_sqlalchemy_store(tmp_path, demo):
-    from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
 
-    from app.db.base import Base
     from app.models import reference_bundle  # noqa: F401
+    from tests import pgdb
 
-    engine = create_engine(f"sqlite:///{tmp_path / 'db.sqlite'}")
-    Base.metadata.create_all(engine)
+    engine = pgdb.new_engine(tmp_path, "db.sqlite")
     with sessionmaker(bind=engine)() as session:
         reg = b.BundleRegistry(tmp_path / "root", b.SqlAlchemyStore(session))
         rec = reg.register(demo)

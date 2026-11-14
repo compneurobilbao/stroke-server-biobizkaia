@@ -12,11 +12,11 @@ import uuid
 from datetime import datetime
 
 import pytest
-from sqlalchemy import create_engine, select
+from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
+from tests import pgdb
 from app.core.config import get_settings
-from app.db.base import Base
 from app.models import (
     Artifact,
     Case,
@@ -36,17 +36,15 @@ from worker.tasks import process_study
 
 @pytest.fixture()
 def legacy_env(tmp_path, monkeypatch):
-    db_path = tmp_path / "legacy.db"
     storage_root = tmp_path / "studies"
     monkeypatch.setenv("STORAGE_ROOT", str(storage_root))
-    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_path}")
     monkeypatch.setenv("PROCESSOR_BACKEND", "dummy")
-    get_settings.cache_clear()
-    engine = create_engine(
-        f"sqlite:///{db_path}", connect_args={"check_same_thread": False}
+    engine = pgdb.new_engine(
+        tmp_path, "legacy.db", connect_args={"check_same_thread": False}
     )
+    monkeypatch.setenv("DATABASE_URL", pgdb.database_url(engine))
+    get_settings.cache_clear()
     Session = sessionmaker(bind=engine, autocommit=False, autoflush=False)
-    Base.metadata.create_all(bind=engine)
     import worker.tasks as tasks
 
     monkeypatch.setattr(tasks, "SessionLocal", Session)
