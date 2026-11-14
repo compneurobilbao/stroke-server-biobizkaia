@@ -4,6 +4,8 @@ Started by ``SubprocessExecutor.submit`` as ``python -m
 orchestrator.executors._supervisor <state_dir>`` in its own session, so that it
 survives a restart of the worker process. It:
 
+0. records its own PID and start time in ``supervisor.json`` (used by
+   ``SubprocessExecutor.adopt`` when the handle was never recorded);
 1. reads ``<state_dir>/spec.json`` (argv, cwd, env, log path, timeout, grace);
 2. starts the command in a new process group, stdout and stderr appended in
    order to one log file, stdin closed;
@@ -53,7 +55,27 @@ def _killpg(pgid: int, signum: int) -> None:
         pass
 
 
+def _own_start_ticks() -> int | None:
+    """This process's start time from /proc (guards against PID reuse)."""
+    try:
+        raw = Path("/proc/self/stat").read_text(encoding="ascii", errors="replace")
+        return int(raw.rsplit(")", 1)[-1].split()[19])
+    except (OSError, IndexError, ValueError):
+        return None
+
+
 def run(state_dir: Path) -> int:
+    # First of all, record who supervises this attempt, so that the executor can
+    # find the job again if the worker stopped before it recorded the handle
+    # (SubprocessExecutor.adopt).
+    _write_json_atomic(
+        state_dir / "supervisor.json",
+        {
+            "pid": os.getpid(),
+            "start_ticks": _own_start_ticks(),
+            "started_at": _utc_now(),
+        },
+    )
     spec = json.loads((state_dir / "spec.json").read_text(encoding="utf-8"))
     cancel_marker = state_dir / "cancel_requested"
     stop = {"requested": False}

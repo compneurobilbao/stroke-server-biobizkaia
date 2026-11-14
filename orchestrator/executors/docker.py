@@ -39,6 +39,12 @@ containers do not accumulate and ``poll``/``collect`` can be called from another
 process after a worker restart (``restartable = True``). The SIGKILL that follows
 an unanswered SIGTERM is sent by whichever ``poll`` runs after the grace period
 (the orchestrator polls attempts it has not seen finish).
+
+Adoption. If the handle was never recorded (the worker stopped right after
+``submit``), ``adopt`` finds the container by its deterministic name
+``stepexec-<step run id>-a<attempt>`` (``GET /containers/{name}/json``, allowed
+by the proxy like any container inspect) and checks its labels before returning
+a handle for it.
 """
 
 from __future__ import annotations
@@ -78,6 +84,7 @@ from orchestrator.executors.subprocess import (
     _read_json,
     _write_json_atomic,
     contract_environment,
+    owns_work_dir,
 )
 
 CONTRACT_COMMAND = (
@@ -127,6 +134,12 @@ def parse_host_path_map(text: str) -> dict[str, str]:
             raise ValueError(f"invalid host path mapping: {item!r}")
         mapping[worker] = host
     return mapping
+
+
+def container_name(invocation: StepInvocation) -> str:
+    """Deterministic container name of one attempt: ``stepexec-<step run id>-a<attempt>``."""
+    step_run = _NAME_UNSAFE.sub("-", invocation.step_run_id)[:80]
+    return f"stepexec-{step_run}-a{invocation.attempt}"
 
 
 def _truthy(value: str | None) -> bool:
@@ -379,7 +392,7 @@ class DockerExecutor(Executor):
                 path.mkdir(parents=True, exist_ok=True)
             self._stage(invocation, paths)
             _write_json_atomic(paths[STATE_DIR] / "request.json", invocation.to_dict())
-            name = f"stepexec-{_NAME_UNSAFE.sub('-', invocation.step_run_id)[:80]}-a{invocation.attempt}"
+            name = container_name(invocation)
             body = self.container_spec(invocation, image_id, paths, name)
             created = self._client.request(
                 "POST", "/containers/create", params={"name": name}, body=body
@@ -735,6 +748,60 @@ class DockerExecutor(Executor):
         if self._finished_status(handle) is None:
             raise ExecutorError("cannot clean up a running attempt; cancel it first")
         work = Path(handle.data["work_dir"])
+        for name in ("in", "out", "tmp"):
+            shutil.rmtree(work / name, ignore_errors=True)
+
+    # ------------------------------------------------------------------ adopt
+
+    def adopt(self, invocation: StepInvocation) -> ExecutorHandle | None:
+        """Find the container an interrupted ``submit`` started (see ``Executor.adopt``).
+
+        The container is looked up by its deterministic name and must carry the
+        labels of exactly this step run and attempt. A container that was
+        created but never started is removed: nothing ran, so there is nothing
+        to adopt.
+        """
+        work = invocation.work_dir.resolve()
+        if not owns_work_dir(work / STATE_DIR, invocation):
+            self._remove_staging(work)
+            return None
+        name = container_name(invocation)
+        response = self._client.request(
+            "GET", f"/containers/{name}/json", ok=(200, 404)
+        )
+        if response.status_code == 404:
+            self._remove_staging(work)
+            return None
+        info = response.json()
+        labels = (info.get("Config") or {}).get("Labels") or {}
+        if labels.get(
+            f"{LABEL_PREFIX}step-run-id"
+        ) != invocation.step_run_id or labels.get(f"{LABEL_PREFIX}attempt") != str(
+            invocation.attempt
+        ):
+            raise ExecutorRefused(
+                f"container {name} does not carry the labels of this attempt"
+            )
+        container_id = info["Id"]
+        if (info.get("State") or {}).get("Status") == "created":
+            self._remove(container_id)
+            self._remove_staging(work)
+            return None
+        return ExecutorHandle(
+            executor=self.name,
+            external_job_id=container_id,
+            submitted_at=_docker_stamp(info.get("Created")) or utc_now(),
+            data={
+                "work_dir": str(work),
+                "container_id": container_id,
+                "container_name": name,
+                "image_id": info.get("Image"),
+                "timeout_seconds": invocation.effective_timeout_seconds,
+            },
+        )
+
+    @staticmethod
+    def _remove_staging(work: Path) -> None:
         for name in ("in", "out", "tmp"):
             shutil.rmtree(work / name, ignore_errors=True)
 

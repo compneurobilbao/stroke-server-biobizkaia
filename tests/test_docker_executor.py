@@ -108,10 +108,23 @@ class FakeDocker:
                 "StartedAt": utc_now()[:-1] + "000000Z",
             }
             return httpx.Response(204)
-        if method == "GET" and path == f"/containers/{CONTAINER_ID}/json":
+        if method == "GET" and path in (
+            f"/containers/{CONTAINER_ID}/json",
+            f"/containers/{self.bodies.get('create_name')}/json",
+        ):  # inspect by ID or by name, as the Engine allows
             if CONTAINER_ID not in self.containers:
                 return httpx.Response(404, json={"message": "no such container"})
-            return httpx.Response(200, json=self.containers[CONTAINER_ID])
+            return httpx.Response(
+                200,
+                json={
+                    **self.containers[CONTAINER_ID],
+                    "Id": CONTAINER_ID,
+                    "Name": "/" + self.bodies["create_name"],
+                    "Image": IMAGE_ID,
+                    "Created": "2026-11-13T09:59:59.987654321Z",
+                    "Config": {"Labels": self.bodies["create"]["Labels"]},
+                },
+            )
         if method == "POST" and path == f"/containers/{CONTAINER_ID}/kill":
             self.signals.append(request.url.params["signal"])
             return httpx.Response(204)
@@ -631,3 +644,85 @@ def test_log_failure_does_not_lose_the_result(tmp_path, docker):
     result = executor.collect(handle)
     assert result.succeeded
     assert "log capture incomplete" in result.log_path.read_text()
+
+
+# ---------------------------------------------------------------------- adopt
+
+
+def test_adopt_finds_the_running_container_of_a_lost_submission(tmp_path, docker):
+    inv = invocation(tmp_path, timeout_seconds=90)
+    lost = make_executor(docker).submit(inv)  # the handle is never recorded
+    docker.calls.clear()
+
+    executor = make_executor(docker)  # another worker process
+    handle = executor.adopt(inv)
+    assert docker.calls == [("GET", f"/containers/{lost.data['container_name']}/json")]
+    assert handle.external_job_id == CONTAINER_ID
+    assert handle.data == {
+        "work_dir": lost.data["work_dir"],
+        "container_id": CONTAINER_ID,
+        "container_name": "stepexec-sr-1-a1",
+        "image_id": IMAGE_ID,
+        "timeout_seconds": 90,
+    }
+    assert handle.submitted_at == "2026-11-13T09:59:59.987Z"
+    assert executor.poll(handle).state is JobState.RUNNING
+    work = Path(handle.data["work_dir"])
+    (work / "out/provenance.json").write_text("{}")
+    docker.finish(0)
+    result = executor.collect(handle)
+    assert result.succeeded and result.execution["external_job_id"] == CONTAINER_ID
+
+
+def test_adopted_container_can_be_canceled(tmp_path, docker):
+    inv = invocation(tmp_path)
+    make_executor(docker).submit(inv)
+    executor = make_executor(docker)
+    handle = executor.adopt(inv)
+    assert executor.cancel(handle) is True
+    assert docker.signals == ["SIGTERM"]
+    docker.finish(143)
+    assert executor.poll(handle).outcome is Outcome.CANCELED
+
+
+def test_adopt_without_a_container_returns_none_and_removes_staging(tmp_path, docker):
+    inv = invocation(tmp_path)
+    make_executor(docker).submit(inv)
+    docker.containers.clear()  # e.g. create failed after the request was written
+    assert make_executor(docker).adopt(inv) is None
+    work = inv.work_dir.resolve()
+    assert not (work / "out").exists() and not (work / "tmp").exists()
+    if os.name == "posix":
+        assert not (work / "in").exists()
+    assert (work / ".executor/request.json").exists()  # records are kept
+
+
+def test_adopt_removes_a_container_that_was_never_started(tmp_path, docker):
+    inv = invocation(tmp_path)
+    make_executor(docker).submit(inv)
+    docker.containers[CONTAINER_ID]["State"] = {"Status": "created", "Running": False}
+    assert make_executor(docker).adopt(inv) is None
+    assert ("DELETE", f"/containers/{CONTAINER_ID}") in docker.calls
+    assert CONTAINER_ID not in docker.containers
+
+
+def test_adopt_without_a_recorded_request_does_not_ask_docker(tmp_path, docker):
+    inv = invocation(tmp_path)
+    (inv.work_dir / "out").mkdir(parents=True)  # submit stopped while staging
+    assert make_executor(docker).adopt(inv) is None
+    assert docker.calls == []
+    assert not (inv.work_dir / "out").exists()
+
+
+def test_adopt_refuses_another_attempt(tmp_path, docker):
+    inv = invocation(tmp_path)
+    make_executor(docker).submit(inv)
+    other = invocation(tmp_path, step_run_id="sr-2")
+    with pytest.raises(ExecutorRefused, match="another attempt"):
+        make_executor(docker).adopt(other)
+    assert (inv.work_dir / "out").is_dir()  # nothing touched
+    # a container under the expected name but with foreign labels is not adopted
+    docker.bodies["create"]["Labels"]["io.stroke-server.attempt"] = "7"
+    with pytest.raises(ExecutorRefused, match="labels"):
+        make_executor(docker).adopt(inv)
+    assert CONTAINER_ID in docker.containers

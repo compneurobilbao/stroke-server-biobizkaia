@@ -19,6 +19,11 @@ Design (docs/processing-pipeline.md, "Pipeline orchestrator"):
   polled until finished, collected, checked against the contract
   (``orchestrator.collection``), its outputs are copied to the case store and
   recorded as artefacts, and the executor's staging is cleaned up.
+- **Lost submissions.** If a driver stopped between ``submit`` and recording
+  the handle, the next driver finds the attempt's work directory in use and
+  asks the executor for the job (``Executor.adopt``): an existing job is
+  adopted and continues normally; otherwise the attempt fails with
+  ``lost_submission`` and is retried.
 - **Failure** stops the run: no new attempt starts, live attempts finish, then
   the run is ``failed``. ``failed`` and ``timed_out`` attempts are retried
   automatically (``trigger = auto_retry``) up to ``max_attempts`` attempts per
@@ -41,6 +46,7 @@ from __future__ import annotations
 import enum
 import json
 import logging
+import os
 import time
 import uuid
 from collections.abc import Callable, Mapping
@@ -121,6 +127,11 @@ class LeaseLost(Exception):
 # Submission failures worth another attempt (transient); others are final.
 RETRYABLE_SUBMISSION = ("executor_error", "lost_submission")
 
+# executor_state key: when a tick first found the run's pipeline unavailable
+# while this attempt was live (see Orchestrator._pipeline_unavailable).
+UNAVAILABLE_MARK = "pipeline_unavailable_since"
+LOST_SUBMISSION_MESSAGE = "The attempt was interrupted while being submitted."
+
 
 class TickResult(str, enum.Enum):
     CONTINUE = "continue"  # call tick again after the poll interval
@@ -134,6 +145,9 @@ class OrchestratorConfig:
     max_attempts: int = 2  # per slot, per start or resume (docs/data-model.md 7.2)
     lease_seconds: int = 600
     max_consecutive_errors: int = 20
+    # How long live attempts of a run whose pipeline is not loaded are left
+    # alone before they are stopped and the run fails (pipeline_unavailable).
+    pipeline_unavailable_grace_seconds: int = 3600
 
 
 class ExecutorRegistry:
@@ -256,14 +270,17 @@ class Orchestrator:
         with self.session_factory() as db:
             if not self._claim(db, run_id, owner):
                 db.rollback()
+                run = db.get(PipelineRun, run_id)
+                if (
+                    run is None
+                    or run.pipeline_id == LEGACY_PIPELINE_ID
+                    or run.status not in LIVE
+                ):
+                    return TickResult.FINISHED  # nothing to drive, nothing stamped
                 return TickResult.LOST
             db.commit()
             run = db.get(PipelineRun, run_id)
-            if (
-                run is None
-                or run.pipeline_id == LEGACY_PIPELINE_ID
-                or run.status not in ("queued", "running")
-            ):
+            if run.status not in LIVE:  # finished by the API since the claim
                 return TickResult.FINISHED
             pipeline = self.pipelines.get(run.pipeline_id, run.pipeline_version)
             if pipeline is None or pipeline.sha256 != run.pipeline_sha256:
@@ -280,12 +297,20 @@ class Orchestrator:
             return self._decide(self._context(db, run, pipeline, owner))
 
     def _claim(self, db: Session, run_id: uuid.UUID, owner: str) -> bool:
+        """Take or renew the lease of an active, non-legacy run.
+
+        Legacy and final runs are never stamped: the conditions on
+        ``pipeline_id`` and ``status`` are part of the compare-and-set, so a
+        legacy run keeps the ``orchestrator_task_id`` of the legacy flow.
+        """
         now = self.clock()
         stale = now - timedelta(seconds=self.config.lease_seconds)
         result = db.execute(
             update(PipelineRun)
             .where(
                 PipelineRun.id == run_id,
+                PipelineRun.pipeline_id != LEGACY_PIPELINE_ID,
+                PipelineRun.status.in_(LIVE),
                 or_(
                     PipelineRun.orchestrator_task_id.is_(None),
                     PipelineRun.orchestrator_task_id == owner,
@@ -444,21 +469,40 @@ class Orchestrator:
             log.exception("Notification dispatch failed for run %s", run.id)
 
     def _pipeline_unavailable(self, db: Session, run: PipelineRun) -> TickResult:
-        live = db.scalar(
-            select(StepRun.id).where(
-                StepRun.pipeline_run_id == run.id, StepRun.status.in_(LIVE)
+        """The run's ``pipeline.yaml`` (same id, version and SHA-256) is not loaded here.
+
+        Without live attempts the run fails at once with ``pipeline_unavailable``.
+        Live attempts cannot be checked against the contract without their slot
+        definition, but the condition may be transient (a worker with an outdated
+        ``PIPELINES_DIR`` during a deployment), so they get a bounded grace
+        period (``pipeline_unavailable_grace_seconds``, counted from the first
+        tick that saw it, recorded per attempt as
+        ``executor_state.pipeline_unavailable_since``). Within it the task gives
+        the run up (``LOST``) and the recovery task re-enqueues it while its
+        heartbeat is stale; a worker that has the pipeline continues normally.
+        After it, live attempts are stopped through their executor and marked
+        ``failed`` with ``failure_code = 'pipeline_unavailable'``, and the run
+        fails with the same code (data-model.md 7.1: ``running -> failed`` once
+        no attempt is live).
+        """
+        live = list(
+            db.scalars(
+                select(StepRun).where(
+                    StepRun.pipeline_run_id == run.id, StepRun.status.in_(LIVE)
+                )
             )
         )
-        if live is not None:
-            # Live attempts cannot be finalised without their slot definition: leave
-            # the run to an operator (or to a worker that has the pipeline).
-            log.error(
-                "Pipeline %s %s unavailable for run %s",
-                run.pipeline_id,
-                run.pipeline_version,
-                run.id,
-            )
-            return TickResult.LOST
+        if live:
+            if not self._pipeline_grace_over(db, run, live):
+                return TickResult.LOST
+            for attempt in live:
+                self._abandon_attempt(db, attempt)
+            if db.scalar(
+                select(StepRun.id).where(
+                    StepRun.pipeline_run_id == run.id, StepRun.status.in_(LIVE)
+                )
+            ):
+                return TickResult.CONTINUE  # wait for the executors to stop them
         ok = self._cas_run(
             db,
             run,
@@ -477,6 +521,93 @@ class Orchestrator:
             db.commit()
             self._notify(db, run)
         return TickResult.FINISHED
+
+    def _pipeline_grace_over(
+        self, db: Session, run: PipelineRun, live: list[StepRun]
+    ) -> bool:
+        now = self.clock()
+        first = now
+        for attempt in live:
+            state = dict(attempt.executor_state or {})
+            since = parse_timestamp(state.get(UNAVAILABLE_MARK))
+            if since is None:
+                self._cas_step(
+                    db,
+                    attempt,
+                    LIVE,
+                    executor_state={**state, UNAVAILABLE_MARK: now.isoformat()},
+                )
+            else:
+                first = min(first, since)
+        db.commit()
+        remaining = (
+            self.config.pipeline_unavailable_grace_seconds
+            - (now - first).total_seconds()
+        )
+        if remaining > 0:
+            log.warning(
+                "Pipeline %s %s unavailable for run %s with live attempts; "
+                "the run fails in %d s unless a worker that has it takes over",
+                run.pipeline_id,
+                run.pipeline_version,
+                run.id,
+                remaining,
+            )
+            return False
+        log.error(
+            "Pipeline %s %s still unavailable for run %s: stopping its attempts",
+            run.pipeline_id,
+            run.pipeline_version,
+            run.id,
+        )
+        return True
+
+    def _abandon_attempt(self, db: Session, attempt: StepRun) -> None:
+        """Stop one live attempt of a run whose pipeline is gone and fail it."""
+        state = dict(attempt.executor_state or {})
+        final = dict(
+            status="failed",
+            outcome="failed",
+            finished_at=self.clock(),
+            failure_code="pipeline_unavailable",
+            failure_message="The pipeline definition of this run is not available on this deployment.",
+        )
+        if "handle" not in state:
+            self._cas_step(db, attempt, ("queued",), **final)
+            db.commit()
+            return
+        handle = ExecutorHandle.from_dict(state["handle"])
+        try:
+            executor = self.executors.get(handle.executor)
+        except ExecutorError:
+            log.error(
+                "Job %s of attempt %s runs on executor %r, which this worker does "
+                "not have: it cannot be stopped from here",
+                handle.external_job_id,
+                attempt.id,
+                handle.executor,
+            )
+            self._cas_step(db, attempt, LIVE, **final)
+            db.commit()
+            return
+        if not state.get("cancel_sent"):
+            try:
+                executor.cancel(handle)
+            except Exception:
+                log.exception("Cancel of attempt %s failed; retrying", attempt.id)
+                return
+            self._cas_step(
+                db, attempt, LIVE, executor_state={**state, "cancel_sent": True}
+            )
+            db.commit()
+        if not executor.poll(handle).finished:
+            return
+        self._cas_step(db, attempt, LIVE, **final)
+        db.commit()
+        try:
+            executor.cleanup(handle)
+        except Exception:
+            log.exception("Cleanup of attempt %s failed", attempt.id)
 
     # ------------------------------------------------------------------ decide
 
@@ -598,6 +729,10 @@ class Orchestrator:
         if attempt.status not in LIVE:
             return
         state = attempt.executor_state or {}
+        if UNAVAILABLE_MARK in state:  # the pipeline is back: restart the grace count
+            state = {k: v for k, v in state.items() if k != UNAVAILABLE_MARK}
+            self._cas_step(db, attempt, LIVE, executor_state=state)
+            db.commit()
         if "handle" not in state:
             if run.cancel_requested_at is not None:
                 self._cas_step(
@@ -699,7 +834,6 @@ class Orchestrator:
         return "absent", None
 
     def _submit(self, ctx: _Ctx, attempt: StepRun) -> None:
-        db, run = ctx.db, ctx.run
         slot = next(s for s in ctx.slots.values() if s.id == attempt.run_slot_id)
         manifest = self._manifest(slot)
         if manifest is None:
@@ -709,6 +843,51 @@ class Orchestrator:
                 "manifest_unavailable",
                 "The step manifest is not available.",
             )
+        run = ctx.run
+        work_dir = self.store.work_dir(run.case_id, run.id, slot.slot, attempt.attempt)
+        if work_dir.exists() and any(work_dir.iterdir()):
+            # A previous driver stopped between submit and storing the handle.
+            return self._recover_submission(ctx, attempt, slot, manifest, work_dir)
+        prepared = self._prepare(ctx, attempt, slot, manifest, work_dir)
+        if prepared is None:
+            return
+        invocation, staged_meta, mounts = prepared
+        self._heartbeat(ctx)
+        try:
+            executor = self.executors.get(attempt.executor)
+            handle = executor.submit(invocation)
+        except (ExecutorRefused, NotImplementedError) as exc:
+            return self._fail_queued(ctx, attempt, "executor_refused", str(exc)[:500])
+        except ExecutorError as exc:
+            log.warning("Submission of attempt %s failed: %s", attempt.id, exc)
+            return self._fail_queued(
+                ctx, attempt, "executor_error", "The executor could not start the step."
+            )
+        try:
+            self._heartbeat(ctx)
+        except LeaseLost:
+            self._discard_handle(executor, handle)
+            raise
+        self._record_handle(ctx, attempt, executor, handle, staged_meta, mounts)
+
+    def _prepare(
+        self,
+        ctx: _Ctx,
+        attempt: StepRun,
+        slot: RunSlot,
+        manifest: Mapping[str, Any],
+        work_dir: Path,
+        *,
+        reuse_staged: bool = False,
+    ) -> tuple[StepInvocation, dict[str, list], list[BundleMount]] | None:
+        """Resolve inputs and bundles and build the invocation of an attempt.
+
+        Returns ``None`` after failing the attempt (``input_unavailable``,
+        ``bundle_unavailable``). ``reuse_staged`` keeps a ``run.provenance``
+        file staged by an earlier submission of the same attempt, so that the
+        recorded hashes are those of what the adopted job really received.
+        """
+        db, run = ctx.db, ctx.run
         slot_def = ctx.pipeline.slot(slot.slot)
         consumes = {c["port"]: c for c in slot_def["consumes"]}
 
@@ -721,26 +900,30 @@ class Orchestrator:
             state, source = self._resolve_port(ctx, consume)
             if state != "ready":
                 if port.get("required", True) and not consume.get("optional", False):
-                    return self._fail_queued(
+                    self._fail_queued(
                         ctx,
                         attempt,
                         "input_unavailable",
                         f"Input '{port['name']}' is not available.",
                     )
+                    return None
                 continue
             if source == "run.provenance":
                 source = (
                     self.store.staging_dir(run.case_id, run.id, attempt.id)
                     / "run_provenance.json"
                 )
-                source.parent.mkdir(parents=True, exist_ok=True)
-                prov = self.store.storage.run_provenance_path(run.case_id, run.id)
-                record = (
-                    bids.load_run_provenance(self.store.storage, run.case_id, run.id)
-                    if prov.exists()
-                    else build_run_provenance(db, run)
-                )
-                source.write_text(json.dumps(record, indent=2), encoding="utf-8")
+                if not (reuse_staged and source.is_file()):
+                    source.parent.mkdir(parents=True, exist_ok=True)
+                    prov = self.store.storage.run_provenance_path(run.case_id, run.id)
+                    record = (
+                        bids.load_run_provenance(
+                            self.store.storage, run.case_id, run.id
+                        )
+                        if prov.exists()
+                        else build_run_provenance(db, run)
+                    )
+                    _write_atomic(source, json.dumps(record, indent=2))
             name = staged_name(port["name"], consume["type"])
             staged[name] = source
             staged_meta[port["name"]] = [
@@ -752,24 +935,26 @@ class Orchestrator:
         try:
             mounts = self._mounts(db, slot, manifest)
         except BundleError as exc:
-            return self._fail_queued(ctx, attempt, "bundle_unavailable", str(exc)[:500])
+            self._fail_queued(ctx, attempt, "bundle_unavailable", str(exc)[:500])
+            return None
+        invocation = self._invocation(
+            ctx, attempt, slot, manifest, work_dir, inputs=staged, bundles=mounts
+        )
+        return invocation, staged_meta, mounts
 
-        work_dir = self.store.work_dir(run.case_id, run.id, slot.slot, attempt.attempt)
-        if work_dir.exists() and any(work_dir.iterdir()):
-            # A previous driver crashed between submit and storing the handle.
-            # The executor interface cannot find a job by work directory, so that
-            # job cannot be stopped from here: a subprocess attempt runs to its
-            # timeout in the old directory; a docker container is named
-            # stepexec-<step run id>-a<attempt> and labelled with the step run id
-            # for an operator (follow-up: Executor.adopt). The window is the few
-            # statements between submit() returning and the handle commit.
-            return self._fail_queued(
-                ctx,
-                attempt,
-                "lost_submission",
-                "The attempt was interrupted while being submitted.",
-            )
-        invocation = StepInvocation(
+    def _invocation(
+        self,
+        ctx: _Ctx,
+        attempt: StepRun,
+        slot: RunSlot,
+        manifest: Mapping[str, Any],
+        work_dir: Path,
+        *,
+        inputs: Mapping[str, Path] | None = None,
+        bundles: list[BundleMount] | None = None,
+    ) -> StepInvocation:
+        run = ctx.run
+        return StepInvocation(
             step_run_id=str(attempt.id),
             step_name=slot.step_name,
             step_version=slot.step_version,
@@ -789,51 +974,111 @@ class Orchestrator:
             ),
             work_dir=work_dir,
             image=slot.image,
-            inputs=staged,
+            inputs=dict(inputs or {}),
             params=dict(slot.effective_parameters or {}),
-            bundles=mounts,
+            bundles=list(bundles or ()),
             attempt=attempt.attempt,
         )
-        self._heartbeat(ctx)
-        try:
-            executor = self.executors.get(attempt.executor)
-            handle = executor.submit(invocation)
-        except (ExecutorRefused, NotImplementedError) as exc:
-            return self._fail_queued(ctx, attempt, "executor_refused", str(exc)[:500])
-        except ExecutorError as exc:
-            log.warning("Submission of attempt %s failed: %s", attempt.id, exc)
-            return self._fail_queued(
-                ctx, attempt, "executor_error", "The executor could not start the step."
-            )
-        try:
-            self._heartbeat(ctx)
-        except LeaseLost:
-            self._discard_handle(executor, handle)
-            raise
+
+    def _record_handle(
+        self,
+        ctx: _Ctx,
+        attempt: StepRun,
+        executor: Executor,
+        handle: ExecutorHandle,
+        staged_meta: Mapping[str, list],
+        mounts: list[BundleMount],
+        *,
+        adopted: bool = False,
+    ) -> None:
+        state: dict[str, Any] = {
+            "handle": handle.to_dict(),
+            "staged_inputs": dict(staged_meta),
+            "bundles": [
+                {
+                    "name": m.name,
+                    "id": m.id,
+                    "version": m.version,
+                    "content_digest": m.content_digest,
+                }
+                for m in mounts
+            ],
+        }
+        if adopted:
+            state["adopted"] = True
         recorded = self._cas_step(
-            db,
+            ctx.db,
             attempt,
             ("queued",),
             external_job_id=handle.external_job_id[:128],
-            executor_state={
-                "handle": handle.to_dict(),
-                "staged_inputs": staged_meta,
-                "bundles": [
-                    {
-                        "name": m.name,
-                        "id": m.id,
-                        "version": m.version,
-                        "content_digest": m.content_digest,
-                    }
-                    for m in mounts
-                ],
-            },
+            executor_state=state,
         )
-        db.commit()
+        ctx.db.commit()
         if not recorded:
             # The attempt changed meanwhile (canceled by the API while queued):
-            # the job just started belongs to nobody.
+            # the job belongs to nobody.
             self._discard_handle(executor, handle)
+
+    def _recover_submission(
+        self,
+        ctx: _Ctx,
+        attempt: StepRun,
+        slot: RunSlot,
+        manifest: Mapping[str, Any],
+        work_dir: Path,
+    ) -> None:
+        """Lost submission: the work directory is in use but no handle was recorded.
+
+        The executor is asked for the job of exactly this attempt
+        (``Executor.adopt``). A job that exists is adopted: its handle is
+        recorded and it is polled and collected like any other, so its real
+        outcome counts (data-model.md 7.2). If no job was ever started, or the
+        backend cannot look jobs up, the attempt fails with ``lost_submission``,
+        which is retried automatically. A backend that cannot be reached now
+        raises ``ExecutorError``; the next tick asks again.
+        """
+        try:
+            executor = self.executors.get(attempt.executor)
+        except ExecutorError as exc:
+            log.error("Attempt %s: lost submission not adoptable: %s", attempt.id, exc)
+            return self._fail_queued(
+                ctx, attempt, "lost_submission", LOST_SUBMISSION_MESSAGE
+            )
+        probe = self._invocation(ctx, attempt, slot, manifest, work_dir)
+        try:
+            handle = executor.adopt(probe)
+        except NotImplementedError:
+            log.warning(
+                "Attempt %s: lost submission; executor %r cannot adopt jobs, so a "
+                "job it may have started is not stopped from here",
+                attempt.id,
+                executor.name,
+            )
+            handle = None
+        except ExecutorRefused as exc:
+            log.error("Attempt %s: lost submission not adoptable: %s", attempt.id, exc)
+            handle = None
+        if handle is None:
+            return self._fail_queued(
+                ctx, attempt, "lost_submission", LOST_SUBMISSION_MESSAGE
+            )
+        prepared = self._prepare(
+            ctx, attempt, slot, manifest, work_dir, reuse_staged=True
+        )
+        if prepared is None:  # the attempt was failed: its job must not run on
+            self._discard_handle(executor, handle)
+            return
+        _invocation, staged_meta, mounts = prepared
+        # If the lease is lost here the job is left alone: the new owner adopts it.
+        self._heartbeat(ctx)
+        log.info(
+            "Attempt %s: adopted job %s after a lost submission",
+            attempt.id,
+            handle.external_job_id,
+        )
+        self._record_handle(
+            ctx, attempt, executor, handle, staged_meta, mounts, adopted=True
+        )
 
     def _mounts(
         self, db: Session, slot: RunSlot, manifest: Mapping[str, Any]
@@ -880,6 +1125,15 @@ class Orchestrator:
                     for b in state.get("bundles", [])
                 ],
             )
+        if (
+            state.get("adopted")
+            and verdict.outcome == "canceled"
+            and ctx.run.cancel_requested_at is None
+        ):
+            # Nobody asked to cancel this run: the adopted job was stopped by the
+            # driver that lost its lease while submitting it (_discard_handle).
+            # That is still a lost submission (retried), not a user cancellation.
+            verdict = Verdict("failed", "lost_submission", LOST_SUBMISSION_MESSAGE)
         execution = result.execution
         verdict, artifacts = self._store_step(
             ctx, attempt, slot, manifest, verdict, result
@@ -1055,6 +1309,13 @@ class Orchestrator:
                 content_sha256=doc.sha256,
             )
         )
+
+
+def _write_atomic(path: Path, text: str) -> None:
+    """Write a file so that it is either absent or complete (rename in one directory)."""
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def _dec(value: float | None) -> Decimal | None:

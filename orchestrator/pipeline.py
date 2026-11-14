@@ -38,6 +38,13 @@ def artefact_types() -> tuple[str, dict[str, Any]]:
     return str(data.get("version")), dict(data.get("types", {}))
 
 
+@lru_cache(maxsize=1)
+def artefact_grids() -> dict[str, Any]:
+    """Named voxel grids (``{space, shape, affine}``) of the same registry."""
+    data = contract.load_file(contract.DEFAULT_TYPES_PATH)
+    return dict(data.get("grids", {}))
+
+
 def extension_for(artefact_type: str) -> str:
     _version, types = artefact_types()
     try:
@@ -171,6 +178,37 @@ class PipelineDefinition:
         )
 
 
+def step_identity_errors(data: Mapping[str, Any]) -> list[str]:
+    """A step name and version may be allowed in one slot only.
+
+    The case store (card F0-17, ``app.services.bids``) keys a run's derivatives
+    by step, not by slot: ``<run>/derivatives/<step name>-<step version>/``.
+    Two slots running the same step version in one run would write the same
+    BIDS file names and the same ``provenance.json`` there; the second slot
+    silently replaces the first slot's files, whose artefact rows then point at
+    bytes that no longer match their SHA-256. Making the path slot-scoped is a
+    case-store change (F0-17); until then such a pipeline is refused when it is
+    loaded. The same step may appear several times *within* one slot
+    (configured variants): only one of them is chosen per run.
+    """
+    owners: dict[tuple[str, str], str] = {}
+    errors = []
+    for slot in data.get("slots", []):
+        identities = {
+            (impl["step"]["name"], impl["step"]["version"])
+            for impl in slot["implementations"]["allowed"]
+        }
+        for identity in sorted(identities):
+            first = owners.setdefault(identity, slot["name"])
+            if first != slot["name"]:
+                errors.append(
+                    f"step {identity[0]} {identity[1]} is allowed in slots "
+                    f"'{first}' and '{slot['name']}'; their outputs would share "
+                    f"derivatives/{identity[0]}-{identity[1]}/ in the case store"
+                )
+    return errors
+
+
 def load_pipeline(source: bytes | str | Path) -> PipelineDefinition:
     """Parse and validate a ``pipeline.yaml``; raise ``PipelineError`` listing every problem.
 
@@ -191,6 +229,7 @@ def load_pipeline(source: bytes | str | Path) -> PipelineDefinition:
         errors = contract.check_contract_version(doc) + contract.check_pipeline(
             data, types
         )
+        errors += step_identity_errors(data)
     if errors:
         raise PipelineError("invalid pipeline: " + "; ".join(errors))
     return PipelineDefinition(data=data, sha256=hashlib.sha256(raw).hexdigest())

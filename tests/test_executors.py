@@ -543,6 +543,94 @@ def test_lost_supervisor_is_reported_and_its_group_killed(tmp_path):
     assert wait_dead(grandchild)
 
 
+# ---------------------------------------------------------------------- adopt
+
+
+def test_adopt_is_optional_on_the_interface(tmp_path):
+    class Minimal(Executor):
+        name = "minimal"
+        runtime = "none"
+
+        def submit(self, invocation): ...
+        def poll(self, handle): ...
+        def cancel(self, handle): ...
+        def collect(self, handle): ...
+        def cleanup(self, handle): ...
+
+    with pytest.raises(NotImplementedError, match="cannot adopt"):
+        Minimal().adopt(invocation(tmp_path, ["true"]))
+
+
+def _wait_for(path: Path, timeout: float = 10.0) -> None:
+    deadline = time.monotonic() + timeout
+    while not path.exists():
+        assert time.monotonic() < deadline, f"{path.name} never appeared"
+        time.sleep(0.05)
+
+
+@posix_only
+def test_adopt_finds_the_running_supervisor_of_a_lost_submission(tmp_path):
+    inv = invocation(tmp_path, py("import time; time.sleep(60)"))
+    lost = SubprocessExecutor().submit(inv)  # the handle is never recorded
+    _wait_for(inv.work_dir / ".executor" / "supervisor.json")
+
+    other = SubprocessExecutor(kill_grace_seconds=2)  # another worker process
+    handle = other.adopt(inv)
+    assert handle.data["supervisor_pid"] == lost.data["supervisor_pid"]
+    assert handle.data["supervisor_start_ticks"] == lost.data["supervisor_start_ticks"]
+    assert other.poll(handle).state is JobState.RUNNING
+    assert other.cancel(handle) is True
+    status = other.wait(handle, poll_interval=0.05, timeout=15)
+    assert status.outcome is Outcome.CANCELED
+    other.cleanup(handle)
+    assert not (inv.work_dir / "in").exists()
+
+
+@posix_only
+def test_adopt_a_finished_attempt_and_collect_it(tmp_path):
+    inv = invocation(
+        tmp_path, py("import sys; open(sys.argv[1] + '/a.txt', 'w')", "{out_dir}")
+    )
+    first = SubprocessExecutor()
+    first.wait(first.submit(inv), poll_interval=0.05, timeout=15)
+
+    handle = SubprocessExecutor().adopt(inv)
+    result = SubprocessExecutor().collect(handle)
+    assert result.succeeded and sorted(result.outputs) == ["a.txt"]
+
+
+def test_adopt_without_a_job_returns_none_and_removes_staging(tmp_path):
+    inv = invocation(tmp_path, ["true"])
+    state = inv.work_dir / ".executor"
+    state.mkdir(parents=True)
+    (inv.work_dir / "in").mkdir()
+    (inv.work_dir / "in" / "params.json").write_text("{}")
+    # Without a request record: submit stopped before it, nothing was started.
+    assert SubprocessExecutor().adopt(inv) is None
+    assert not (inv.work_dir / "in").exists()
+    # With a request but no supervisor record: the supervisor never ran.
+    (inv.work_dir / "out").mkdir()
+    (state / "request.json").write_text(json.dumps(inv.to_dict()))
+    assert SubprocessExecutor().adopt(inv) is None
+    assert not (inv.work_dir / "out").exists()
+    assert (state / "request.json").exists()
+
+
+def test_adopt_refuses_a_work_directory_of_another_attempt(tmp_path):
+    inv = invocation(tmp_path, ["true"])
+    state = inv.work_dir / ".executor"
+    state.mkdir(parents=True)
+    (inv.work_dir / "out").mkdir()
+    other = invocation(tmp_path, ["true"], attempt=2)
+    (state / "request.json").write_text(json.dumps(other.to_dict()))
+    with pytest.raises(ExecutorRefused, match="another attempt"):
+        SubprocessExecutor().adopt(inv)
+    (state / "request.json").write_text("not json")
+    with pytest.raises(ExecutorRefused, match="unreadable"):
+        SubprocessExecutor().adopt(inv)
+    assert (inv.work_dir / "out").is_dir()  # nothing touched
+
+
 # ------------------------------------------------------------ legacy adapters
 
 

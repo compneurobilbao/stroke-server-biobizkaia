@@ -48,6 +48,7 @@ from orchestrator.pipeline import (
     check_implementation,
     condition_holds,
     sources_of,
+    step_identity_errors,
 )
 
 SEED_PARAMETER = "seed"
@@ -144,6 +145,11 @@ def create_run(
     seed: int | None = None,
 ) -> PipelineRun:
     """Resolve and insert a queued run (see the module docstring). Does not commit."""
+    # load_pipeline refuses this already; checked again because registries may
+    # build PipelineDefinition objects themselves (card F0-33).
+    shared = step_identity_errors(pipeline.data)
+    if shared:
+        raise RunRefused("step_shared_by_slots", "; ".join(shared))
     requested = dict(requested_implementations or {})
     unknown = set(requested) - {s["name"] for s in pipeline.slots}
     if unknown:

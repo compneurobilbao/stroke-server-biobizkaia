@@ -18,8 +18,15 @@ orchestrator only *downgrades* a ``succeeded`` or ``rejected`` attempt to
 - exit 10: ``error.json`` present, schema-valid, category ``input_rejected`` or
   ``qc_failed`` and a code declared in the manifest's ``errors[]``.
 
-Deep format checks of output files against their artefact type (NIfTI grid,
-binary values) are not done here; see the follow-ups of card F0-15.
+- exit 0, NIfTI outputs whose artefact type states constraints in the registry
+  (``nifti.grid``, ``nifti.binary``; artefact-types.md sections 2 and 3): a
+  readable gzip-compressed NIfTI-1/2 file; for ``grid``, shape equal to the
+  grid's and affine within 1e-4 mm of it (header only); for ``binary``, every
+  value (after the header's scaling) is 0 or 1, checked in one streaming pass
+  over the voxel data with bounded memory. Types without such constraints and
+  other formats (JSON schemas, TSV columns, PDF/PNG signatures) are not checked
+  here. These checks run last, after the hash checks, so that only files the
+  step declared and recorded are parsed.
 
 Executor outcome ``terminated`` maps to ``failed`` (provenance.md 3.2). Because
 the outcome after ``SIGTERM`` is decided by the executor, contract 1.1 rules on
@@ -28,8 +35,10 @@ cancellation do not change this module.
 
 from __future__ import annotations
 
+import gzip
 import hashlib
 import json
+import zlib
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -37,8 +46,17 @@ from typing import Any
 
 from contracts import validate as contract
 from orchestrator.executors.base import BundleMount, Outcome, StepResult
-from orchestrator.pipeline import condition_holds, staged_name
+from orchestrator.pipeline import (
+    artefact_grids,
+    artefact_types,
+    condition_holds,
+    staged_name,
+)
 from orchestrator.store import sha256_file
+
+GRID_TOLERANCE_MM = 1e-4  # artefact-types.md section 2
+GZIP_MAGIC = b"\x1f\x8b"
+SCAN_CHUNK_BYTES = 8 << 20  # voxel data is checked in chunks of this size
 
 RESERVED = {"provenance.json", "error.json", "extra"}
 
@@ -245,6 +263,119 @@ def _assess_success(
                 "bundle_mismatch",
                 f"Bundle '{mount.name}' differs from provenance.json.",
             )
+    _version, types = artefact_types()
+    for port, path in sorted(outputs.items()):
+        problem = check_output_format(path, types[declared[port]["type"]], port)
+        if problem is not None:
+            return _violation(*problem)
     return Verdict(
         "succeeded", outputs=outputs, provenance=provenance, provenance_sha256=prov_sha
     )
+
+
+# ------------------------------------------------------------- format checks
+
+
+def check_output_format(
+    path: Path, type_def: Mapping[str, Any], port: str
+) -> tuple[str, str] | None:
+    """``(code, message)`` of the first registry constraint ``path`` violates, or None.
+
+    Only NIfTI types with ``nifti.grid`` or ``nifti.binary`` in the registry
+    are checked (see the module docstring). ``code`` is the suffix of
+    ``contract_violation_<code>``: ``nifti_unreadable``, ``nifti_grid`` or
+    ``nifti_binary``. Messages name the port, never a path.
+    """
+    if type_def.get("format") != "nifti":
+        return None
+    constraints = type_def.get("nifti") or {}
+    grid_name = constraints.get("grid")
+    binary = bool(constraints.get("binary"))
+    if not grid_name and not binary:
+        return None
+    unreadable = (
+        "nifti_unreadable",
+        f"Output '{port}' is not a readable gzip-compressed NIfTI image.",
+    )
+    import nibabel as nib  # lazily: nibabel is heavy and only needed here
+    import numpy as np
+
+    with path.open("rb") as handle:
+        if handle.read(2) != GZIP_MAGIC:
+            return unreadable
+    try:
+        img = nib.load(str(path))
+    except Exception:  # noqa: BLE001 - nibabel raises many types for corrupt files
+        return unreadable
+    if not isinstance(img, (nib.Nifti1Image, nib.Nifti2Image)):
+        return unreadable
+
+    if grid_name:
+        grid = artefact_grids()[grid_name]
+        shape = [int(s) for s in img.shape]
+        if shape != list(grid["shape"]):
+            return (
+                "nifti_grid",
+                f"Output '{port}' is not on the {grid_name} grid: shape "
+                f"{'x'.join(map(str, shape))}, expected "
+                f"{'x'.join(map(str, grid['shape']))}.",
+            )
+        if not np.allclose(
+            np.asarray(img.affine, dtype=float),
+            np.asarray(grid["affine"], dtype=float),
+            rtol=0,
+            atol=GRID_TOLERANCE_MM,
+        ):
+            return (
+                "nifti_grid",
+                f"Output '{port}' is not on the {grid_name} grid: its affine differs.",
+            )
+    if binary:
+        values = _binary_scan(path, img)
+        if values is None:
+            return unreadable
+        if not values:
+            return (
+                "nifti_binary",
+                f"Output '{port}' must contain only the values 0 and 1.",
+            )
+    return None
+
+
+def _binary_scan(path: Path, img: Any) -> bool | None:
+    """Whether every voxel value of ``img`` is 0 or 1; ``None`` if the data is unreadable.
+
+    Streams the decompressed voxel data in chunks of ``SCAN_CHUNK_BYTES`` (one
+    pass, bounded memory) instead of loading the image: a native-space mask can
+    be large. Layout and scaling are taken from nibabel's array proxy (data
+    offset, on-disk dtype with byte order, ``scl_slope``/``scl_inter``), so the
+    values are those nibabel and the step SDK would see; NaN is not binary.
+    """
+    import numpy as np
+
+    proxy = img.dataobj
+    dtype = np.dtype(proxy.dtype)
+    if dtype.fields is not None:  # RGB and other structured types
+        return False
+    slope, inter = float(proxy.slope), float(proxy.inter)
+    scaled = (slope, inter) != (1.0, 0.0)
+    itemsize = dtype.itemsize
+    remaining = int(np.prod(proxy.shape, dtype=np.int64)) * itemsize
+    step = max(1, SCAN_CHUNK_BYTES // itemsize) * itemsize
+    try:
+        with gzip.open(path, "rb") as handle:
+            handle.seek(int(proxy.offset))
+            while remaining > 0:
+                want = min(remaining, step)
+                raw = handle.read(want)
+                if len(raw) != want:
+                    return None  # truncated
+                values = np.frombuffer(raw, dtype=dtype)
+                if scaled:
+                    values = values.astype(np.float64) * slope + inter
+                if not ((values == 0) | (values == 1)).all():
+                    return False
+                remaining -= want
+    except (OSError, EOFError, zlib.error):
+        return None
+    return True

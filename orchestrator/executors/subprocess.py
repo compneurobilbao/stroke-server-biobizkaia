@@ -9,7 +9,7 @@ container, so the contract paths are per-attempt host directories::
     <work_dir>/ref/<n>   symlinks to resolved bundles         (container: /ref/<n>)
     <work_dir>/tmp/      scratch; HOME and TMPDIR point here  (container: /tmp)
     <work_dir>/logs/     step.log (stdout+stderr in order), supervisor.log
-    <work_dir>/.executor/  spec, request, child and status records
+    <work_dir>/.executor/  spec, request, supervisor, child and status records
 
 Isolation that a container gives (read-only root, no network, arbitrary UID,
 memory limit) is *not* enforced here; granted memory is recorded and exported as
@@ -27,6 +27,10 @@ only the worker process restarts. If the host or container restarts, the
 attempt dies with it; ``poll`` then reports it finished with outcome
 ``terminated`` (``canceled`` if a cancel had been requested) and the
 orchestrator retries per its policy.
+
+``adopt`` finds an attempt whose handle was never recorded: ``request.json``
+identifies the attempt and the supervisor records its own PID and start time in
+``supervisor.json`` before doing anything else.
 """
 
 from __future__ import annotations
@@ -346,6 +350,8 @@ class SubprocessExecutor(Executor):
 
     def _supervisor_alive(self, handle: ExecutorHandle) -> bool:
         pid = int(handle.data["supervisor_pid"])
+        if pid <= 0:  # adopted attempt whose supervisor never recorded itself
+            return False
         proc = self._children.get(pid)
         if proc is not None:
             return proc.poll() is None
@@ -429,13 +435,41 @@ class SubprocessExecutor(Executor):
     def cleanup(self, handle: ExecutorHandle) -> None:
         if self._finished_status(handle) is None:
             raise ExecutorError("cannot clean up a running attempt; cancel it first")
-        work = Path(handle.data["work_dir"])
-        for name in ("in", "out", "tmp", "ref"):
-            path = work / name
-            if path.is_symlink() or path.is_file():
-                path.unlink()
-            elif path.is_dir():
-                shutil.rmtree(path, ignore_errors=True)
+        _remove_staging(Path(handle.data["work_dir"]), ("in", "out", "tmp", "ref"))
+
+    # ------------------------------------------------------------------ adopt
+
+    def adopt(self, invocation: StepInvocation) -> ExecutorHandle | None:
+        """Find the supervisor an interrupted ``submit`` started (see ``Executor.adopt``).
+
+        ``submit`` writes ``request.json`` before it starts the supervisor, and
+        the supervisor writes ``supervisor.json`` before anything else. Without
+        either record no step process was ever started.
+        """
+        work = invocation.work_dir.resolve()
+        state = work / STATE_DIR
+        if not owns_work_dir(state, invocation):
+            _remove_staging(work, ("in", "out", "tmp", "ref"))
+            return None
+        supervisor = _read_json(state / "supervisor.json")
+        status = _read_json(state / "status.json")
+        if supervisor is None and status is None:
+            _remove_staging(work, ("in", "out", "tmp", "ref"))
+            return None
+        supervisor = supervisor or {}
+        pid = int(supervisor.get("pid", -1))
+        return ExecutorHandle(
+            executor=self.name,
+            external_job_id=str(pid),
+            submitted_at=supervisor.get("started_at")
+            or (status or {}).get("started_at")
+            or utc_now(),
+            data={
+                "work_dir": str(work),
+                "supervisor_pid": pid,
+                "supervisor_start_ticks": supervisor.get("start_ticks"),
+            },
+        )
 
     # ---------------------------------------------------------------- helpers
 
@@ -443,6 +477,37 @@ class SubprocessExecutor(Executor):
         if handle.executor != self.name:
             raise ExecutorError(f"handle belongs to executor {handle.executor!r}")
         return Path(handle.data["work_dir"]) / STATE_DIR
+
+
+def owns_work_dir(state_dir: Path, invocation: StepInvocation) -> bool:
+    """Whether ``state_dir`` holds the request of exactly this attempt.
+
+    ``False`` if no request was recorded (the submission stopped before it, so
+    nothing was started). Raises ``ExecutorRefused`` if the recorded request is
+    unreadable or names another step run or attempt: such a directory is not
+    touched.
+    """
+    path = state_dir / "request.json"
+    if not path.exists():
+        return False
+    request = _read_json(path)
+    if not isinstance(request, dict):
+        raise ExecutorRefused("the work directory holds an unreadable request")
+    if (request.get("step_run_id"), request.get("attempt")) != (
+        invocation.step_run_id,
+        invocation.attempt,
+    ):
+        raise ExecutorRefused("the work directory belongs to another attempt")
+    return True
+
+
+def _remove_staging(work: Path, names: Sequence[str]) -> None:
+    for name in names:
+        path = work / name
+        if path.is_symlink() or path.is_file():
+            path.unlink()
+        elif path.is_dir():
+            shutil.rmtree(path, ignore_errors=True)
 
 
 def _substitute(item: str, mapping: Mapping[str, str]) -> str:

@@ -12,6 +12,7 @@ Variables (all optional; documented in docs/processing-pipeline.md):
 | ``ORCHESTRATOR_POLL_SECONDS`` | ``5`` | Poll interval of running attempts. |
 | ``ORCHESTRATOR_MAX_ATTEMPTS`` | ``2`` | Attempts per slot per start or resume (automatic retry). |
 | ``ORCHESTRATOR_LEASE_SECONDS`` | ``600`` | Heartbeat age after which another task may take a run over. |
+| ``ORCHESTRATOR_PIPELINE_UNAVAILABLE_GRACE_SECONDS`` | ``3600`` | How long live attempts of a run whose pipeline is not loaded are left alone before they are stopped and the run fails. |
 | ``PLATFORM_VERSION`` | ``0.0.0-dev`` | Recorded on new runs by ``create_run`` callers. |
 
 The docker executor's image allow-list is the set of images pinned in the loaded
@@ -36,6 +37,9 @@ def config_from_env(env: Mapping[str, str] | None = None) -> OrchestratorConfig:
         poll_seconds=float(env.get("ORCHESTRATOR_POLL_SECONDS", "5")),
         max_attempts=int(env.get("ORCHESTRATOR_MAX_ATTEMPTS", "2")),
         lease_seconds=int(env.get("ORCHESTRATOR_LEASE_SECONDS", "600")),
+        pipeline_unavailable_grace_seconds=int(
+            env.get("ORCHESTRATOR_PIPELINE_UNAVAILABLE_GRACE_SECONDS", "3600")
+        ),
     )
 
 

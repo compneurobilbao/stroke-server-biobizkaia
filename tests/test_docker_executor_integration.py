@@ -153,3 +153,28 @@ def test_unknown_digest_is_refused_even_when_allow_listed(tmp_path):
     mask.write_bytes(b"x")
     with pytest.raises(ExecutorRefused):
         executor.submit(make_invocation(tmp_path, mask, image=ghost))
+
+
+def test_lost_submission_is_adopted_through_the_proxy(tmp_path, executor):
+    """The handle of a started container is lost; another executor object finds the
+    container by its deterministic name through the proxy and collects it."""
+    import make_reference
+
+    data = tmp_path / "data"
+    data.mkdir()
+    make_reference.generate(data, REPO_ROOT / "contracts/artefact-types.yaml")
+    invocation = make_invocation(
+        tmp_path, data / "lesion_mask.nii.gz", step_run_id="it-adopt-1"
+    )
+    lost = executor.submit(invocation)  # the handle is never recorded
+
+    restarted = DockerExecutor(allowed_images=[STEP_IMAGE], base_url=PROXY_URL)
+    handle = restarted.adopt(invocation)
+    assert handle is not None
+    assert handle.data["container_id"] == lost.data["container_id"]
+    status = restarted.wait(handle, poll_interval=0.5, timeout=120)
+    assert status.outcome is Outcome.SUCCEEDED, status
+    assert sorted(restarted.collect(handle).outputs) == ["lesion_qc.json"]
+    restarted.cleanup(handle)
+    # Once the container is removed, there is nothing left to adopt.
+    assert restarted.adopt(invocation) is None
