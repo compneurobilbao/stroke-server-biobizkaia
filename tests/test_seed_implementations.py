@@ -8,12 +8,12 @@ from pathlib import Path
 
 import pytest
 import yaml
-from sqlalchemy import create_engine, select
+from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
+from tests import pgdb
 from app.api.v1 import deps
 from app.cli import seed_implementations as seed
-from app.db.base import Base
 from app.models.reference_bundle import SlotImplementationSetting
 from tests.test_api import auth_headers
 
@@ -33,8 +33,7 @@ def _registry_tool():
 
 @pytest.fixture()
 def factory(tmp_path):
-    engine = create_engine(f"sqlite:///{tmp_path / 'seed.db'}")
-    Base.metadata.create_all(engine)
+    engine = pgdb.new_engine(tmp_path, "seed.db")
     return sessionmaker(bind=engine, autocommit=False, autoflush=False)
 
 

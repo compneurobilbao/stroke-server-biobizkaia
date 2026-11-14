@@ -8,11 +8,10 @@ import uuid
 
 import pytest
 from pydantic import ValidationError
-from sqlalchemy import create_engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.db.base import Base
+from tests import pgdb
 from app.models import (
     Artifact,
     Case,
@@ -43,8 +42,7 @@ IMAGE = "registry.example.org/team/step@sha256:" + "b" * 64
 
 @pytest.fixture()
 def db(tmp_path):
-    engine = create_engine(f"sqlite:///{tmp_path / 'model.db'}")
-    Base.metadata.create_all(engine)
+    engine = pgdb.new_engine(tmp_path, "model.db")
     with Session(engine) as session:
         yield session
     engine.dispose()

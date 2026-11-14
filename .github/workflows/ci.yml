@@ -84,6 +84,45 @@ jobs:
       - name: Postgres-marked tests (pytest -m postgres)
         run: PYTHONPATH=.:backend pytest tests -m postgres -v
 
+  tests-postgres:
+    name: API and orchestrator tests on PostgreSQL
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        # Same major version as docker-compose.yml
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: tests
+          POSTGRES_USER: tests
+          POSTGRES_PASSWORD: tests
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tests -d tests"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # tests/pgdb.py migrates a template database with Alembic once, then clones one
+      # database per test; the user is a superuser, so it may create databases.
+      TEST_DB: postgres
+      TEST_POSTGRES_URL: postgresql+psycopg://tests:tests@localhost:5432/tests
+      CELERY_BROKER_URL: memory://
+      CELERY_RESULT_BACKEND: cache+memory://
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-python@v5.3.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
+      - name: Selected suites and lock concurrency tests on PostgreSQL 16
+        run: |
+          PYTHONPATH=.:backend pytest -v -ra             tests/test_api_v1.py             tests/test_api_v1_hardening.py             tests/test_orchestrator.py             tests/test_orchestrator_legacy.py             tests/test_data_model.py             tests/test_bundles.py             tests/test_seed_implementations.py             tests/test_postgres_concurrency.py
+
   docker-executor:
     name: Docker executor integration (socket proxy)
     runs-on: ubuntu-24.04

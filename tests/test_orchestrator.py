@@ -23,10 +23,10 @@ from pathlib import Path
 
 import pytest
 import yaml
-from sqlalchemy import create_engine, select, update
+from sqlalchemy import select, update
 from sqlalchemy.orm import sessionmaker
 
-from app.db.base import Base
+from tests import pgdb
 from app.models import (
     Artifact,
     AuditEvent,
@@ -398,8 +398,7 @@ class Env:
         self, tmp_path: Path, script=None, executor=None, config=None, bundles=None
     ):
         self.root = tmp_path / "store"
-        engine = create_engine(f"sqlite:///{tmp_path / 'orch.db'}")
-        Base.metadata.create_all(engine)
+        engine = pgdb.new_engine(tmp_path, "orch.db")
         self.Session = sessionmaker(bind=engine, autoflush=False)
         self.pipeline = load_pipeline(PIPELINE_YAML.encode())
         self.pipelines = StaticPipelineRegistry([self.pipeline])
