@@ -66,4 +66,32 @@ describe('run page', () => {
     expect(screen.queryByText(/secret-name/)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Cancel|Retry|Resume/ })).not.toBeInTheDocument();
   });
+
+  it('offers the viewer only when the run has a lesion mask or a disconnection map', async () => {
+    mockApi({
+      run: makeRun({ status: 'succeeded' }),
+      routes: {
+        'GET /v1/runs/r1/artifacts': () =>
+          jsonResponse([
+            { id: 'p1', port: 'report_pdf', artefact_type: 'report_pdf', filename: 'x.pdf', size_bytes: 10, synthetic: false },
+          ]),
+      },
+    });
+    const { unmount } = renderRun();
+    expect(await screen.findByRole('link', { name: 'Open case' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'View images' })).not.toBeInTheDocument();
+    unmount();
+
+    mockApi({
+      run: makeRun({ status: 'succeeded' }),
+      routes: {
+        'GET /v1/runs/r1/artifacts': () =>
+          jsonResponse([
+            { id: 'm1', port: 'lesion_mask_mni', artefact_type: 'lesion_mask_mni', filename: 'x.nii.gz', size_bytes: 10, synthetic: false },
+          ]),
+      },
+    });
+    renderRun();
+    expect(await screen.findByRole('link', { name: 'View images' })).toHaveAttribute('href', '/runs/r1/view');
+  });
 });

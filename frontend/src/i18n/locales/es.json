@@ -340,6 +340,7 @@
       "resumeQueued": "Ejecución en cola para reanudarse.",
       "resumeFailed": "No se pudo reanudar la ejecución.",
       "openCase": "Abrir caso",
+      "view": "Ver imágenes",
       "researchOnly": "Solo para uso en investigación. No apto para decisiones clínicas.",
       "timeline": "Cronología de pasos",
       "implementation": "Implementación",
@@ -378,5 +379,25 @@
       "downloadArtifact": "Descargar {{port}}",
       "downloadFailed": "No se pudo descargar el archivo."
     }
+  },
+  "viewer": {
+    "title": "Visor de imágenes",
+    "backToRun": "Volver a la ejecución",
+    "researchOnly": "Vista de solo lectura. Solo para investigación. No apto para decisiones clínicas.",
+    "loading": "Cargando imágenes...",
+    "empty": "Esta ejecución todavía no tiene máscara de lesión ni mapa de desconexión que ver.",
+    "loadFailed": "No se pudieron cargar las imágenes.",
+    "canvasLabel": "Vista en tres planos de las imágenes cerebrales con capas superpuestas",
+    "layer": {
+      "template": "Fondo: TAC en espacio MNI",
+      "lesion": "Máscara de lesión",
+      "disconnection": "Mapa de desconexión"
+    },
+    "show": "Mostrar",
+    "opacity": "Opacidad",
+    "opacityOf": "Opacidad de {{layer}}",
+    "threshold": "Umbral",
+    "thresholdOf": "Umbral de {{layer}}",
+    "noTemplate": "No se muestra fondo anatómico. Esta ejecución no tiene un TAC en espacio MNI y la aplicación no incluye una plantilla cerebral porque no se incorpora ninguna plantilla con una licencia que permita su redistribución. Las capas se dibujan sobre un fondo vacío."
   }
 }

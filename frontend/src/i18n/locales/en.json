@@ -340,6 +340,7 @@
       "resumeQueued": "Run queued to resume.",
       "resumeFailed": "Could not resume the run.",
       "openCase": "Open case",
+      "view": "View images",
       "researchOnly": "Research use only. Not for clinical decisions.",
       "timeline": "Step timeline",
       "implementation": "Implementation",
@@ -378,5 +379,25 @@
       "downloadArtifact": "Download {{port}}",
       "downloadFailed": "Could not download the file."
     }
+  },
+  "viewer": {
+    "title": "Image viewer",
+    "backToRun": "Back to the run",
+    "researchOnly": "Read-only view. Research use only. Not for clinical decisions.",
+    "loading": "Loading images...",
+    "empty": "This run has no lesion mask or disconnection map to view yet.",
+    "loadFailed": "Could not load the images.",
+    "canvasLabel": "Three-plane view of the brain images with overlays",
+    "layer": {
+      "template": "Background: CT in MNI space",
+      "lesion": "Lesion mask",
+      "disconnection": "Disconnection map"
+    },
+    "show": "Show",
+    "opacity": "Opacity",
+    "opacityOf": "Opacity of {{layer}}",
+    "threshold": "Threshold",
+    "thresholdOf": "Threshold of {{layer}}",
+    "noTemplate": "No anatomical background is shown. This run has no CT in MNI space, and the application does not bundle a brain template because no template with a licence that allows redistribution is included. The overlays are drawn on a blank background."
   }
 }
