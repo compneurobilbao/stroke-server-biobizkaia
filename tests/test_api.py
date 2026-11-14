@@ -51,7 +51,10 @@ def test_unauthenticated_request_returns_error_code(client):
     response = client.get("/api/auth/me")
 
     assert response.status_code == 401
-    assert response.json() == {"detail": "Not authenticated", "code": "not_authenticated"}
+    assert response.json() == {
+        "detail": "Not authenticated",
+        "code": "not_authenticated",
+    }
 
 
 def test_unknown_study_returns_error_code(client):
@@ -444,9 +447,7 @@ def test_cancel_processing_study_terminates_celery_task(client, monkeypatch):
     assert cancel.status_code == 200
     assert cancel.json()["status"] == "processing"
     assert cancel.json()["message"] == "Cancellation requested"
-    assert revoked == [
-        ("celery-task-id", {"terminate": True, "signal": "SIGTERM"})
-    ]
+    assert revoked == [("celery-task-id", {"terminate": True, "signal": "SIGTERM"})]
 
     db = client.app.state.testing_session_local()
     study = db.get(Study, UUID(study_id))

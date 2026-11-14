@@ -113,7 +113,14 @@ NEW_TABLES = {
     "reports",
     "slot_implementation_settings",
 }
-LEGACY_TABLES = ["users", "studies", "processing_jobs", "audit_events", "notifications", "share_links"]
+LEGACY_TABLES = [
+    "users",
+    "studies",
+    "processing_jobs",
+    "audit_events",
+    "notifications",
+    "share_links",
+]
 BASE = datetime(2026, 3, 1, 8, 0, 0)  # legacy timestamps are naive UTC
 
 
@@ -156,46 +163,125 @@ class Seed:
                     {"id": uid, "email": email, "t": BASE},
                 )
             # 1: uploaded, never queued, valid upper-case checksum
-            self.study(conn, 1, "uploaded", OWNER_A, checksum=HEX64_UPPER, file_size=123)
+            self.study(
+                conn, 1, "uploaded", OWNER_A, checksum=HEX64_UPPER, file_size=123
+            )
             # 2: queued, one queued job
             self.study(conn, 2, "queued", OWNER_A)
             self.job(conn, 2, 1, "queued", 0)
             # 3: processing; job 1 is dead (newer job exists), job 2 is the live one
-            self.study(conn, 3, "processing", OWNER_B, started=BASE + timedelta(minutes=5))
+            self.study(
+                conn, 3, "processing", OWNER_B, started=BASE + timedelta(minutes=5)
+            )
             self.job(conn, 3, 1, "processing", 0, started=BASE + timedelta(minutes=1))
-            self.job(conn, 3, 2, "processing", 10, started=BASE + timedelta(minutes=11),
-                     worker="worker-1")
+            self.job(
+                conn,
+                3,
+                2,
+                "processing",
+                10,
+                started=BASE + timedelta(minutes=11),
+                worker="worker-1",
+            )
             # 4: completed compneuro study: failed job, then completed job, pdf + zip + dir
             self.study(
-                conn, 4, "completed", OWNER_A, backend="compneuro", checksum="not-a-hash",
-                file_size=2048, pdf=True, zip_=True, png_dir=True,
-                started=BASE + timedelta(minutes=20), finished=BASE + timedelta(minutes=40),
-                warnings="low contrast", review="reviewed", bids=True,
+                conn,
+                4,
+                "completed",
+                OWNER_A,
+                backend="compneuro",
+                checksum="not-a-hash",
+                file_size=2048,
+                pdf=True,
+                zip_=True,
+                png_dir=True,
+                started=BASE + timedelta(minutes=20),
+                finished=BASE + timedelta(minutes=40),
+                warnings="low contrast",
+                review="reviewed",
+                bids=True,
             )
-            self.job(conn, 4, 1, "failed", 0, started=BASE + timedelta(minutes=1),
-                     finished=BASE + timedelta(minutes=2), exit_code=1, error="boom")
-            self.job(conn, 4, 2, "completed", 15, started=BASE + timedelta(minutes=20),
-                     finished=BASE + timedelta(minutes=40), exit_code=0, log=True,
-                     celery="task-4-2")
+            self.job(
+                conn,
+                4,
+                1,
+                "failed",
+                0,
+                started=BASE + timedelta(minutes=1),
+                finished=BASE + timedelta(minutes=2),
+                exit_code=1,
+                error="boom",
+            )
+            self.job(
+                conn,
+                4,
+                2,
+                "completed",
+                15,
+                started=BASE + timedelta(minutes=20),
+                finished=BASE + timedelta(minutes=40),
+                exit_code=0,
+                log=True,
+                celery="task-4-2",
+            )
             # 5: completed dummy study, pdf only, job without finished_at
-            self.study(conn, 5, "completed", OWNER_B, backend="dummy", pdf=True,
-                       started=BASE + timedelta(minutes=3))
+            self.study(
+                conn,
+                5,
+                "completed",
+                OWNER_B,
+                backend="dummy",
+                pdf=True,
+                started=BASE + timedelta(minutes=3),
+            )
             self.job(conn, 5, 1, "completed", 0, started=BASE + timedelta(minutes=3))
             # 6: failed with error message
-            self.study(conn, 6, "failed", OWNER_A, error="processing failed",
-                       started=BASE + timedelta(minutes=1),
-                       finished=BASE + timedelta(minutes=2))
-            self.job(conn, 6, 1, "failed", 0, started=BASE + timedelta(minutes=1),
-                     finished=BASE + timedelta(minutes=2), exit_code=2, error="processing failed")
+            self.study(
+                conn,
+                6,
+                "failed",
+                OWNER_A,
+                error="processing failed",
+                started=BASE + timedelta(minutes=1),
+                finished=BASE + timedelta(minutes=2),
+            )
+            self.job(
+                conn,
+                6,
+                1,
+                "failed",
+                0,
+                started=BASE + timedelta(minutes=1),
+                finished=BASE + timedelta(minutes=2),
+                exit_code=2,
+                error="processing failed",
+            )
             # 7: canceled, soft-deleted, kept forever, cancel requested, no finished_at
-            self.study(conn, 7, "canceled", OWNER_B, error="canceled by user",
-                       deleted=BASE + timedelta(days=1), keep_forever=True)
-            self.job(conn, 7, 1, "canceled", 0, cancel=BASE + timedelta(minutes=1),
-                     error="canceled by user")
+            self.study(
+                conn,
+                7,
+                "canceled",
+                OWNER_B,
+                error="canceled by user",
+                deleted=BASE + timedelta(days=1),
+                keep_forever=True,
+            )
+            self.job(
+                conn,
+                7,
+                1,
+                "canceled",
+                0,
+                cancel=BASE + timedelta(minutes=1),
+                error="canceled by user",
+            )
             # 8: completed study with a pdf path but no job at all
             self.study(conn, 8, "completed", OWNER_A, pdf=True)
             # dependents: events, notifications, share links
-            for n, study, event in ((1, 4, "study_uploaded"), (2, 4, "study_completed")):
+            for n, study, event in (
+                (1, 4, "study_uploaded"),
+                (2, 4, "study_completed"),
+            ):
                 conn.execute(
                     text(
                         "INSERT INTO audit_events (id, study_id, event_type, timestamp, actor)"
@@ -217,7 +303,12 @@ class Seed:
                         " title, message, created_at, email_status)"
                         " VALUES (:id, :u, :s, 'processing_completed', 't', 'm', :t, 'disabled')"
                     ),
-                    {"id": jid(901, n), "u": OWNER_A, "s": sid(study) if study else None, "t": BASE},
+                    {
+                        "id": jid(901, n),
+                        "u": OWNER_A,
+                        "s": sid(study) if study else None,
+                        "t": BASE,
+                    },
                 )
             conn.execute(
                 text(
@@ -225,14 +316,38 @@ class Seed:
                     " expires_at, created_at, access_count)"
                     " VALUES (:id, :s, :u, :h, :e, :t, 0)"
                 ),
-                {"id": jid(902, 1), "s": sid(4), "u": OWNER_A, "h": "f" * 64,
-                 "e": BASE + timedelta(days=30), "t": BASE},
+                {
+                    "id": jid(902, 1),
+                    "s": sid(4),
+                    "u": OWNER_A,
+                    "h": "f" * 64,
+                    "e": BASE + timedelta(days=30),
+                    "t": BASE,
+                },
             )
 
-    def study(self, conn, n, status, owner, *, backend=None, checksum=None, file_size=None,
-              pdf=False, zip_=False, png_dir=False, started=None, finished=None,
-              warnings=None, review="technical_only", bids=False, error=None, deleted=None,
-              keep_forever=False):
+    def study(
+        self,
+        conn,
+        n,
+        status,
+        owner,
+        *,
+        backend=None,
+        checksum=None,
+        file_size=None,
+        pdf=False,
+        zip_=False,
+        png_dir=False,
+        started=None,
+        finished=None,
+        warnings=None,
+        review="technical_only",
+        bids=False,
+        error=None,
+        deleted=None,
+        keep_forever=False,
+    ):
         study = sid(n)
         conn.execute(
             text(
@@ -248,28 +363,53 @@ class Seed:
                 " :pver, :size, :checksum)"
             ),
             {
-                "id": study, "owner": owner, "fname": f"patient-{n}.nii.gz",
+                "id": study,
+                "owner": owner,
+                "fname": f"patient-{n}.nii.gz",
                 "stored": self.p(study, "input", "original", "upload.nii.gz"),
                 "out": self.p(study, "output"),
                 "pdf": self.p(study, "output", "report.pdf") if pdf else None,
                 "zip": self.p(study, "output", "outputs.zip") if zip_ else None,
-                "bids_id": f"sub-{n}" if bids else None, "backend": backend,
+                "bids_id": f"sub-{n}" if bids else None,
+                "backend": backend,
                 "image": "example/image:1" if backend == "compneuro" else None,
                 "bids": self.p(study, "bids") if bids else None,
                 "preproc": self.p(study, "preproc") if backend == "compneuro" else None,
                 "png": self.p(study, "rendered") if png_dir else None,
-                "warn": warnings, "review": review, "status": status,
-                "created": BASE, "updated": BASE + timedelta(hours=1),
-                "started": started, "finished": finished, "deleted": deleted,
-                "keep": keep_forever, "error": error,
+                "warn": warnings,
+                "review": review,
+                "status": status,
+                "created": BASE,
+                "updated": BASE + timedelta(hours=1),
+                "started": started,
+                "finished": finished,
+                "deleted": deleted,
+                "keep": keep_forever,
+                "error": error,
                 "pname": "legacy-proc" if backend else None,
                 "pver": "1.2.3" if backend else None,
-                "size": file_size, "checksum": checksum,
+                "size": file_size,
+                "checksum": checksum,
             },
         )
 
-    def job(self, conn, n, k, status, minute, *, started=None, finished=None, exit_code=None,
-            error=None, cancel=None, worker=None, log=False, celery=None):
+    def job(
+        self,
+        conn,
+        n,
+        k,
+        status,
+        minute,
+        *,
+        started=None,
+        finished=None,
+        exit_code=None,
+        error=None,
+        cancel=None,
+        worker=None,
+        log=False,
+        celery=None,
+    ):
         study = sid(n)
         conn.execute(
             text(
@@ -280,9 +420,16 @@ class Seed:
                 " :worker, :exit, :log, :error)"
             ),
             {
-                "id": jid(n, k), "s": study, "celery": celery, "status": status,
-                "queued": BASE + timedelta(minutes=minute), "started": started,
-                "finished": finished, "cancel": cancel, "worker": worker, "exit": exit_code,
+                "id": jid(n, k),
+                "s": study,
+                "celery": celery,
+                "status": status,
+                "queued": BASE + timedelta(minutes=minute),
+                "started": started,
+                "finished": finished,
+                "cancel": cancel,
+                "worker": worker,
+                "exit": exit_code,
                 "log": self.p(study, "logs", "processing.log") if log else None,
                 "error": error,
             },
@@ -362,7 +509,10 @@ def test_0011_backfill_maps_legacy_rows(pg_engine, seeded):
     assert attrs["original_filename"] == "patient-4.nii.gz"
     assert attrs["bids_subject_id"] == "sub-4"
     assert attrs["processor_backend"] == "compneuro"
-    assert attrs["processor_name"] == "legacy-proc" and attrs["processor_version"] == "1.2.3"
+    assert (
+        attrs["processor_name"] == "legacy-proc"
+        and attrs["processor_version"] == "1.2.3"
+    )
     assert attrs["container_image"] == "example/image:1"
     assert attrs["processing_warnings"] == "low contrast"
     assert attrs["bids_path"] == f"{sid(4)}/bids"
@@ -386,46 +536,79 @@ def test_0011_backfill_maps_legacy_rows(pg_engine, seeded):
     assert ri["role"] == "legacy_upload" and ri["input_file_id"] == f4["id"]
 
     # runs: status mapping and timestamps
-    expected = {1: "queued", 2: "queued", 3: "running", 4: "succeeded", 5: "succeeded",
-                6: "failed", 7: "canceled", 8: "succeeded"}
+    expected = {
+        1: "queued",
+        2: "queued",
+        3: "running",
+        4: "succeeded",
+        5: "succeeded",
+        6: "failed",
+        7: "canceled",
+        8: "succeeded",
+    }
     for n, status in expected.items():
         run = one(pg_engine, "SELECT * FROM pipeline_runs WHERE id = :i", i=sid(n))
         assert run["status"] == status, n
         assert run["case_id"] == sid(n)
-        assert (run["pipeline_id"], run["pipeline_version"], run["pipeline_sha256"]) == (
-            "legacy", "0.0.0", None)
-        assert (run["platform_version"], run["artefact_types_version"], run["input_set"],
-                run["seed"]) == ("legacy", "legacy", "legacy-single-file", 0)
+        assert (
+            run["pipeline_id"],
+            run["pipeline_version"],
+            run["pipeline_sha256"],
+        ) == ("legacy", "0.0.0", None)
+        assert (
+            run["platform_version"],
+            run["artefact_types_version"],
+            run["input_set"],
+            run["seed"],
+        ) == ("legacy", "legacy", "legacy-single-file", 0)
         assert run["requested_implementations"] == {}
         assert run["accounting_submit_as"] == "service-account"
         assert run["accounting_billing_account"] is None
         assert run["accounting_submitted_by"] == f"user:{run['created_by_user_id']}"
-        assert (run["finished_at"] is not None) == (status in ("succeeded", "failed", "canceled"))
+        assert (run["finished_at"] is not None) == (
+            status in ("succeeded", "failed", "canceled")
+        )
     r3 = one(pg_engine, "SELECT * FROM pipeline_runs WHERE id = :i", i=sid(3))
-    assert r3["started_at"] == (BASE + timedelta(minutes=5)).replace(tzinfo=timezone.utc)
+    assert r3["started_at"] == (BASE + timedelta(minutes=5)).replace(
+        tzinfo=timezone.utc
+    )
     assert r3["resume_count"] == 1 and r3["failure_code"] is None
     r4 = one(pg_engine, "SELECT * FROM pipeline_runs WHERE id = :i", i=sid(4))
-    assert r4["finished_at"] == (BASE + timedelta(minutes=40)).replace(tzinfo=timezone.utc)
+    assert r4["finished_at"] == (BASE + timedelta(minutes=40)).replace(
+        tzinfo=timezone.utc
+    )
     assert r4["resume_count"] == 1
     assert r4["legacy_clinical_review_status"] == "reviewed"
     r5 = one(pg_engine, "SELECT * FROM pipeline_runs WHERE id = :i", i=sid(5))
-    assert r5["finished_at"] == (BASE + timedelta(hours=1)).replace(tzinfo=timezone.utc)  # updated_at
+    assert r5["finished_at"] == (BASE + timedelta(hours=1)).replace(
+        tzinfo=timezone.utc
+    )  # updated_at
     assert r5["resume_count"] == 0
     r6 = one(pg_engine, "SELECT * FROM pipeline_runs WHERE id = :i", i=sid(6))
     assert r6["failure_code"] == "legacy_failure"
     assert r6["failure_message"] == "processing failed"
     r7 = one(pg_engine, "SELECT * FROM pipeline_runs WHERE id = :i", i=sid(7))
     assert r7["failure_code"] is None and r7["failure_message"] == "canceled by user"
-    assert r7["cancel_requested_at"] == (BASE + timedelta(minutes=1)).replace(tzinfo=timezone.utc)
+    assert r7["cancel_requested_at"] == (BASE + timedelta(minutes=1)).replace(
+        tzinfo=timezone.utc
+    )
     assert r7["finished_at"] == (BASE + timedelta(hours=1)).replace(tzinfo=timezone.utc)
 
     # slots: one selected 'legacy' slot per run
     s4 = one(pg_engine, "SELECT * FROM run_slots WHERE pipeline_run_id = :i", i=sid(4))
     assert s4["id"] == derived(sid(4), "slot/legacy")
     assert (s4["slot"], s4["position"], s4["optional"], s4["status"]) == (
-        "legacy", 0, False, "selected")
-    assert (s4["implementation_id"], s4["step_name"], s4["step_version"], s4["stub"]) == (
-        "compneuro", "legacy-compneuro", "0.0.0", False)
+        "legacy",
+        0,
+        False,
+        "selected",
+    )
+    assert (
+        s4["implementation_id"],
+        s4["step_name"],
+        s4["step_version"],
+        s4["stub"],
+    ) == ("compneuro", "legacy-compneuro", "0.0.0", False)
     assert s4["image"] is None and s4["chosen_by"] == "deployment_default"
     assert s4["effective_parameters"] == {}
     s5 = one(pg_engine, "SELECT * FROM run_slots WHERE pipeline_run_id = :i", i=sid(5))
@@ -434,9 +617,16 @@ def test_0011_backfill_maps_legacy_rows(pg_engine, seeded):
     assert s1["implementation_id"] == "unknown" and s1["step_name"] == "legacy-unknown"
 
     # step runs (processing_jobs -> attempts)
-    j = {(n, k): one(pg_engine, "SELECT * FROM step_runs WHERE id = :i", i=jid(n, k))
-         for n, k in ((2, 1), (3, 1), (3, 2), (4, 1), (4, 2), (5, 1), (6, 1), (7, 1))}
-    assert one(pg_engine, "SELECT count(*) AS n FROM step_runs WHERE legacy_job_id = id")["n"] == 8
+    j = {
+        (n, k): one(pg_engine, "SELECT * FROM step_runs WHERE id = :i", i=jid(n, k))
+        for n, k in ((2, 1), (3, 1), (3, 2), (4, 1), (4, 2), (5, 1), (6, 1), (7, 1))
+    }
+    assert (
+        one(pg_engine, "SELECT count(*) AS n FROM step_runs WHERE legacy_job_id = id")[
+            "n"
+        ]
+        == 8
+    )
     assert j[(2, 1)]["status"] == "queued" and j[(2, 1)]["outcome"] is None
     assert j[(2, 1)]["attempt"] == 1 and j[(2, 1)]["trigger"] == "initial"
     assert j[(2, 1)]["executor"] == "subprocess" and j[(2, 1)]["runtime"] == "none"
@@ -445,36 +635,58 @@ def test_0011_backfill_maps_legacy_rows(pg_engine, seeded):
     # dead job: newer job exists -> failed, finished at the next job's queue time
     dead = j[(3, 1)]
     assert (dead["status"], dead["outcome"], dead["failure_code"]) == (
-        "failed", "failed", "legacy_stale_job")
-    assert dead["finished_at"] == (BASE + timedelta(minutes=10)).replace(tzinfo=timezone.utc)
+        "failed",
+        "failed",
+        "legacy_stale_job",
+    )
+    assert dead["finished_at"] == (BASE + timedelta(minutes=10)).replace(
+        tzinfo=timezone.utc
+    )
     live = j[(3, 2)]
     assert (live["status"], live["outcome"], live["attempt"], live["trigger"]) == (
-        "running", None, 2, "user_resume")
+        "running",
+        None,
+        2,
+        "user_resume",
+    )
     assert live["finished_at"] is None
     assert live["executor_state"] == {"worker_name": "worker-1"}
     assert j[(4, 1)]["status"] == "failed" and j[(4, 1)]["outcome"] == "failed"
     assert j[(4, 1)]["exit_code"] == 1 and j[(4, 1)]["failure_message"] == "boom"
     assert j[(4, 1)]["failure_code"] is None
     done = j[(4, 2)]
-    assert (done["status"], done["outcome"], done["attempt"]) == ("succeeded", "succeeded", 2)
+    assert (done["status"], done["outcome"], done["attempt"]) == (
+        "succeeded",
+        "succeeded",
+        2,
+    )
     assert done["log_path"] == f"{sid(4)}/logs/processing.log"
     assert done["orchestrator_task_id"] == "task-4-2" and done["exit_code"] == 0
-    assert j[(5, 1)]["finished_at"] == (BASE + timedelta(minutes=3)).replace(tzinfo=timezone.utc)
+    assert j[(5, 1)]["finished_at"] == (BASE + timedelta(minutes=3)).replace(
+        tzinfo=timezone.utc
+    )
     assert j[(7, 1)]["status"] == "canceled" and j[(7, 1)]["outcome"] == "canceled"
     assert j[(7, 1)]["cancel_requested_at"] == (BASE + timedelta(minutes=1)).replace(
-        tzinfo=timezone.utc)
+        tzinfo=timezone.utc
+    )
     assert j[(7, 1)]["finished_at"] == j[(7, 1)]["queued_at"]
 
     # artefacts and reports hang on the latest completed job
-    arts = {a["port"]: a for a in rows(pg_engine, "SELECT * FROM artifacts WHERE case_id = :i",
-                                       i=sid(4))}
+    arts = {
+        a["port"]: a
+        for a in rows(pg_engine, "SELECT * FROM artifacts WHERE case_id = :i", i=sid(4))
+    }
     assert set(arts) == {"technical_report", "outputs_zip"}
     pdf = arts["technical_report"]
     assert pdf["id"] == derived(sid(4), "artifact/technical_report")
     assert pdf["step_run_id"] == jid(4, 2) and pdf["origin"] == "legacy"
     assert pdf["artefact_type"] == "legacy_technical_report_pdf"
     assert pdf["storage_path"] == f"{sid(4)}/output/report.pdf"
-    assert pdf["sha256"] is None and pdf["size_bytes"] is None and pdf["synthetic"] is False
+    assert (
+        pdf["sha256"] is None
+        and pdf["size_bytes"] is None
+        and pdf["synthetic"] is False
+    )
     assert arts["outputs_zip"]["id"] == derived(sid(4), "artifact/outputs_zip")
     assert arts["outputs_zip"]["artefact_type"] == "legacy_outputs_zip"
     rep = one(pg_engine, "SELECT * FROM reports WHERE case_id = :i", i=sid(4))
@@ -523,14 +735,21 @@ def test_0011_backfill_does_not_overwrite_mirror_rows(pg_engine, seeded):
     upgrade_head(seeded)
     with pg_engine.begin() as conn:
         conn.execute(
-            text("UPDATE pipeline_runs SET status = 'failed', finished_at = now(),"
-                 " failure_code = 'step_failed' WHERE id = :i"),
+            text(
+                "UPDATE pipeline_runs SET status = 'failed', finished_at = now(),"
+                " failure_code = 'step_failed' WHERE id = :i"
+            ),
             {"i": sid(2)},
         )
     migration = load_migration_module()
     with pg_engine.begin() as conn:
         migration.backfill(conn, seeded)
-    assert one(pg_engine, "SELECT status FROM pipeline_runs WHERE id = :i", i=sid(2))["status"] == "failed"
+    assert (
+        one(pg_engine, "SELECT status FROM pipeline_runs WHERE id = :i", i=sid(2))[
+            "status"
+        ]
+        == "failed"
+    )
 
 
 def test_0011_downgrade_restores_the_0010_schema(pg_engine, seeded):
@@ -547,7 +766,9 @@ def test_0011_downgrade_restores_the_0010_schema(pg_engine, seeded):
     assert dump(pg_engine, LEGACY_TABLES) == legacy_before
     inspector = inspect(pg_engine)
     for table in LEGACY_TABLES:
-        assert [c["name"] for c in inspector.get_columns(table)] == columns_before[table]
+        assert [c["name"] for c in inspector.get_columns(table)] == columns_before[
+            table
+        ]
     with pg_engine.connect() as conn:
         version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar()
     assert version == REV_BEFORE
@@ -577,12 +798,16 @@ def test_0011_downgrade_refuses_to_lose_new_data(pg_engine, seeded):
     assert "1 cases created by new code" in refused.stderr
     assert "cases" in user_tables(pg_engine)  # nothing was dropped
 
-    alembic("-x", "allow_data_loss=true", "downgrade", REV_BEFORE, STORAGE_ROOT=str(seeded))
+    alembic(
+        "-x", "allow_data_loss=true", "downgrade", REV_BEFORE, STORAGE_ROOT=str(seeded)
+    )
     assert not (NEW_TABLES & user_tables(pg_engine))
     assert one(pg_engine, "SELECT count(*) AS n FROM studies")["n"] == 8
 
 
-def test_0011_aborts_and_lists_unmappable_legacy_rows(pg_engine, storage_root, tmp_path):
+def test_0011_aborts_and_lists_unmappable_legacy_rows(
+    pg_engine, storage_root, tmp_path
+):
     alembic("upgrade", REV_BEFORE)
     seed = Seed(storage_root)
     seed.apply(pg_engine)
@@ -598,11 +823,16 @@ def test_0011_aborts_and_lists_unmappable_legacy_rows(pg_engine, storage_root, t
     result = alembic_run("upgrade", "head", STORAGE_ROOT=str(storage_root))
     assert result.returncode != 0
     assert str(sid(5)) in result.stderr and "outside the storage root" in result.stderr
-    assert str(sid(4)) in result.stderr and "more than one completed job" in result.stderr
+    assert (
+        str(sid(4)) in result.stderr and "more than one completed job" in result.stderr
+    )
     # PostgreSQL DDL is transactional: nothing was created, the revision did not move
     assert not (NEW_TABLES & user_tables(pg_engine))
     with pg_engine.connect() as conn:
-        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == REV_BEFORE
+        assert (
+            conn.execute(text("SELECT version_num FROM alembic_version")).scalar()
+            == REV_BEFORE
+        )
 
 
 def test_0011_empty_database_and_relative_storage_root(pg_engine, tmp_path):
@@ -624,14 +854,22 @@ def test_0011_relative_legacy_paths_are_made_relative(pg_engine):
                 " clinical_review_status, status, created_at, updated_at, keep_forever)"
                 " VALUES (:i, :u, 'x.nii.gz', :p, 'technical_only', 'uploaded', :t, :t, false)"
             ),
-            {"i": study, "u": SYSTEM_USER_ID, "p": f"./test-data/studies/{study}/input/x.nii.gz",
-             "t": BASE},
+            {
+                "i": study,
+                "u": SYSTEM_USER_ID,
+                "p": f"./test-data/studies/{study}/input/x.nii.gz",
+                "t": BASE,
+            },
         )
     alembic("upgrade", "head", STORAGE_ROOT="./test-data/studies")
     f = one(pg_engine, "SELECT * FROM input_files WHERE case_id = :i", i=study)
     assert f["storage_path"] == f"{study}/input/x.nii.gz"
-    assert one(pg_engine, "SELECT owner_user_id FROM cases WHERE id = :i", i=study)[
-        "owner_user_id"] == SYSTEM_USER_ID
+    assert (
+        one(pg_engine, "SELECT owner_user_id FROM cases WHERE id = :i", i=study)[
+            "owner_user_id"
+        ]
+        == SYSTEM_USER_ID
+    )
 
 
 def test_0011_database_constraints(pg_engine, seeded):
@@ -643,29 +881,43 @@ def test_0011_database_constraints(pg_engine, seeded):
                 conn.execute(text(sql), params)
         return str(err.value)
 
-    case_cols = "id, owner_user_id, subject_label, deployment_profile, created_at, updated_at"
+    case_cols = (
+        "id, owner_user_id, subject_label, deployment_profile, created_at, updated_at"
+    )
     case_vals = "(:i, :u, :l, 'research-public', now(), now())"
     ok = uuid.uuid4()
     with pg_engine.begin() as conn:
         conn.execute(
-            text(f"INSERT INTO cases ({case_cols}, sex, age_band) VALUES"
-                 " (:i, :u, :l, 'research-public', now(), now(), 'female', '90-104')"),
+            text(
+                f"INSERT INTO cases ({case_cols}, sex, age_band) VALUES"
+                " (:i, :u, :l, 'research-public', now(), now(), 'female', '90-104')"
+            ),
             {"i": ok, "u": OWNER_A, "l": ok.hex[:12]},
         )
     bad = uuid.uuid4()
     base = {"i": bad, "u": OWNER_A, "l": bad.hex[:12]}
     assert "ck_cases_subject_label_format" in fails(
-        f"INSERT INTO cases ({case_cols}) VALUES {case_vals}", **{**base, "l": "NOT-HEX"})
+        f"INSERT INTO cases ({case_cols}) VALUES {case_vals}",
+        **{**base, "l": "NOT-HEX"},
+    )
     assert "uq_cases_subject_label" in fails(
-        f"INSERT INTO cases ({case_cols}) VALUES {case_vals}", **{**base, "l": ok.hex[:12]})
+        f"INSERT INTO cases ({case_cols}) VALUES {case_vals}",
+        **{**base, "l": ok.hex[:12]},
+    )
     assert "ck_cases_sex" in fails(
         f"INSERT INTO cases ({case_cols}, sex) VALUES (:i, :u, :l, 'research-public', now(),"
-        " now(), 'other')", **base)
+        " now(), 'other')",
+        **base,
+    )
     assert "ck_cases_age_band_format" in fails(
         f"INSERT INTO cases ({case_cols}, age_band) VALUES (:i, :u, :l, 'research-public',"
-        " now(), now(), '65')", **base)
+        " now(), now(), '65')",
+        **base,
+    )
     assert "ck_cases_deployment_profile" in fails(
-        f"INSERT INTO cases ({case_cols}) VALUES (:i, :u, :l, 'bogus', now(), now())", **base)
+        f"INSERT INTO cases ({case_cols}) VALUES (:i, :u, :l, 'bogus', now(), now())",
+        **base,
+    )
 
     # at most one active run per case; a finished run does not count
     run_cols = (
@@ -678,28 +930,50 @@ def test_0011_database_constraints(pg_engine, seeded):
     def run_sql(status: str, finished: str, extra_cols="", extra_vals="") -> str:
         return (
             f"INSERT INTO pipeline_runs ({run_cols}{extra_cols}) VALUES (:r, :c, :u,"
-            " 'ct-pipeline', '1.0.0', :sha, '1.0', '1.0', 'ct-only', 7, '" + status + "',"
-            " '{}'::jsonb, 'user:x', 'service-account', now(), now(), " + finished + extra_vals + ")"
+            " 'ct-pipeline', '1.0.0', :sha, '1.0', '1.0', 'ct-only', 7, '"
+            + status
+            + "',"
+            " '{}'::jsonb, 'user:x', 'service-account', now(), now(), "
+            + finished
+            + extra_vals
+            + ")"
         )
 
     sha = "a" * 64
     with pg_engine.begin() as conn:
-        conn.execute(text(run_sql("succeeded", "now()")), {"r": uuid.uuid4(), "c": ok, "u": OWNER_A, "sha": sha})
-        conn.execute(text(run_sql("running", "NULL")), {"r": uuid.uuid4(), "c": ok, "u": OWNER_A, "sha": sha})
+        conn.execute(
+            text(run_sql("succeeded", "now()")),
+            {"r": uuid.uuid4(), "c": ok, "u": OWNER_A, "sha": sha},
+        )
+        conn.execute(
+            text(run_sql("running", "NULL")),
+            {"r": uuid.uuid4(), "c": ok, "u": OWNER_A, "sha": sha},
+        )
     msg = fails(run_sql("queued", "NULL"), r=uuid.uuid4(), c=ok, u=OWNER_A, sha=sha)
     assert "uq_pipeline_runs_active_case" in msg
     assert "ck_pipeline_runs_finished_at" in fails(
-        run_sql("succeeded", "NULL"), r=uuid.uuid4(), c=ok, u=OWNER_A, sha=sha)
+        run_sql("succeeded", "NULL"), r=uuid.uuid4(), c=ok, u=OWNER_A, sha=sha
+    )
     assert "ck_pipeline_runs_status" in fails(
-        run_sql("done", "NULL"), r=uuid.uuid4(), c=sid(1), u=OWNER_A, sha=sha)
+        run_sql("done", "NULL"), r=uuid.uuid4(), c=sid(1), u=OWNER_A, sha=sha
+    )
     assert "ck_pipeline_runs_pipeline_sha256" in fails(
-        run_sql("succeeded", "now()"), r=uuid.uuid4(), c=sid(1), u=OWNER_A, sha=None)
+        run_sql("succeeded", "now()"), r=uuid.uuid4(), c=sid(1), u=OWNER_A, sha=None
+    )
     assert "ck_pipeline_runs_pipeline_version_format" in fails(
         run_sql("succeeded", "now()").replace("'1.0.0'", "'v1'"),
-        r=uuid.uuid4(), c=sid(1), u=OWNER_A, sha=sha)
+        r=uuid.uuid4(),
+        c=sid(1),
+        u=OWNER_A,
+        sha=sha,
+    )
     assert "ck_pipeline_runs_seed" in fails(
         run_sql("succeeded", "now()").replace(", 7,", ", -1,"),
-        r=uuid.uuid4(), c=sid(1), u=OWNER_A, sha=sha)
+        r=uuid.uuid4(),
+        c=sid(1),
+        u=OWNER_A,
+        sha=sha,
+    )
 
     # step runs: one success per slot, outcome agrees with status
     slot = derived(sid(2), "slot/legacy")
@@ -709,19 +983,52 @@ def test_0011_database_constraints(pg_engine, seeded):
         " 'user_resume', :st, :o, 'subprocess', 'none', now(), :f)"
     )
     assert "ck_step_runs_status_outcome" in fails(
-        step_sql, i=uuid.uuid4(), r=sid(2), s=slot, a=5, st="failed", o="succeeded", f=BASE)
+        step_sql,
+        i=uuid.uuid4(),
+        r=sid(2),
+        s=slot,
+        a=5,
+        st="failed",
+        o="succeeded",
+        f=BASE,
+    )
     assert "ck_step_runs_status_outcome" in fails(
-        step_sql, i=uuid.uuid4(), r=sid(2), s=slot, a=5, st="failed", o=None, f=BASE)
+        step_sql, i=uuid.uuid4(), r=sid(2), s=slot, a=5, st="failed", o=None, f=BASE
+    )
     assert "uq_step_runs_one_active" in fails(
-        step_sql, i=uuid.uuid4(), r=sid(2), s=slot, a=5, st="running", o=None, f=None)
+        step_sql, i=uuid.uuid4(), r=sid(2), s=slot, a=5, st="running", o=None, f=None
+    )
     dup_slot = derived(sid(4), "slot/legacy")
     assert "uq_step_runs_one_success" in fails(
-        step_sql, i=uuid.uuid4(), r=sid(4), s=dup_slot, a=5, st="succeeded", o="succeeded", f=BASE)
+        step_sql,
+        i=uuid.uuid4(),
+        r=sid(4),
+        s=dup_slot,
+        a=5,
+        st="succeeded",
+        o="succeeded",
+        f=BASE,
+    )
     assert "uq_step_runs_slot_attempt" in fails(
-        step_sql, i=uuid.uuid4(), r=sid(4), s=dup_slot, a=2, st="failed", o="failed", f=BASE)
+        step_sql,
+        i=uuid.uuid4(),
+        r=sid(4),
+        s=dup_slot,
+        a=2,
+        st="failed",
+        o="failed",
+        f=BASE,
+    )
     msg = fails(
         step_sql.replace("'subprocess'", "'docker'"),
-        i=uuid.uuid4(), r=sid(4), s=dup_slot, a=6, st="failed", o="failed", f=BASE)
+        i=uuid.uuid4(),
+        r=sid(4),
+        s=dup_slot,
+        a=6,
+        st="failed",
+        o="failed",
+        f=BASE,
+    )
     assert "ck_step_runs_image" in msg or "ck_step_runs_granted_resources" in msg
 
     # run slots: a selected slot needs its implementation; others need a reason
@@ -730,12 +1037,23 @@ def test_0011_database_constraints(pg_engine, seeded):
         " VALUES (:i, :r, :s, :p, false, :st, :re)"
     )
     assert "ck_run_slots_selected" in fails(
-        slot_sql, i=uuid.uuid4(), r=sid(2), s="norm", p=1, st="selected", re=None)
+        slot_sql, i=uuid.uuid4(), r=sid(2), s="norm", p=1, st="selected", re=None
+    )
     assert "ck_run_slots_selected" in fails(
-        slot_sql, i=uuid.uuid4(), r=sid(2), s="norm", p=1, st="skipped", re=None)
+        slot_sql, i=uuid.uuid4(), r=sid(2), s="norm", p=1, st="skipped", re=None
+    )
     with pg_engine.begin() as conn:
-        conn.execute(text(slot_sql), dict(i=uuid.uuid4(), r=sid(2), s="norm", p=1, st="skipped",
-                                          re="condition_false"))
+        conn.execute(
+            text(slot_sql),
+            dict(
+                i=uuid.uuid4(),
+                r=sid(2),
+                s="norm",
+                p=1,
+                st="skipped",
+                re="condition_false",
+            ),
+        )
 
     # roles
     user_sql = (
@@ -745,8 +1063,12 @@ def test_0011_database_constraints(pg_engine, seeded):
     )
     for role in ("reviewer", "coordinator", "service"):
         with pg_engine.begin() as conn:
-            conn.execute(text(user_sql), dict(i=uuid.uuid4(), e=f"{role}@example.org", r=role))
-    assert "ck_users_role" in fails(user_sql, i=uuid.uuid4(), e="x@example.org", r="superuser")
+            conn.execute(
+                text(user_sql), dict(i=uuid.uuid4(), e=f"{role}@example.org", r=role)
+            )
+    assert "ck_users_role" in fails(
+        user_sql, i=uuid.uuid4(), e="x@example.org", r="superuser"
+    )
 
     # settings: a default must be enabled and unique per slot
     set_sql = (
@@ -754,23 +1076,29 @@ def test_0011_database_constraints(pg_engine, seeded):
         " enabled, is_default, updated_at) VALUES (:i, 'ct-pipeline', 'norm', :impl, :en, :d, now())"
     )
     assert "ck_slot_impl_settings_default_enabled" in fails(
-        set_sql, i=uuid.uuid4(), impl="a", en=False, d=True)
+        set_sql, i=uuid.uuid4(), impl="a", en=False, d=True
+    )
     with pg_engine.begin() as conn:
         conn.execute(text(set_sql), dict(i=uuid.uuid4(), impl="a", en=True, d=True))
     assert "uq_slot_impl_settings_default" in fails(
-        set_sql, i=uuid.uuid4(), impl="b", en=True, d=True)
+        set_sql, i=uuid.uuid4(), impl="b", en=True, d=True
+    )
 
     # legacy tables keep accepting rows written by the legacy code (no new column needed)
     with pg_engine.begin() as conn:
         conn.execute(
-            text("INSERT INTO audit_events (id, study_id, event_type, timestamp, actor)"
-                 " VALUES (:i, :s, 'x', now(), 'a')"),
+            text(
+                "INSERT INTO audit_events (id, study_id, event_type, timestamp, actor)"
+                " VALUES (:i, :s, 'x', now(), 'a')"
+            ),
             {"i": uuid.uuid4(), "s": sid(1)},
         )
         conn.execute(
-            text("INSERT INTO share_links (id, study_id, created_by_user_id, token_hash,"
-                 " expires_at, created_at, access_count)"
-                 " VALUES (:i, :s, :u, :h, now(), now(), 0)"),
+            text(
+                "INSERT INTO share_links (id, study_id, created_by_user_id, token_hash,"
+                " expires_at, created_at, access_count)"
+                " VALUES (:i, :s, :u, :h, now(), now(), 0)"
+            ),
             {"i": uuid.uuid4(), "s": sid(1), "u": OWNER_A, "h": "e" * 64},
         )
 
@@ -782,26 +1110,29 @@ def test_0011_schema_matches_the_orm_models(pg_engine):
 
     alembic("upgrade", "head")
     inspector = inspect(pg_engine)
-    tables = (NEW_TABLES | {"users", "audit_events", "notifications", "share_links"})
+    tables = NEW_TABLES | {"users", "audit_events", "notifications", "share_links"}
     for name in sorted(tables):
         table = Base.metadata.tables[name]
         db_cols = {c["name"]: c for c in inspector.get_columns(name)}
         assert set(db_cols) == {c.name for c in table.columns}, name
         for column in table.columns:
             assert db_cols[column.name]["nullable"] == (
-                column.nullable and not column.primary_key), (name, column.name)
+                column.nullable and not column.primary_key
+            ), (name, column.name)
         db_indexes = {i["name"] for i in inspector.get_indexes(name)}
         orm_indexes = {i.name for i in table.indexes}
         assert orm_indexes <= db_indexes, (name, orm_indexes - db_indexes)
         db_checks = {c["name"] for c in inspector.get_check_constraints(name)}
         orm_checks = {
-            c.name for c in table.constraints
+            c.name
+            for c in table.constraints
             if c.__class__.__name__ == "CheckConstraint" and c.name
         }
         assert orm_checks <= db_checks, (name, orm_checks - db_checks)
         db_uniques = {u["name"] for u in inspector.get_unique_constraints(name)}
         orm_uniques = {
-            c.name for c in table.constraints
+            c.name
+            for c in table.constraints
             if c.__class__.__name__ == "UniqueConstraint" and c.name
         }
         assert orm_uniques <= db_uniques, (name, orm_uniques - db_uniques)
