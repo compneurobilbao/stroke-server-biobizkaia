@@ -117,14 +117,15 @@ def create_case(
             age_band=body.age_band,
         )
         db.add(case)
-        audit_event(
-            db,
-            "case_created",
-            current_user,
-            case_id=case.id,
-            ip_address=client_ip(request),
-        )
         try:
+            db.flush()
+            audit_event(
+                db,
+                "case_created",
+                current_user,
+                case_id=case.id,
+                ip_address=client_ip(request),
+            )
             db.commit()
             break
         except IntegrityError:
