@@ -76,11 +76,17 @@ async function expectCiDefaults(page: Page) {
 
 /** Clicks Start and returns the body of the run-creation request (the page then shows the run). */
 async function startRun(page: Page) {
-  const requested = page.waitForRequest((r) => r.method() === 'POST' && /\/api\/v1\/cases\/[^/]+\/runs$/.test(r.url()));
+  const bodies: Record<string, unknown>[] = [];
+  page.on('request', (r) => {
+    if (r.method() === 'POST' && /\/api\/v1\/cases\/[^/]+\/runs$/.test(r.url())) {
+      bodies.push(r.postDataJSON() as Record<string, unknown>);
+    }
+  });
   await page.getByRole('button', { name: 'Create case and start run' }).click();
-  const body = (await requested).postDataJSON() as Record<string, unknown>;
-  await expect(page).toHaveURL(/\/runs\/[0-9a-f-]{36}$/);
-  return body;
+  // Creating the case, uploading and creating the run is quick; fail early with what the page says.
+  await expect(page, 'the wizard moves to the run page').toHaveURL(/\/runs\/[0-9a-f-]{36}$/, { timeout: 60_000 });
+  expect(bodies).toHaveLength(1);
+  return bodies[0];
 }
 
 /** Waits for a terminal run state (failing early with the server's message) and checks it succeeded. */
