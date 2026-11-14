@@ -1,0 +1,151 @@
+# stroke-lnm v0 (plan section 2.3) written with slots (D15). Contract: docs/contracts/pipeline.md.
+#
+# Image digests are PLACEHOLDERS (sha256 of nothing: 64 zeros). No registry exists yet;
+# the release process (and, in CI, pipelines/stroke-lnm/registry.py materialize) replaces
+# each placeholder with the digest of the published or locally built image of the step.
+# registry.yaml in this directory holds the same entries plus which of them a deployment
+# enables; `registry.py check` fails when the two files disagree.
+contract_version: "1.0"
+kind: Pipeline
+id: stroke-lnm
+version: 0.1.0
+title: Lesion network mapping v0
+description: >-
+  Lesion intake and QC, normalisation of CT lesions to MNI152 (skipped when an MNI mask is
+  supplied), functional and tract-wise disconnection, the COGNET-STROKE cognitive profile,
+  and a research report.
+
+inputs:
+  - name: ct
+    type: ct_native
+  - name: lesion_native
+    type: lesion_mask_native
+  - name: lesion_mni
+    type: lesion_mask_mni_any
+
+input_sets:
+  - name: ct-and-native-mask
+    inputs: [ct, lesion_native]
+    description: CT plus a lesion mask drawn on it.
+  - name: mni-mask
+    inputs: [lesion_mni]
+    description: A lesion mask already in MNI space (mask-only mode).
+
+slots:
+  - name: lesion-intake
+    title: Lesion intake and QC
+    consumes:
+      - {port: ct, type: ct_native, from: inputs.ct, optional: true}
+      - {port: lesion_native, type: lesion_mask_native, from: inputs.lesion_native, optional: true}
+      - {port: lesion_mni, type: lesion_mask_mni_any, from: inputs.lesion_mni, optional: true}
+    produces:
+      - {port: lesion_qc, type: lesion_qc}
+      - port: lesion_mask_mni
+        type: lesion_mask_mni
+        when: {inputs_present: [lesion_mni]}
+      - {port: qc_figure, type: qc_figure, optional: true}
+    implementations:
+      default: lesion-qc
+      allowed:
+        - id: lesion-qc
+          step: {name: lesion-qc, version: 1.0.0}
+          image: docker.io/compneurobilbaolab/step-lesion-qc@sha256:0000000000000000000000000000000000000000000000000000000000000000
+
+  - name: normalisation
+    title: CT lesion to MNI152
+    when: {inputs_present: [ct, lesion_native]}
+    consumes:
+      - {port: ct, type: ct_native, from: inputs.ct}
+      - {port: lesion_mask, type: lesion_mask_native, from: inputs.lesion_native}
+    produces:
+      - {port: lesion_mask_mni, type: lesion_mask_mni}
+      - {port: ct_mni, type: ct_mni, optional: true}
+      - {port: qc_figure, type: qc_figure, optional: true}
+    implementations:
+      # Not merged yet: listed so that the slot is defined, but no deployment mounts it
+      # (registry.yaml: status planned), so CT-mode runs are refused until it is.
+      default: ct-lesion-to-mni152
+      allowed:
+        - id: ct-lesion-to-mni152
+          step: {name: ct-lesion-to-mni152, version: 1.0.0}
+          image: docker.io/compneurobilbaolab/step-ct-lesion-to-mni152@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          parameter_bindings:
+            age_band: case.age_band
+
+  - name: functional-disconnection
+    title: Functional disconnection
+    optional: true
+    consumes:
+      - port: lesion_mask
+        type: lesion_mask_mni
+        from: [normalisation.lesion_mask_mni, lesion-intake.lesion_mask_mni]
+    produces:
+      - {port: fdisconnection_map, type: fdisconnection_map}
+    implementations:
+      # No default: the real implementation (flnm-fast) is not wrapped yet and stubs are
+      # never a deployment default outside CI.
+      allowed:
+        - id: fdisconnection-stub
+          step: {name: fdisconnection-stub, version: 0.1.0}
+          image: docker.io/compneurobilbaolab/step-fdisconnection-stub@sha256:0000000000000000000000000000000000000000000000000000000000000000
+
+  - name: tract-disconnection
+    title: Tract-wise structural disconnection
+    consumes:
+      - port: lesion_mask
+        type: lesion_mask_mni
+        from: [normalisation.lesion_mask_mni, lesion-intake.lesion_mask_mni]
+    produces:
+      - {port: tract_disconnection, type: tract_disconnection}
+    implementations:
+      default: lnm-tracts
+      allowed:
+        - id: lnm-tracts
+          step: {name: lnm-tracts, version: 1.0.0}
+          image: docker.io/compneurobilbaolab/step-lnm-tracts@sha256:0000000000000000000000000000000000000000000000000000000000000000
+
+  - name: cognet-profile
+    title: COGNET-STROKE cognitive profile
+    optional: true
+    consumes:
+      - port: lesion_mask
+        type: lesion_mask_mni
+        from: [normalisation.lesion_mask_mni, lesion-intake.lesion_mask_mni]
+      - {port: fdisconnection_map, type: fdisconnection_map, from: functional-disconnection.fdisconnection_map}
+    produces:
+      - {port: profile, type: cognet_profile}
+      - {port: profile_figure, type: qc_figure, optional: true}
+    implementations:
+      default: cognet-stroke
+      allowed:
+        - id: cognet-stroke
+          step: {name: cognet-stroke, version: 1.0.0}
+          image: docker.io/compneurobilbaolab/step-cognet-stroke@sha256:0000000000000000000000000000000000000000000000000000000000000000
+
+  - name: report
+    title: Research report
+    consumes:
+      - {port: lesion_qc, type: lesion_qc, from: lesion-intake.lesion_qc}
+      - port: lesion_mask
+        type: lesion_mask_mni
+        from: [normalisation.lesion_mask_mni, lesion-intake.lesion_mask_mni]
+      - {port: ct_mni, type: ct_mni, from: normalisation.ct_mni, optional: true}
+      - {port: fdisconnection_map, type: fdisconnection_map, from: functional-disconnection.fdisconnection_map, optional: true}
+      - {port: tract_disconnection, type: tract_disconnection, from: tract-disconnection.tract_disconnection}
+      - {port: cognet_profile, type: cognet_profile, from: cognet-profile.profile, optional: true}
+      - {port: run_provenance, type: run_provenance, from: run.provenance}
+    produces:
+      - {port: report_pdf, type: report_pdf}
+      - {port: report_json, type: report_json}
+    implementations:
+      default: research-report
+      allowed:
+        - id: research-report
+          step: {name: research-report, version: 0.1.0}
+          image: docker.io/compneurobilbaolab/step-research-report@sha256:0000000000000000000000000000000000000000000000000000000000000000
+        # Configured variant of the same image: the report text in Spanish.
+        - id: research-report-es
+          step: {name: research-report, version: 0.1.0}
+          image: docker.io/compneurobilbaolab/step-research-report@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          parameters:
+            language: es

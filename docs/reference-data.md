@@ -58,5 +58,5 @@ The step is refused, with an exception that names every problem, when a required
 ## Limits and open points
 
 - The cheap check does not detect a same-size content change; that needs a full verification (scheduled or forced with `full=True`).
-- Bundle layouts per bundle type are defined by the consuming steps. The `tract-atlas` type used by the synthetic fixture `toy-tract-atlas` (streamlines archive, voxel masks, `tracts.tsv`) does not match the layout the structural-disconnection step reads (`labels.txt` plus one `<tract>.tck` per tract); the fixture needs aligning in a fixture card.
+- Bundle layouts per bundle type are defined by the consuming steps. The `tract-atlas` type has the layout the structural-disconnection step reads (`labels.txt` plus one `<tract>.tck` per tract at the bundle root); the synthetic fixture `toy-tract-atlas` uses it.
 - Installers and release tarballs must skip bundles whose `licence.redistributable` is `false`.
