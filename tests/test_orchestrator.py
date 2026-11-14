@@ -203,6 +203,38 @@ def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+GRID2 = contract.load_file(contract.DEFAULT_TYPES_PATH)["grids"]["MNI152NLin6Asym-res2"]
+MASK_MODES = ("offgrid", "nonbinary", "scaled", "truncated")
+
+
+def mask_bytes(kind: str = "ok") -> bytes:
+    """A synthetic gzip NIfTI-1 mask: a small cube of ones on the 2 mm working grid.
+
+    ``kind`` breaks it on purpose: ``offgrid`` (1 mm voxel sizes), ``nonbinary``
+    (one voxel 2), ``truncated`` (voxel data cut short); ``scaled`` stores 0/2
+    with ``scl_slope`` 0.5, which is binary after scaling.
+    """
+    import gzip as _gzip
+
+    import nibabel as nib
+    import numpy as np
+
+    data = np.zeros(GRID2["shape"], dtype=np.uint8)
+    data[40:44, 50:54, 40:44] = 1
+    affine = np.array(GRID2["affine"], dtype=float)
+    if kind == "offgrid":
+        affine = np.diag([1.0, 1.0, 1.0, 1.0])
+    if kind == "nonbinary":
+        data[41, 51, 41] = 2
+    img = nib.Nifti1Image(data * 2 if kind == "scaled" else data, affine)
+    if kind == "scaled":
+        img.header.set_slope_inter(0.5, 0)
+    raw = img.to_bytes()
+    if kind == "truncated":
+        raw = raw[: len(raw) // 2]
+    return _gzip.compress(raw, mtime=0)
+
+
 def write_step_outputs(
     out: Path, step: dict, staged: dict[str, Path], *, mode: str
 ) -> int:
@@ -251,13 +283,19 @@ def write_step_outputs(
             if mode == "violate" and o["required"]:
                 continue
             target = out / (o["name"] + EXT[o["type"]])
-            data = f"{step['name']}:{o['name']}:{sorted(i['sha256'] for i in inputs)}"
+            if o["type"] == "lesion_mask_mni":  # format-checked by the orchestrator
+                payload = mask_bytes(mode if mode in MASK_MODES else "ok")
+            else:
+                payload = (
+                    f"{step['name']}:{o['name']}:"
+                    f"{sorted(i['sha256'] for i in inputs)}"
+                ).encode()
             if mode == "symlink":  # same bytes, but /out holds a link to elsewhere
                 real = out.parent / ("elsewhere-" + target.name)
-                real.write_bytes(data.encode())
+                real.write_bytes(payload)
                 target.symlink_to(real)
             else:
-                target.write_bytes(data.encode())
+                target.write_bytes(payload)
             produced.append(
                 {
                     "port": o["name"],
@@ -301,6 +339,10 @@ class FakeExecutor(Executor):
         self.submitted: list[str] = []
         self.canceled: list[str] = []
         self.cancel_failures = 0
+        self.can_adopt = True
+        self.cancel_delay_polls = 0  # polls a canceled job needs to stop
+        self.cleaned: list[str] = []
+        self.adopt_calls: list[str] = []
 
     def submit(self, invocation):
         self.check_policy(invocation)
@@ -329,6 +371,11 @@ class FakeExecutor(Executor):
 
     def poll(self, handle):
         job = self.jobs[handle.external_job_id]
+        if job.get("stopping"):  # a delayed cancel takes effect after N polls
+            job["stopping"] -= 1
+            if job["stopping"]:
+                return JobStatus(JobState.RUNNING, started_at=utc_now())
+            job.update(state="done", stop="canceled", exit=None)
         if job["state"] == "running" and job["mode"] != "hang":
             out = Path(handle.data["work_dir"]) / "out"
             step = MANIFESTS[job["inv"].step_name]
@@ -346,6 +393,9 @@ class FakeExecutor(Executor):
             raise RuntimeError("executor backend unreachable")
         if job["state"] != "running":
             return False
+        if self.cancel_delay_polls:
+            job["stopping"] = self.cancel_delay_polls
+            return True
         job["state"], job["stop"] = "done", "canceled"
         job["exit"] = None
         return True
@@ -357,7 +407,7 @@ class FakeExecutor(Executor):
         out = work / "out"
         outputs = {
             p.name: p
-            for p in out.iterdir()
+            for p in (out.iterdir() if out.is_dir() else ())
             if p.is_file() and p.name not in ("provenance.json", "error.json")
         }
         return StepResult(
@@ -385,9 +435,28 @@ class FakeExecutor(Executor):
         )
 
     def cleanup(self, handle):
+        self.cleaned.append(self.jobs[handle.external_job_id]["inv"].step_name)
         work = Path(handle.data["work_dir"])
         for name in ("in", "out"):
             shutil.rmtree(work / name, ignore_errors=True)
+
+    def adopt(self, invocation):
+        """Find a job by attempt, like the real executors (``can_adopt`` off: the
+        interface default)."""
+        self.adopt_calls.append(invocation.step_name)
+        if not self.can_adopt:
+            return super().adopt(invocation)
+        for job_id, job in self.jobs.items():
+            inv = job["inv"]
+            if (inv.step_run_id, inv.attempt, inv.work_dir) == (
+                invocation.step_run_id,
+                invocation.attempt,
+                invocation.work_dir,
+            ):
+                return ExecutorHandle(
+                    "docker", job_id, utc_now(), {"work_dir": str(inv.work_dir)}
+                )
+        return None
 
 
 # ----------------------------------------------------------------------- fixtures
@@ -1039,6 +1108,538 @@ def test_symlink_in_out_is_a_contract_violation(tmp_path):
             db.scalar(select(Artifact.id).where(Artifact.step_run_id == step.id))
             is None
         )
+
+
+# ------------------------------------------- lost submissions and adoption (ORCH-01)
+
+
+class DriverCrash(Exception):
+    """Stands for the worker dying between submit and recording the handle."""
+
+
+def _crash_after_submit(env, step_name, *, start_job=True):
+    """Make the first submission of ``step_name`` leave a used work directory and
+    no recorded handle, with (``start_job``) or without a job behind it."""
+    original = env.executor.submit
+    crashed = []
+
+    def submit(invocation):
+        if invocation.step_name == step_name and not crashed:
+            crashed.append(invocation.step_name)
+            if start_job:
+                original(invocation)
+            else:  # stopped while staging: nothing was started
+                (invocation.work_dir / "in").mkdir(parents=True)
+            raise DriverCrash()
+        return original(invocation)
+
+    env.executor.submit = submit
+    return crashed
+
+
+def _tick_through_crash(env, run_id, owner="task-1"):
+    with pytest.raises(DriverCrash):
+        for _ in range(5):
+            env.orch.tick(run_id, owner)
+
+
+def test_lost_submission_with_a_live_job_is_adopted_not_rerun(tmp_path):
+    env = Env(tmp_path)
+    run_id = env.create(env.make_case())
+    _crash_after_submit(env, "intake-step")
+    _tick_through_crash(env, run_id)
+    with env.Session() as db:
+        orphan = db.scalar(select(StepRun).where(StepRun.executor_state.is_(None)))
+        assert orphan is not None and orphan.status == "queued"
+
+    # The restarted driver finds the job through the executor and adopts it.
+    assert env.drive(run_id) is TickResult.FINISHED
+    db, run = env.run(run_id)
+    assert run.status == "succeeded"
+    intake = db.get(StepRun, orphan.id)
+    assert (intake.attempt, intake.status, intake.outcome) == (
+        1,
+        "succeeded",
+        "succeeded",
+    )
+    assert intake.executor_state["adopted"] is True
+    assert intake.external_job_id == intake.executor_state["handle"]["external_job_id"]
+    db.close()
+    assert env.executor.adopt_calls == ["intake-step"]
+    assert env.executor.submitted.count("intake-step") == 1  # not started twice
+    assert [a for a in env.attempts(run_id) if a[0] == "intake"] == [
+        ("intake", 1, "initial", "succeeded", "succeeded")
+    ]
+
+
+def test_lost_submission_without_a_job_fails_and_is_retried(tmp_path):
+    env = Env(tmp_path)
+    run_id = env.create(env.make_case())
+    _crash_after_submit(env, "intake-step", start_job=False)
+    _tick_through_crash(env, run_id)
+    assert env.drive(run_id) is TickResult.FINISHED
+    assert [a for a in env.attempts(run_id) if a[0] == "intake"] == [
+        ("intake", 1, "initial", "failed", "failed"),
+        ("intake", 2, "auto_retry", "succeeded", "succeeded"),
+    ]
+    with env.Session() as db:
+        lost = db.scalar(select(StepRun).where(StepRun.status == "failed"))
+        assert lost.failure_code == "lost_submission"
+    assert env.executor.adopt_calls == ["intake-step"]
+
+
+def test_lost_submission_with_an_executor_that_cannot_adopt(tmp_path):
+    env = Env(tmp_path)
+    env.executor.can_adopt = False  # the interface default: NotImplementedError
+    run_id = env.create(env.make_case())
+    _crash_after_submit(env, "intake-step")
+    _tick_through_crash(env, run_id)
+    assert env.drive(run_id) is TickResult.FINISHED
+    assert [a[2:] for a in env.attempts(run_id) if a[0] == "intake"] == [
+        ("initial", "failed", "failed"),
+        ("auto_retry", "succeeded", "succeeded"),
+    ]
+
+
+def test_adopted_job_that_ends_canceled_without_a_cancel_request_is_retried(tmp_path):
+    """The lease-loss path cancels the job it could not record; the next owner
+    adopts it, and the canceled job counts as a lost submission, not a user
+    cancellation."""
+    env = Env(tmp_path)
+    run_id = env.create(env.make_case())
+    _crash_after_submit(env, "intake-step")
+    _tick_through_crash(env, run_id)
+    job = next(iter(env.executor.jobs.values()))
+    job["state"], job["stop"], job["exit"] = "done", "canceled", None
+    assert env.drive(run_id) is TickResult.FINISHED
+    db, run = env.run(run_id)
+    assert run.status == "succeeded"
+    lost = db.scalar(select(StepRun).where(StepRun.status == "failed"))
+    assert (lost.outcome, lost.failure_code) == ("failed", "lost_submission")
+    assert lost.executor_state["adopted"] is True
+    db.close()
+
+
+# ------------------------------------------------- legacy runs are never stamped
+
+
+def test_claim_does_not_stamp_legacy_or_final_runs(tmp_path):
+    env = Env(tmp_path)
+    run_id = env.create(env.make_case())
+    old = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    with env.Session() as db:
+        db.execute(
+            update(PipelineRun)
+            .where(PipelineRun.id == run_id)
+            .values(
+                pipeline_id="legacy",
+                orchestrator_task_id="celery-legacy",
+                updated_at=old,
+            )
+        )
+        db.commit()
+    assert env.orch.tick(run_id, "task-1") is TickResult.FINISHED
+    db, run = env.run(run_id)
+    assert run.orchestrator_task_id == "celery-legacy"
+    assert run.updated_at.replace(tzinfo=timezone.utc) == old
+    db.close()
+
+    other = env.create(env.make_case())
+    assert env.drive(other) is TickResult.FINISHED  # succeeded, owner task-1
+    assert env.orch.tick(other, "task-9") is TickResult.FINISHED
+    db, run = env.run(other)
+    assert run.status == "succeeded" and run.orchestrator_task_id == "task-1"
+    db.close()
+    assert env.orch.tick(uuid.uuid4(), "task-1") is TickResult.FINISHED
+
+
+# --------------------------------------------- pipeline unavailable, live attempts
+
+
+def test_unavailable_pipeline_with_live_attempts_fails_after_the_grace(tmp_path):
+    clock = {"now": datetime.now(timezone.utc)}
+    env = Env(
+        tmp_path,
+        script={"norm-step": ["hang", "hang"]},
+        config=OrchestratorConfig(
+            poll_seconds=0, max_attempts=2, pipeline_unavailable_grace_seconds=600
+        ),
+    )
+    env.orch.clock = lambda: clock["now"]
+    run_id = env.create(env.make_case())
+    for _ in range(3):
+        env.orch.tick(run_id, "task-1")
+    assert env.attempts(run_id)[-1][3] == "running"
+
+    # A worker without the pipeline: it leaves the run alone during the grace.
+    env.orch.pipelines = StaticPipelineRegistry([])
+    assert env.orch.tick(run_id, "task-1") is TickResult.LOST
+    with env.Session() as db:
+        live = db.scalar(select(StepRun).where(StepRun.status == "running"))
+        assert "pipeline_unavailable_since" in live.executor_state
+
+    # The pipeline comes back: the run continues and the grace count restarts.
+    env.orch.pipelines = env.pipelines
+    assert env.orch.tick(run_id, "task-1") is TickResult.CONTINUE
+    with env.Session() as db:
+        live = db.scalar(select(StepRun).where(StepRun.status == "running"))
+        assert "pipeline_unavailable_since" not in live.executor_state
+
+    # Gone again, for longer than the grace: attempts stopped, run failed.
+    env.orch.pipelines = StaticPipelineRegistry([])
+    assert env.orch.tick(run_id, "task-1") is TickResult.LOST
+    clock["now"] += timedelta(seconds=300)
+    assert env.orch.tick(run_id, "task-1") is TickResult.LOST  # still within it
+    clock["now"] += timedelta(seconds=301)
+    assert env.drive(run_id) is TickResult.FINISHED
+    assert env.executor.canceled == ["norm-step"]
+    db, run = env.run(run_id)
+    assert run.status == "failed" and run.failure_code == "pipeline_unavailable"
+    norm = db.scalar(
+        select(StepRun)
+        .join(RunSlot, RunSlot.id == StepRun.run_slot_id)
+        .where(RunSlot.slot == "normalisation")
+    )
+    assert (norm.status, norm.outcome, norm.failure_code) == (
+        "failed",
+        "failed",
+        "pipeline_unavailable",
+    )
+    assert norm.executor_state["cancel_sent"] is True
+    assert not db.scalar(
+        select(StepRun.id).where(StepRun.status.in_(("queued", "running")))
+    )
+    db.close()
+    with env.Session() as db:
+        assert {n.event_type for n in db.scalars(select(Notification))} == {
+            "run_failed"
+        }
+
+
+def _attempt_of(env, run_id, slot_name):
+    with env.Session() as db:
+        rows = db.scalars(
+            select(StepRun)
+            .join(RunSlot, RunSlot.id == StepRun.run_slot_id)
+            .where(StepRun.pipeline_run_id == run_id, RunSlot.slot == slot_name)
+            .order_by(StepRun.attempt)
+        ).all()
+        db.expunge_all()
+        return rows
+
+
+def test_abandoned_attempt_stays_pipeline_unavailable_when_the_pipeline_returns(
+    tmp_path,
+):
+    """Review fix 1: the pipeline reappears while the abandoned job is stopping.
+    The worker that has it again must not record a cancellation (or retry)."""
+    env = Env(
+        tmp_path,
+        script={"norm-step": ["hang", "hang"]},
+        config=OrchestratorConfig(
+            poll_seconds=0, max_attempts=2, pipeline_unavailable_grace_seconds=0
+        ),
+    )
+    run_id = env.create(env.make_case())
+    for _ in range(3):
+        env.orch.tick(run_id, "task-1")
+    env.executor.cancel_delay_polls = 2  # SIGTERM grace: still stopping next tick
+    env.orch.pipelines = StaticPipelineRegistry([])
+    assert env.orch.tick(run_id, "task-1") is TickResult.CONTINUE
+    (norm,) = _attempt_of(env, run_id, "normalisation")
+    assert norm.status == "running"
+    assert norm.executor_state["abandon"]["code"] == "pipeline_unavailable"
+    assert norm.executor_state["cancel_sent"] is True
+
+    env.orch.pipelines = env.pipelines  # back, mid-cancel
+    assert env.drive(run_id) is TickResult.FINISHED
+    (norm,) = _attempt_of(env, run_id, "normalisation")  # not retried
+    assert (norm.status, norm.outcome, norm.failure_code) == (
+        "failed",
+        "failed",
+        "pipeline_unavailable",
+    )
+    assert norm.cancel_requested_at is None  # not a user cancellation
+    db, run = env.run(run_id)
+    assert run.status == "failed" and run.failure_code == "pipeline_unavailable"
+    assert run.failed_step_run_id == norm.id
+    db.close()
+    assert env.executor.cleaned.count("norm-step") == 1
+
+
+def test_user_cancel_stops_the_job_of_a_lost_submission(tmp_path):
+    """Review fix 2: a queued attempt without a handle is not just marked
+    canceled while the job a crashed driver started keeps running."""
+    env = Env(tmp_path, script={"intake-step": ["hang"]})
+    run_id = env.create(env.make_case())
+    _crash_after_submit(env, "intake-step")
+    _tick_through_crash(env, run_id)
+    with env.Session() as db:
+        cancel_run(db, run_id, env.user_id)
+        db.commit()
+    assert env.drive(run_id) is TickResult.FINISHED
+    (intake,) = _attempt_of(env, run_id, "intake")
+    assert (intake.status, intake.outcome) == ("canceled", "canceled")
+    assert intake.executor_state["adopted"] is True
+    assert "intake-step" in env.executor.canceled
+    assert "intake-step" in env.executor.cleaned
+    db, run = env.run(run_id)
+    assert run.status == "canceled"
+    db.close()
+
+
+def test_pipeline_gone_stops_the_job_of_a_lost_submission(tmp_path):
+    env = Env(
+        tmp_path,
+        script={"intake-step": ["hang"]},
+        config=OrchestratorConfig(
+            poll_seconds=0, max_attempts=2, pipeline_unavailable_grace_seconds=0
+        ),
+    )
+    run_id = env.create(env.make_case())
+    _crash_after_submit(env, "intake-step")
+    _tick_through_crash(env, run_id)
+    env.orch.pipelines = StaticPipelineRegistry([])
+    assert env.drive(run_id) is TickResult.FINISHED
+    (intake,) = _attempt_of(env, run_id, "intake")
+    assert (intake.status, intake.failure_code) == ("failed", "pipeline_unavailable")
+    assert intake.executor_state["adopted"] is True
+    assert "intake-step" in env.executor.canceled
+    assert "intake-step" in env.executor.cleaned
+    db, run = env.run(run_id)
+    assert run.failure_code == "pipeline_unavailable"
+    db.close()
+
+
+def test_missing_manifest_stops_the_job_of_a_lost_submission(tmp_path):
+    env = Env(tmp_path, script={"intake-step": ["hang"]})
+    run_id = env.create(env.make_case())
+    _crash_after_submit(env, "intake-step")
+    _tick_through_crash(env, run_id)
+    env.orch.steps = StaticStepCatalog(
+        m for name, m in MANIFESTS.items() if name != "intake-step"
+    )
+    assert env.drive(run_id) is TickResult.FINISHED
+    (intake,) = _attempt_of(env, run_id, "intake")  # not retried
+    assert (intake.status, intake.failure_code) == ("failed", "manifest_unavailable")
+    assert "intake-step" in env.executor.canceled
+    assert "intake-step" in env.executor.cleaned
+
+
+def test_adopted_job_whose_inputs_cannot_be_resolved_is_stopped_and_cleaned(
+    tmp_path, monkeypatch
+):
+    """Review fix 6: the job is recorded only to be stopped, waited for and
+    cleaned up; the attempt then fails with the resolution's code."""
+    from orchestrator.bundle_resolver import BundleError
+
+    env = Env(tmp_path, script={"intake-step": ["hang"]})
+    run_id = env.create(env.make_case())
+    _crash_after_submit(env, "intake-step")
+    _tick_through_crash(env, run_id)
+
+    def no_bundles(*_args, **_kw):
+        raise BundleError("withdrawn meanwhile")
+
+    monkeypatch.setattr(env.orch, "_mounts", no_bundles)
+    env.executor.cancel_delay_polls = 2
+    assert env.drive(run_id) is TickResult.FINISHED
+    (intake,) = _attempt_of(env, run_id, "intake")
+    assert (intake.status, intake.failure_code) == ("failed", "bundle_unavailable")
+    assert intake.executor_state["abandon"]["code"] == "bundle_unavailable"
+    assert env.executor.canceled == ["intake-step"]
+    assert env.executor.cleaned.count("intake-step") == 1
+    assert not (
+        Path(intake.executor_state["handle"]["data"]["work_dir"]) / "in"
+    ).exists()
+
+
+def test_discarded_job_is_cleaned_up_once_it_has_stopped(tmp_path):
+    """Review fix 6, other path: the attempt was canceled by the API while its
+    job was being submitted; the job stops after the tick and a later tick of
+    the run cleans it up."""
+    env = Env(
+        tmp_path,
+        script={"norm-step": ["hang"]},
+        config=OrchestratorConfig(poll_seconds=0, discard_wait_seconds=0),
+    )
+    run_id = env.create(env.make_case())
+    env.executor.cancel_delay_polls = 2
+    original = env.executor.submit
+
+    def submit_while_the_api_cancels(invocation):
+        handle = original(invocation)
+        if invocation.step_name == "intake-step":
+            with env.Session() as other:
+                other.execute(
+                    update(StepRun)
+                    .where(StepRun.id == uuid.UUID(invocation.step_run_id))
+                    .values(
+                        status="canceled",
+                        outcome="canceled",
+                        finished_at=datetime.now(timezone.utc),
+                    )
+                )
+                other.commit()
+        return handle
+
+    env.executor.submit = submit_while_the_api_cancels
+    env.orch.tick(run_id, "task-1")
+    (intake,) = _attempt_of(env, run_id, "intake")
+    assert intake.status == "canceled" and "pending_cleanup" in intake.executor_state
+    assert "intake-step" in env.executor.canceled
+    assert "intake-step" not in env.executor.cleaned
+    env.orch.tick(run_id, "task-1")  # the job has stopped meanwhile
+    (intake,) = _attempt_of(env, run_id, "intake")
+    assert "pending_cleanup" not in intake.executor_state
+    assert env.executor.cleaned == ["intake-step"]
+
+
+# ------------------------------------------------ one step identity per slot
+
+
+def test_a_step_shared_by_two_slots_is_refused():
+    shared = PIPELINE_YAML.replace(
+        "step: {name: disc-step, version: 1.0.0}",
+        "step: {name: norm-step, version: 1.0.0}",
+    )
+    with pytest.raises(PipelineError, match="derivatives/norm-step-1.0.0/"):
+        load_pipeline(shared.encode())
+    # Another version of the same step is a different derivative dataset.
+    load_pipeline(
+        PIPELINE_YAML.replace(
+            "step: {name: disc-step, version: 1.0.0}",
+            "step: {name: norm-step, version: 2.0.0}",
+        ).encode()
+    )
+    # Configured variants of one step inside one slot stay allowed.
+    variant = PIPELINE_YAML.replace(
+        f"""          image: {IMAGES["norm"]}
+""",
+        f"""          image: {IMAGES["norm"]}
+        - id: norm-variant
+          step: {{name: norm-step, version: 1.0.0}}
+          image: {IMAGES["norm"]}
+          parameters: {{seed: 3}}
+""",
+    )
+    assert "norm-variant" in variant
+    load_pipeline(variant.encode())
+
+
+def test_run_creation_refuses_a_definition_built_without_the_loader(tmp_path):
+    from orchestrator.pipeline import PipelineDefinition
+
+    env = Env(tmp_path)
+    data = yaml.safe_load(
+        PIPELINE_YAML.replace(
+            "step: {name: disc-step, version: 1.0.0}",
+            "step: {name: norm-step, version: 1.0.0}",
+        )
+    )
+    env.pipeline = PipelineDefinition(data=data, sha256="0" * 64)
+    with pytest.raises(RunRefused) as exc:
+        env.create(env.make_case())
+    assert exc.value.code == "step_shared_by_slots"
+
+
+# ------------------------------------------------- output format checks
+
+
+@pytest.mark.parametrize(
+    ("mode", "code"),
+    [
+        ("offgrid", "contract_violation_nifti_grid"),
+        ("nonbinary", "contract_violation_nifti_binary"),
+        ("truncated", "contract_violation_nifti_unreadable"),
+    ],
+)
+def test_working_grid_mask_outputs_are_format_checked(tmp_path, mode, code):
+    env = Env(tmp_path, script={"norm-step": [mode]})
+    run_id = env.create(env.make_case())
+    env.drive(run_id)
+    with env.Session() as db:
+        step = db.scalar(select(StepRun).where(StepRun.outcome == "contract_violation"))
+        assert step is not None and step.failure_code == code
+        assert "lesion_mask_mni" in step.failure_message
+        assert str(tmp_path) not in step.failure_message
+        assert (
+            db.scalar(select(Artifact.id).where(Artifact.step_run_id == step.id))
+            is None
+        )
+        assert db.get(PipelineRun, run_id).status == "failed"
+    # contract violations are never retried
+    assert [a[0] for a in env.attempts(run_id)].count("normalisation") == 1
+
+
+def test_scaled_binary_mask_is_accepted(tmp_path):
+    env = Env(tmp_path, script={"norm-step": ["scaled"]})
+    run_id = env.create(env.make_case())
+    assert env.drive(run_id) is TickResult.FINISHED
+    db, run = env.run(run_id)
+    assert run.status == "succeeded"
+    db.close()
+
+
+def test_check_output_format_rules(tmp_path, monkeypatch):
+    import gzip as _gzip
+
+    import nibabel as nib
+    import numpy as np
+
+    from orchestrator import collection
+    from orchestrator.pipeline import artefact_types
+
+    _v, types = artefact_types()
+    path = tmp_path / "x.nii.gz"
+
+    def check(type_name):
+        return collection.check_output_format(path, types[type_name], "port_a")
+
+    path.write_bytes(b"plain bytes, not gzip")
+    assert check("ct_native") is None  # no constraints in the registry
+    assert check("lesion_qc") is None  # not NIfTI
+    assert check("lesion_mask_mni")[0] == "nifti_unreadable"
+    path.write_bytes(_gzip.compress(b"gzip, but not NIfTI"))
+    assert check("lesion_mask_native")[0] == "nifti_unreadable"
+
+    # Binary-only type on any grid; a violation in a later chunk is found.
+    monkeypatch.setattr(collection, "SCAN_CHUNK_BYTES", 1000)
+    data = np.zeros((20, 30, 40), dtype=np.int16)
+    data[0, 0, 0] = 1
+    path.write_bytes(_gzip.compress(nib.Nifti1Image(data, np.eye(4)).to_bytes()))
+    assert check("lesion_mask_native") is None
+    data[19, 29, 39] = -1
+    path.write_bytes(_gzip.compress(nib.Nifti1Image(data, np.eye(4)).to_bytes()))
+    assert check("lesion_mask_native") == (
+        "nifti_binary",
+        "Output 'port_a' must contain only the values 0 and 1.",
+    )
+    floats = np.zeros((4, 4, 4), dtype=np.float32)
+    floats[1, 1, 1] = np.nan
+    path.write_bytes(_gzip.compress(nib.Nifti1Image(floats, np.eye(4)).to_bytes()))
+    assert check("lesion_mask_native")[0] == "nifti_binary"
+
+    # Grid-only type (1 mm QC grid): header checks, values are not read.
+    grid1 = contract.load_file(contract.DEFAULT_TYPES_PATH)["grids"][
+        "MNI152NLin6Asym-res1"
+    ]
+    ct = np.full(grid1["shape"], 7, dtype=np.uint8)
+    affine = np.array(grid1["affine"], dtype=float)
+    path.write_bytes(_gzip.compress(nib.Nifti1Image(ct, affine).to_bytes()))
+    assert check("ct_mni") is None
+    affine[0, 3] += 1e-3  # beyond the 1e-4 mm tolerance
+    path.write_bytes(_gzip.compress(nib.Nifti1Image(ct, affine).to_bytes()))
+    assert check("ct_mni") == (
+        "nifti_grid",
+        "Output 'port_a' is not on the MNI152NLin6Asym-res1 grid: its affine differs.",
+    )
+    path.write_bytes(
+        _gzip.compress(
+            nib.Nifti1Image(ct[..., None], np.array(grid1["affine"])).to_bytes()
+        )
+    )
+    assert check("ct_mni")[0] == "nifti_grid"  # 4-D is not the 3-D grid
 
 
 # ------------------------------------------------- real subprocess executor (POSIX)

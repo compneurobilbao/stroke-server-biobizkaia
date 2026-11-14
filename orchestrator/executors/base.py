@@ -12,6 +12,9 @@ Lifecycle::
     result = executor.collect(handle)      # outcome, outputs, step records, usage
     executor.cleanup(handle)               # remove staging; logs are kept
 
+    handle = executor.adopt(invocation)    # after a crash between submit and
+                                           # recording the handle: find the job
+
 Handles are plain JSON (``ExecutorHandle.to_dict`` / ``from_dict``) so that the
 orchestrator can store them in ``StepRun`` and call ``poll``, ``cancel``,
 ``collect`` and ``cleanup`` from another process after a restart, where the
@@ -556,6 +559,31 @@ class Executor(abc.ABC):
     @abc.abstractmethod
     def cleanup(self, handle: ExecutorHandle) -> None:
         """Remove staging and scratch space; keep logs. Idempotent."""
+
+    def adopt(self, invocation: StepInvocation) -> ExecutorHandle | None:
+        """Find the job an interrupted ``submit`` of ``invocation`` may have started.
+
+        Used by the orchestrator for a *lost submission*: the driver stopped
+        between ``submit`` returning and the handle being recorded, so the
+        attempt's work directory is in use but no handle exists. The caller
+        rebuilds the invocation with the same ``step_run_id``, ``attempt`` and
+        ``work_dir``.
+
+        Returns a handle usable with ``poll``, ``cancel``, ``collect`` and
+        ``cleanup`` when a job of exactly this attempt exists (running or
+        finished). Returns ``None`` when there is no job to adopt (never
+        started, or no longer known to the backend); the backend then removes
+        the partial staging it left, as ``cleanup`` would (logs and its own
+        records are kept). Raises ``ExecutorRefused`` when the work
+        directory belongs to another attempt or cannot be interpreted (nothing is
+        touched), and ``ExecutorError`` when the backend cannot be asked now
+        (retry later).
+
+        Backends that cannot look a job up keep this default, which raises
+        ``NotImplementedError``; the orchestrator then fails the attempt as a
+        lost submission without stopping anything.
+        """
+        raise NotImplementedError(f"executor '{self.name}' cannot adopt jobs")
 
     def wait(
         self,
