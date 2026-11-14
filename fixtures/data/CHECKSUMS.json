@@ -31,44 +31,39 @@
       "size_bytes": 352
     },
     "bundles/toy-tract-atlas/1.0.0/README.md": {
-      "payload_sha256": "0594776d1e112f68f94df0dad72fe384120a89ed15dea3ef0c49e0abbdb03fe9",
-      "sha256": "0594776d1e112f68f94df0dad72fe384120a89ed15dea3ef0c49e0abbdb03fe9",
-      "size_bytes": 695
+      "payload_sha256": "05e142015ce60095ff5d8713a4da4309973654db1b046e898851865833fb2a85",
+      "sha256": "05e142015ce60095ff5d8713a4da4309973654db1b046e898851865833fb2a85",
+      "size_bytes": 490
     },
     "bundles/toy-tract-atlas/1.0.0/bundle.yaml": {
-      "payload_sha256": "822e3524b699dca0c13b844eaa896b901f1fd4c51d1876a87aad51ffa37c1a57",
-      "sha256": "822e3524b699dca0c13b844eaa896b901f1fd4c51d1876a87aad51ffa37c1a57",
-      "size_bytes": 1362
+      "payload_sha256": "6e7529af87f08b74ac3c8ef90c1a24b8004fe068b6e1d954482fa9315832d7f9",
+      "sha256": "6e7529af87f08b74ac3c8ef90c1a24b8004fe068b6e1d954482fa9315832d7f9",
+      "size_bytes": 1262
     },
-    "bundles/toy-tract-atlas/1.0.0/streamlines.npz": {
-      "payload_sha256": "bf264d71c4fe706000a5776bac8f474fce9e5e5061135a07bb88fef5fd94b94e",
-      "sha256": "bf264d71c4fe706000a5776bac8f474fce9e5e5061135a07bb88fef5fd94b94e",
-      "size_bytes": 90004
+    "bundles/toy-tract-atlas/1.0.0/labels.txt": {
+      "payload_sha256": "bf4ce29e52be162b4a61cf24a70ac98d2ab44af9bc8b402b12ac91037dd38ec5",
+      "sha256": "bf4ce29e52be162b4a61cf24a70ac98d2ab44af9bc8b402b12ac91037dd38ec5",
+      "size_bytes": 56
     },
-    "bundles/toy-tract-atlas/1.0.0/tracts.tsv": {
-      "payload_sha256": "c7263858a04418a5e12872ed6a26fdd005c8f8b7c1f3394e527ae238a3d25e1a",
-      "sha256": "c7263858a04418a5e12872ed6a26fdd005c8f8b7c1f3394e527ae238a3d25e1a",
-      "size_bytes": 210
+    "bundles/toy-tract-atlas/1.0.0/toy_arcuate_left.tck": {
+      "payload_sha256": "6cdb4843c4742d89527e365a4682ee19960a7ace8f533d7b6788f72fc6abbd61",
+      "sha256": "6cdb4843c4742d89527e365a4682ee19960a7ace8f533d7b6788f72fc6abbd61",
+      "size_bytes": 22399
     },
-    "bundles/toy-tract-atlas/1.0.0/tracts/toy_arcuate_left.nii.gz": {
-      "payload_sha256": "72e96f35c8c778daa3c15f825eb5331b6efb48af9db7ee1cb4ea786c04f61b02",
-      "sha256": "d36bc6be403f342807920fd781234617095d1b81a0c6519914a224e98a4e1452",
-      "size_bytes": 1470
+    "bundles/toy-tract-atlas/1.0.0/toy_cc_body.tck": {
+      "payload_sha256": "aefb10e8cfb5a07bf2878f2788f0514a0456ab6809d1c38996c587c3e8c239d5",
+      "sha256": "aefb10e8cfb5a07bf2878f2788f0514a0456ab6809d1c38996c587c3e8c239d5",
+      "size_bytes": 22399
     },
-    "bundles/toy-tract-atlas/1.0.0/tracts/toy_cc_body.nii.gz": {
-      "payload_sha256": "99a4799f256bf5defaf523c01f28482be8961001507830f55b1911b0b92a548f",
-      "sha256": "93b81a6b4bd44cb403df3719e9a124492083530e09c27e9da1d2149ac1f6f017",
-      "size_bytes": 1561
+    "bundles/toy-tract-atlas/1.0.0/toy_cst_left.tck": {
+      "payload_sha256": "1c04632b1a1d709459149af3fd40a8c68b6b9ef87ca283dbb3b692341177e730",
+      "sha256": "1c04632b1a1d709459149af3fd40a8c68b6b9ef87ca283dbb3b692341177e730",
+      "size_bytes": 22399
     },
-    "bundles/toy-tract-atlas/1.0.0/tracts/toy_cst_left.nii.gz": {
-      "payload_sha256": "89a9b6c1764e6b0e2cc147e78d6afdef3a732574200347024feb05fdcb1d4c11",
-      "sha256": "20c6bc2d685ea3b330eae57575116800dcfb60e2f888d12702764fa0aab8feba",
-      "size_bytes": 1586
-    },
-    "bundles/toy-tract-atlas/1.0.0/tracts/toy_cst_right.nii.gz": {
-      "payload_sha256": "696ae7e11dbfce182f228ed7b42db4acc55e7b70e2034845ef279a1515a6f22d",
-      "sha256": "57d6f0e1d3eb0cd8d2cc6a7aa4d9a0340a0921b3c6990a3051ee6f2727c0588d",
-      "size_bytes": 1673
+    "bundles/toy-tract-atlas/1.0.0/toy_cst_right.tck": {
+      "payload_sha256": "d770133cbb86b6d1784d3bad658e9b832450f5974ec2485174a2db711478e71f",
+      "sha256": "d770133cbb86b6d1784d3bad658e9b832450f5974ec2485174a2db711478e71f",
+      "size_bytes": 22399
     },
     "cases/case-01/ct.nii.gz": {
       "payload_sha256": "333fc3fb65fd1e65d4f33c45b238b4638d46b84459cb660f7f768cebb306cd75",

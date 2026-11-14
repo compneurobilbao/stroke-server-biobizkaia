@@ -1,5 +1,0 @@
-tract	mask_file	n_streamlines
-toy_arcuate_left	tracts/toy_arcuate_left.nii.gz	60
-toy_cc_body	tracts/toy_cc_body.nii.gz	60
-toy_cst_left	tracts/toy_cst_left.nii.gz	60
-toy_cst_right	tracts/toy_cst_right.nii.gz	60

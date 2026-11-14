@@ -1,0 +1,72 @@
+contract_version: "1.0"
+kind: Step
+name: fdisconnection-stub
+version: 0.1.0
+title: Functional disconnection (stub)
+description: >-
+  CI fixture and placeholder for the functional disconnection slot. Produces a
+  deterministic synthetic map on the working grid from the lesion mask, the run seed and
+  the parcellation of a normative connectome bundle. It computes no disconnection and is
+  never offered to users as a real analysis.
+provides: functional-disconnection
+stub: true
+image:
+  repository: docker.io/compneurobilbaolab/step-fdisconnection-stub
+source_url: https://github.com/compneurobilbao/stroke-server-biobizkaia
+licence:
+  spdx: MIT
+  third_party:
+    - {name: nibabel, version: 5.3.2, spdx: MIT}
+    - {name: numpy, version: 2.2.6, spdx: BSD-3-Clause}
+
+inputs:
+  - name: lesion_mask
+    type: lesion_mask_mni
+    required: true
+    description: Binary lesion mask on the 2 mm MNI152NLin6Asym working grid.
+
+outputs:
+  - name: fdisconnection_map
+    type: fdisconnection_map
+    required: true
+    description: Synthetic map; not a measurement.
+
+parameters:
+  type: object
+  additionalProperties: false
+  properties:
+    sex_subset:
+      description: Normative participants to use (mirrors the real step's parameter; ignored by the stub).
+      enum: [all, female, male]
+      default: all
+    seed:
+      description: Seed for the synthetic map.
+      type: integer
+      minimum: 0
+      default: 0
+
+bundles:
+  - name: connectome
+    type: normative-connectome
+    version: ">=1.0.0, <2.0.0"
+    description: Any normative connectome bundle; the stub only reads parcellation/atlas.nii.gz.
+
+resources:
+  cpus: 1
+  memory_mb: 1024
+  wall_time_minutes: 5
+  scratch_mb: 64
+
+errors:
+  - code: input_missing
+    category: input_rejected
+    description: A required input was not provided.
+  - code: input_format_invalid
+    category: input_rejected
+    description: An input file does not satisfy its artefact type (format, grid, binary values).
+  - code: invalid_parameters
+    category: input_rejected
+    description: The parameters do not satisfy the step's parameter schema.
+  - code: mask_empty
+    category: input_rejected
+    description: The lesion mask has no voxels set.
