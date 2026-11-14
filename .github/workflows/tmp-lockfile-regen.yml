@@ -1,0 +1,34 @@
+name: tmp lockfile regen
+
+# TEMPORARY (card F0-32): regenerates frontend/package-lock.json with the pinned
+# @niivue/niivue dependency and uploads it as an artefact. Removed before merge.
+on:
+  push:
+    branches: [f0-32-viewer]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  regen:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-node@v4.1.0
+        with:
+          node-version: "22"
+      - run: node --version && npm --version
+      - run: npm install --save --save-exact @niivue/niivue@0.69.0
+      - run: npm ci
+      - run: git diff --stat
+      - uses: actions/upload-artifact@v4.6.0
+        with:
+          name: lockfile
+          path: |
+            frontend/package.json
+            frontend/package-lock.json
