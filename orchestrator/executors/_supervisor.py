@@ -9,7 +9,7 @@ survives a restart of the worker process. It:
 1. reads ``<state_dir>/spec.json`` (argv, cwd, env, log path, timeout, grace);
 2. starts the command in a new process group, stdout and stderr appended in
    order to one log file, stdin closed;
-3. records the child's PID and process group in ``child.json``;
+3. records the child's PID, process group and start time in ``child.json``;
 4. stops the whole group with SIGTERM, then SIGKILL after the grace period, when
    the timeout expires, when it receives SIGTERM/SIGINT, or when the executor
    creates ``cancel_requested``;
@@ -55,10 +55,10 @@ def _killpg(pgid: int, signum: int) -> None:
         pass
 
 
-def _own_start_ticks() -> int | None:
-    """This process's start time from /proc (guards against PID reuse)."""
+def _start_ticks(pid: int | str = "self") -> int | None:
+    """A process's start time from /proc (guards against PID reuse)."""
     try:
-        raw = Path("/proc/self/stat").read_text(encoding="ascii", errors="replace")
+        raw = Path(f"/proc/{pid}/stat").read_text(encoding="ascii", errors="replace")
         return int(raw.rsplit(")", 1)[-1].split()[19])
     except (OSError, IndexError, ValueError):
         return None
@@ -72,7 +72,7 @@ def run(state_dir: Path) -> int:
         state_dir / "supervisor.json",
         {
             "pid": os.getpid(),
-            "start_ticks": _own_start_ticks(),
+            "start_ticks": _start_ticks(),
             "started_at": _utc_now(),
         },
     )
@@ -121,7 +121,13 @@ def run(state_dir: Path) -> int:
         pgid = child.pid
         _write_json_atomic(
             state_dir / "child.json",
-            {"pid": child.pid, "pgid": pgid, "started_at": started_at},
+            {
+                "pid": child.pid,
+                "pgid": pgid,
+                # lets the executor verify the group leader before signalling
+                "start_ticks": _start_ticks(child.pid),
+                "started_at": started_at,
+            },
         )
 
         stop_reason = None

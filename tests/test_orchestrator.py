@@ -340,6 +340,8 @@ class FakeExecutor(Executor):
         self.canceled: list[str] = []
         self.cancel_failures = 0
         self.can_adopt = True
+        self.cancel_delay_polls = 0  # polls a canceled job needs to stop
+        self.cleaned: list[str] = []
         self.adopt_calls: list[str] = []
 
     def submit(self, invocation):
@@ -369,6 +371,11 @@ class FakeExecutor(Executor):
 
     def poll(self, handle):
         job = self.jobs[handle.external_job_id]
+        if job.get("stopping"):  # a delayed cancel takes effect after N polls
+            job["stopping"] -= 1
+            if job["stopping"]:
+                return JobStatus(JobState.RUNNING, started_at=utc_now())
+            job.update(state="done", stop="canceled", exit=None)
         if job["state"] == "running" and job["mode"] != "hang":
             out = Path(handle.data["work_dir"]) / "out"
             step = MANIFESTS[job["inv"].step_name]
@@ -386,6 +393,9 @@ class FakeExecutor(Executor):
             raise RuntimeError("executor backend unreachable")
         if job["state"] != "running":
             return False
+        if self.cancel_delay_polls:
+            job["stopping"] = self.cancel_delay_polls
+            return True
         job["state"], job["stop"] = "done", "canceled"
         job["exit"] = None
         return True
@@ -425,6 +435,7 @@ class FakeExecutor(Executor):
         )
 
     def cleanup(self, handle):
+        self.cleaned.append(self.jobs[handle.external_job_id]["inv"].step_name)
         work = Path(handle.data["work_dir"])
         for name in ("in", "out"):
             shutil.rmtree(work / name, ignore_errors=True)
@@ -1304,6 +1315,185 @@ def test_unavailable_pipeline_with_live_attempts_fails_after_the_grace(tmp_path)
         assert {n.event_type for n in db.scalars(select(Notification))} == {
             "run_failed"
         }
+
+
+def _attempt_of(env, run_id, slot_name):
+    with env.Session() as db:
+        rows = db.scalars(
+            select(StepRun)
+            .join(RunSlot, RunSlot.id == StepRun.run_slot_id)
+            .where(StepRun.pipeline_run_id == run_id, RunSlot.slot == slot_name)
+            .order_by(StepRun.attempt)
+        ).all()
+        db.expunge_all()
+        return rows
+
+
+def test_abandoned_attempt_stays_pipeline_unavailable_when_the_pipeline_returns(
+    tmp_path,
+):
+    """Review fix 1: the pipeline reappears while the abandoned job is stopping.
+    The worker that has it again must not record a cancellation (or retry)."""
+    env = Env(
+        tmp_path,
+        script={"norm-step": ["hang", "hang"]},
+        config=OrchestratorConfig(
+            poll_seconds=0, max_attempts=2, pipeline_unavailable_grace_seconds=0
+        ),
+    )
+    run_id = env.create(env.make_case())
+    for _ in range(3):
+        env.orch.tick(run_id, "task-1")
+    env.executor.cancel_delay_polls = 2  # SIGTERM grace: still stopping next tick
+    env.orch.pipelines = StaticPipelineRegistry([])
+    assert env.orch.tick(run_id, "task-1") is TickResult.CONTINUE
+    (norm,) = _attempt_of(env, run_id, "normalisation")
+    assert norm.status == "running"
+    assert norm.executor_state["abandon"]["code"] == "pipeline_unavailable"
+    assert norm.executor_state["cancel_sent"] is True
+
+    env.orch.pipelines = env.pipelines  # back, mid-cancel
+    assert env.drive(run_id) is TickResult.FINISHED
+    (norm,) = _attempt_of(env, run_id, "normalisation")  # not retried
+    assert (norm.status, norm.outcome, norm.failure_code) == (
+        "failed",
+        "failed",
+        "pipeline_unavailable",
+    )
+    assert norm.cancel_requested_at is None  # not a user cancellation
+    db, run = env.run(run_id)
+    assert run.status == "failed" and run.failure_code == "pipeline_unavailable"
+    assert run.failed_step_run_id == norm.id
+    db.close()
+    assert env.executor.cleaned.count("norm-step") == 1
+
+
+def test_user_cancel_stops_the_job_of_a_lost_submission(tmp_path):
+    """Review fix 2: a queued attempt without a handle is not just marked
+    canceled while the job a crashed driver started keeps running."""
+    env = Env(tmp_path, script={"intake-step": ["hang"]})
+    run_id = env.create(env.make_case())
+    _crash_after_submit(env, "intake-step")
+    _tick_through_crash(env, run_id)
+    with env.Session() as db:
+        cancel_run(db, run_id, env.user_id)
+        db.commit()
+    assert env.drive(run_id) is TickResult.FINISHED
+    (intake,) = _attempt_of(env, run_id, "intake")
+    assert (intake.status, intake.outcome) == ("canceled", "canceled")
+    assert intake.executor_state["adopted"] is True
+    assert "intake-step" in env.executor.canceled
+    assert "intake-step" in env.executor.cleaned
+    db, run = env.run(run_id)
+    assert run.status == "canceled"
+    db.close()
+
+
+def test_pipeline_gone_stops_the_job_of_a_lost_submission(tmp_path):
+    env = Env(
+        tmp_path,
+        script={"intake-step": ["hang"]},
+        config=OrchestratorConfig(
+            poll_seconds=0, max_attempts=2, pipeline_unavailable_grace_seconds=0
+        ),
+    )
+    run_id = env.create(env.make_case())
+    _crash_after_submit(env, "intake-step")
+    _tick_through_crash(env, run_id)
+    env.orch.pipelines = StaticPipelineRegistry([])
+    assert env.drive(run_id) is TickResult.FINISHED
+    (intake,) = _attempt_of(env, run_id, "intake")
+    assert (intake.status, intake.failure_code) == ("failed", "pipeline_unavailable")
+    assert intake.executor_state["adopted"] is True
+    assert "intake-step" in env.executor.canceled
+    assert "intake-step" in env.executor.cleaned
+    db, run = env.run(run_id)
+    assert run.failure_code == "pipeline_unavailable"
+    db.close()
+
+
+def test_missing_manifest_stops_the_job_of_a_lost_submission(tmp_path):
+    env = Env(tmp_path, script={"intake-step": ["hang"]})
+    run_id = env.create(env.make_case())
+    _crash_after_submit(env, "intake-step")
+    _tick_through_crash(env, run_id)
+    env.orch.steps = StaticStepCatalog(
+        m for name, m in MANIFESTS.items() if name != "intake-step"
+    )
+    assert env.drive(run_id) is TickResult.FINISHED
+    (intake,) = _attempt_of(env, run_id, "intake")  # not retried
+    assert (intake.status, intake.failure_code) == ("failed", "manifest_unavailable")
+    assert "intake-step" in env.executor.canceled
+    assert "intake-step" in env.executor.cleaned
+
+
+def test_adopted_job_whose_inputs_cannot_be_resolved_is_stopped_and_cleaned(
+    tmp_path, monkeypatch
+):
+    """Review fix 6: the job is recorded only to be stopped, waited for and
+    cleaned up; the attempt then fails with the resolution's code."""
+    from orchestrator.bundle_resolver import BundleError
+
+    env = Env(tmp_path, script={"intake-step": ["hang"]})
+    run_id = env.create(env.make_case())
+    _crash_after_submit(env, "intake-step")
+    _tick_through_crash(env, run_id)
+
+    def no_bundles(*_args, **_kw):
+        raise BundleError("withdrawn meanwhile")
+
+    monkeypatch.setattr(env.orch, "_mounts", no_bundles)
+    env.executor.cancel_delay_polls = 2
+    assert env.drive(run_id) is TickResult.FINISHED
+    (intake,) = _attempt_of(env, run_id, "intake")
+    assert (intake.status, intake.failure_code) == ("failed", "bundle_unavailable")
+    assert intake.executor_state["abandon"]["code"] == "bundle_unavailable"
+    assert env.executor.canceled == ["intake-step"]
+    assert env.executor.cleaned.count("intake-step") == 1
+    assert not (
+        Path(intake.executor_state["handle"]["data"]["work_dir"]) / "in"
+    ).exists()
+
+
+def test_discarded_job_is_cleaned_up_once_it_has_stopped(tmp_path):
+    """Review fix 6, other path: the attempt was canceled by the API while its
+    job was being submitted; the job stops after the tick and a later tick of
+    the run cleans it up."""
+    env = Env(
+        tmp_path,
+        script={"norm-step": ["hang"]},
+        config=OrchestratorConfig(poll_seconds=0, discard_wait_seconds=0),
+    )
+    run_id = env.create(env.make_case())
+    env.executor.cancel_delay_polls = 2
+    original = env.executor.submit
+
+    def submit_while_the_api_cancels(invocation):
+        handle = original(invocation)
+        if invocation.step_name == "intake-step":
+            with env.Session() as other:
+                other.execute(
+                    update(StepRun)
+                    .where(StepRun.id == uuid.UUID(invocation.step_run_id))
+                    .values(
+                        status="canceled",
+                        outcome="canceled",
+                        finished_at=datetime.now(timezone.utc),
+                    )
+                )
+                other.commit()
+        return handle
+
+    env.executor.submit = submit_while_the_api_cancels
+    env.orch.tick(run_id, "task-1")
+    (intake,) = _attempt_of(env, run_id, "intake")
+    assert intake.status == "canceled" and "pending_cleanup" in intake.executor_state
+    assert "intake-step" in env.executor.canceled
+    assert "intake-step" not in env.executor.cleaned
+    env.orch.tick(run_id, "task-1")  # the job has stopped meanwhile
+    (intake,) = _attempt_of(env, run_id, "intake")
+    assert "pending_cleanup" not in intake.executor_state
+    assert env.executor.cleaned == ["intake-step"]
 
 
 # ------------------------------------------------ one step identity per slot

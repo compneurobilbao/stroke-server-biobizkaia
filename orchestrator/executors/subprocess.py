@@ -36,6 +36,7 @@ identifies the attempt and the supervisor records its own PID and start time in
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import shutil
@@ -84,6 +85,7 @@ SECRET_ENV = re.compile(
 )
 
 _PACKAGE_ROOT = Path(__file__).resolve().parents[2]
+log = logging.getLogger(__name__)
 
 
 def contract_environment(invocation: StepInvocation, tmp_dir: Path) -> dict[str, str]:
@@ -331,8 +333,7 @@ class SubprocessExecutor(Executor):
             return status
         # The supervisor disappeared without a status (host restart, SIGKILL).
         child = _read_json(state / "child.json") or {}
-        if child.get("pgid"):
-            _killpg(int(child["pgid"]), signal.SIGKILL)
+        _kill_lost_group(child)
         status = {
             "returncode": None,
             "exit_code": None,
@@ -444,7 +445,11 @@ class SubprocessExecutor(Executor):
 
         ``submit`` writes ``request.json`` before it starts the supervisor, and
         the supervisor writes ``supervisor.json`` before anything else. Without
-        either record no step process was ever started.
+        a request no step process was ever started: the staging is removed.
+        With a request but neither ``supervisor.json`` nor ``status.json`` the
+        state is unknown (a supervisor of an earlier release, which did not
+        write the record, may still be running a step in this directory): the
+        directory is refused and left untouched.
         """
         work = invocation.work_dir.resolve()
         state = work / STATE_DIR
@@ -454,8 +459,10 @@ class SubprocessExecutor(Executor):
         supervisor = _read_json(state / "supervisor.json")
         status = _read_json(state / "status.json")
         if supervisor is None and status is None:
-            _remove_staging(work, ("in", "out", "tmp", "ref"))
-            return None
+            raise ExecutorRefused(
+                "no supervisor record in the work directory: whether a step runs "
+                "there cannot be established"
+            )
         supervisor = supervisor or {}
         pid = int(supervisor.get("pid", -1))
         return ExecutorHandle(
@@ -514,6 +521,31 @@ def _substitute(item: str, mapping: Mapping[str, str]) -> str:
     for key, value in mapping.items():
         item = item.replace(key, value)
     return item
+
+
+def _kill_lost_group(child: Mapping[str, Any]) -> None:
+    """SIGKILL the process group of a step whose supervisor disappeared.
+
+    The group id is the step's PID. While any member of the group exists the id
+    cannot be reused, so the only risk is a *new* process that got the same PID
+    after the whole group ended. Therefore: if a process with that PID is alive
+    it must have the recorded start time; if it cannot be verified (no record,
+    no /proc), nothing is signalled and the skip is logged.
+    """
+    pgid = child.get("pgid")
+    if not pgid:
+        return
+    pgid = int(pgid)
+    if process_alive(pgid):
+        ticks = child.get("start_ticks")
+        if ticks is None or _proc_start_ticks(pgid) != ticks:
+            log.warning(
+                "Not signalling process group %s: its leader cannot be verified "
+                "as the step (the PID may have been reused)",
+                pgid,
+            )
+            return
+    _killpg(pgid, signal.SIGKILL)
 
 
 def _killpg(pgid: int, signum: int) -> None:
