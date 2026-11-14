@@ -11,7 +11,17 @@ celery_app = Celery(
     include=["worker.tasks"],
 )
 
+# Pipeline drivers run for hours; they go to their own queue so that they never block
+# legacy ``process_study`` tasks. Only task_routes is set (no task_queues): a worker
+# started without ``-Q`` therefore keeps consuming just the default queue, and only
+# the pipeline-worker service (``-Q pipelines``) consumes this one.
+PIPELINE_QUEUE = "pipelines"
+
 celery_app.conf.update(
+    task_routes={
+        "worker.tasks.run_pipeline": {"queue": PIPELINE_QUEUE},
+        "worker.tasks.recover_pipeline_runs": {"queue": PIPELINE_QUEUE},
+    },
     task_track_started=True,
     task_serializer="json",
     result_serializer="json",

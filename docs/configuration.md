@@ -57,6 +57,30 @@ The `.env` file must not be committed. It may contain passwords, local paths or 
 | `SMTP_FROM_EMAIL` | Sender authorised by the SMTP server. | `noreply@<sender-domain>` |
 | `SMTP_USE_TLS` | Use STARTTLS before authenticating. | `false` with Mailpit |
 
+## Pipeline runs
+
+Only used when the Compose profile `pipelines` is enabled (see `docs/deployment.md`). Without the profile these variables have no effect.
+
+| Variable | Purpose | Default value |
+| --- | --- | --- |
+| `COMPOSE_PROFILES` | Set to `pipelines` to start `pipeline-worker`, `beat` and `docker-proxy` with `make up`. | unset |
+| `PIPELINES_DIR` | Directory scanned for `pipeline.yaml` inside the pipeline worker. | `/app/pipelines` |
+| `STEP_MANIFESTS_DIR` | Directory scanned for `step.yaml`. | `/app/steps` |
+| `BUNDLE_ROOT` | Reference bundle root. | `/app/data/bundles` |
+| `ORCHESTRATOR_EXECUTOR` | Default step executor: `docker` or `subprocess`. | `docker` |
+| `ORCHESTRATOR_STEP_EXECUTORS` | Per-step overrides, `step-name=executor,...`. | empty |
+| `ORCHESTRATOR_POLL_SECONDS` | Poll interval of running attempts. | `5` |
+| `ORCHESTRATOR_MAX_ATTEMPTS` | Attempts per slot per start or resume. | `2` |
+| `ORCHESTRATOR_LEASE_SECONDS` | Heartbeat age after which another task may take a run over. | `600` |
+| `ORCHESTRATOR_WORKER_CONCURRENCY` | Pipeline runs one `pipeline-worker` drives at once. | `2` |
+| `PLATFORM_VERSION` | Platform version recorded on new runs. | `0.0.0-dev` |
+| `DOCKER_PROXY_URL` | Base URL of the socket proxy. | `http://docker-proxy:2375` |
+| `DOCKER_EXECUTOR_HOST_PATH_MAP` | `worker_path=host_path[,...]`; required, see "Host path mapping" in `docs/deployment.md`. | empty |
+| `DOCKER_EXECUTOR_USER` | Numeric non-root user of step containers. | worker UID:GID |
+| `DOCKER_EXECUTOR_PIDS_LIMIT` | Maximum processes per step container. | `512` |
+| `DOCKER_EXECUTOR_PULL_MISSING` | Pull allow-listed images missing on the host. | `false` |
+| `DOCKER_EXECUTOR_ALLOW_GPUS` | Grant GPUs to step containers. | `false` |
+
 ## Initial Admin User
 
 There is no open public registration. After applying migrations, create or update the first admin with:

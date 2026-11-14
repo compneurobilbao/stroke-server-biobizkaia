@@ -68,7 +68,7 @@ flowchart LR
   Data[("data directory on the host")] -. bind mounts .-> Step
 ```
 
-Status: the executor is implemented and tested, but the worker image does not ship the orchestrator package yet; wiring it in is card F0-15. Until then the proxy is optional.
+Status: the executor is wired into the `pipeline-worker` service of the `pipelines` profile (see "Pipeline runs" below). The proxy alone is still available with `--profile docker-executor`.
 
 ### What the proxy restricts, and what it does not
 
@@ -101,6 +101,65 @@ The per-attempt directory (`work_dir`) must be on a path that exists on the Dock
 ### Tests
 
 `tests/test_docker_executor.py` covers the executor against a fake engine API. `tests/test_docker_executor_integration.py` runs the template step image end to end through a real proxy; the `docker-executor` CI job builds the image, pushes it to a throw-away local registry to obtain a digest, starts the proxy and runs it. To run it locally, start the proxy with the settings of `docker-compose.yml` on a published loopback port, push `steps/template/Dockerfile`'s image to a registry, and set `STROKE_TEST_DOCKER_PROXY_URL` and `STROKE_TEST_STEP_IMAGE`.
+
+## Pipeline runs (opt-in `pipelines` profile)
+
+Pipeline runs are executed by the orchestrator (`run_pipeline`, `recover_pipeline_runs`). They are deployed behind the Compose profile `pipelines`. Without it, `docker compose config`, `make up` and every running service are exactly the legacy stack: `api`, `worker` (default queue, `process_study`), `postgres`, `redis`, `mailpit`, `frontend`, `reverse-proxy`.
+
+Enable it by either of:
+
+```bash
+docker compose --profile pipelines up -d --build
+# or, once, in .env (then `make up` includes the profile):
+COMPOSE_PROFILES=pipelines
+```
+
+The profile adds three services:
+
+| Service | Image | Role |
+|---|---|---|
+| `pipeline-worker` | `worker/Dockerfile` (slim, no processor inside) | Celery worker consuming **only** the `pipelines` queue. Attached to the default network (PostgreSQL, Redis) and to `executor-net` (to reach `docker-proxy`). Concurrency is `ORCHESTRATOR_WORKER_CONCURRENCY` (default `2`, one run per slot). |
+| `beat` | `worker/Dockerfile` | Celery beat; every 5 minutes it enqueues `recover_pipeline_runs`. **Run exactly one instance**; do not scale it. |
+| `docker-proxy` | pinned socket proxy | See above. Also part of the `docker-executor` profile. |
+
+Queue separation: `worker.celery_app` routes `run_pipeline` and `recover_pipeline_runs` to the queue `pipelines`; every other task, including `process_study`, stays on the default queue. The legacy `worker` is started without `-Q` and keeps consuming only the default queue, so long pipeline runs cannot block legacy uploads. Messages for `pipelines` enqueued while no `pipeline-worker` runs wait in Redis until one starts.
+
+```mermaid
+flowchart LR
+  API[api] -- "process_study (default queue)" --> Worker[worker, legacy]
+  API -- "run_pipeline (pipelines queue)" --> PW[pipeline-worker]
+  Beat[beat] -- "recover_pipeline_runs" --> PW
+  PW -- "executor-net" --> Proxy[docker-proxy]
+```
+
+Mounts of `pipeline-worker`: `./data:/app/data` (cases, work directories and reference bundles under `BUNDLE_ROOT`, default `/app/data/bundles`), `./pipelines:/app/pipelines:ro` and `./steps:/app/steps:ro` (registries read from `PIPELINES_DIR` and `STEP_MANIFESTS_DIR`).
+
+### Host path mapping (required)
+
+Step containers are created by the Docker engine on the host, which resolves bind-mount sources on the host file system, not inside the worker. Set `DOCKER_EXECUTOR_HOST_PATH_MAP` to the absolute host path of `./data`:
+
+```env
+DOCKER_EXECUTOR_HOST_PATH_MAP=/app/data=/srv/stroke/data
+```
+
+If it is empty or wrong, step containers start with missing or empty inputs. The path must exist on the host, and the step user must be able to traverse its parents. Reference bundles live under the same data directory, so one mapping covers both.
+
+### Security note
+
+`docker-proxy` mounts the host Docker socket (the `:ro` flag on the socket file does not limit the API). It exposes only container and image calls, but it cannot inspect request bodies. Whoever controls `pipeline-worker` (arbitrary code in it, a compromised dependency, or access to port 2375 on `executor-net`) can create containers on the host, which is equivalent to elevated access to the host. Therefore:
+
+- keep the profile off on instances that do not run pipelines;
+- never publish the proxy port and never attach another service to `executor-net`;
+- pipelines and step manifests are mounted read-only, and the executor only starts images pinned by digest in the loaded pipelines (see the restrictions above);
+- restrict who can edit `./pipelines`, `./steps` and the worker image.
+
+### Variables
+
+All variables are listed in `.env.example` and described in `docs/configuration.md` (section "Pipeline runs"). The orchestrator ones (`PIPELINES_DIR`, `STEP_MANIFESTS_DIR`, `BUNDLE_ROOT`, `ORCHESTRATOR_*`) are defined in `docs/processing-pipeline.md`.
+
+### Validation
+
+CI runs `docker compose config` with and without the profile, and `tests/test_deploy_wiring.py` checks the queue routing and the structure of the services. Neither starts containers.
 
 ## Basic Production
 

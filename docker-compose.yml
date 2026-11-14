@@ -154,15 +154,84 @@ services:
       - frontend
       - api
 
+  # ---- Pipeline runs (card F0-15a). Everything below is opt-in: without
+  # `--profile pipelines` none of these services exists and the stack is exactly the
+  # legacy one. Enable with `COMPOSE_PROFILES=pipelines` (works with `make up`) or
+  # `docker compose --profile pipelines up -d`; see docs/deployment.md.
+
+  # Orchestrator worker: consumes ONLY the `pipelines` queue (run_pipeline and
+  # recover_pipeline_runs), so long pipeline runs never block legacy process_study
+  # uploads handled by `worker` on the default queue. It is the only service allowed
+  # to reach the docker-proxy: whoever controls it can create containers on the host.
+  pipeline-worker:
+    profiles: ["pipelines"]
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    environment: &pipeline-env
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://neuroimagen:neuroimagen@postgres:5432/neuroimagen}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+      STORAGE_ROOT: ${STORAGE_ROOT:-/app/data/studies}
+      PIPELINES_DIR: ${PIPELINES_DIR:-/app/pipelines}
+      STEP_MANIFESTS_DIR: ${STEP_MANIFESTS_DIR:-/app/steps}
+      BUNDLE_ROOT: ${BUNDLE_ROOT:-/app/data/bundles}
+      ORCHESTRATOR_EXECUTOR: ${ORCHESTRATOR_EXECUTOR:-docker}
+      ORCHESTRATOR_STEP_EXECUTORS: ${ORCHESTRATOR_STEP_EXECUTORS:-}
+      ORCHESTRATOR_POLL_SECONDS: ${ORCHESTRATOR_POLL_SECONDS:-5}
+      ORCHESTRATOR_MAX_ATTEMPTS: ${ORCHESTRATOR_MAX_ATTEMPTS:-2}
+      ORCHESTRATOR_LEASE_SECONDS: ${ORCHESTRATOR_LEASE_SECONDS:-600}
+      PLATFORM_VERSION: ${PLATFORM_VERSION:-0.0.0-dev}
+      DOCKER_PROXY_URL: ${DOCKER_PROXY_URL:-http://docker-proxy:2375}
+      DOCKER_EXECUTOR_HOST_PATH_MAP: ${DOCKER_EXECUTOR_HOST_PATH_MAP:-}
+      DOCKER_EXECUTOR_USER: ${DOCKER_EXECUTOR_USER:-}
+      DOCKER_EXECUTOR_PIDS_LIMIT: ${DOCKER_EXECUTOR_PIDS_LIMIT:-512}
+      DOCKER_EXECUTOR_PULL_MISSING: ${DOCKER_EXECUTOR_PULL_MISSING:-false}
+      DOCKER_EXECUTOR_ALLOW_GPUS: ${DOCKER_EXECUTOR_ALLOW_GPUS:-false}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      docker-proxy:
+        condition: service_started
+    volumes:
+      - ./data:/app/data
+      - ./pipelines:/app/pipelines:ro
+      - ./steps:/app/steps:ro
+    networks:
+      - default
+      - executor-net
+    command: sh -c "celery -A worker.celery_app.celery_app worker --loglevel=INFO -Q pipelines --hostname=pipelines@%h --concurrency=$${ORCHESTRATOR_WORKER_CONCURRENCY:-2}"
+    restart: unless-stopped
+
+  # Single instance only: periodic recover_pipeline_runs (routed to `pipelines`).
+  # Never scale it; a second beat would enqueue every recovery twice.
+  beat:
+    profiles: ["pipelines"]
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    environment: *pipeline-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A worker.celery_app.celery_app beat --loglevel=INFO --schedule=/tmp/celerybeat-schedule
+    restart: unless-stopped
+
   # Restricted Docker API for the `docker` step executor (card F0-14, docs/deployment.md).
-  # Off by default: start it with `docker compose --profile docker-executor up -d`.
+  # Off by default: start it with `docker compose --profile docker-executor up -d`, or
+  # as part of the pipeline stack with `--profile pipelines` (see pipeline-worker).
   # Only the API sections needed to create, start, inspect, kill, log and remove
   # containers and to inspect images are enabled; exec, volumes, networks, build,
   # swarm, secrets and the rest answer 403. The proxy does not inspect request
   # bodies, so the executor builds every container spec itself. It listens on an
   # internal network only; never publish its port.
   docker-proxy:
-    profiles: ["docker-executor"]
+    profiles: ["docker-executor", "pipelines"]
     image: tecnativa/docker-socket-proxy@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459 # v0.5.0
     environment:
       CONTAINERS: 1
@@ -195,8 +264,7 @@ services:
     restart: unless-stopped
 
 networks:
-  # Internal: no route to the outside. The worker joins it when the docker executor is
-  # wired in (card F0-15); until then only the proxy is attached.
+  # Internal: no route to the outside. Only docker-proxy and pipeline-worker join it.
   executor-net:
     internal: true
 
