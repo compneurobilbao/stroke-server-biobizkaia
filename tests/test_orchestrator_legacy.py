@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sys
 import uuid
+from datetime import datetime
 
 import pytest
 from sqlalchemy import create_engine, select
@@ -183,3 +184,40 @@ def test_mirror_failure_never_changes_the_legacy_result(legacy_env, monkeypatch)
         assert db.get(Study, study_id).status == StudyStatus.completed
         assert db.get(ProcessingJob, job_id).status == "completed"
         assert db.get(PipelineRun, study_id) is None
+
+
+def test_cancel_signal_during_the_start_mirror_cancels_as_before(
+    legacy_env, monkeypatch
+):
+    """The cancel handlers are installed before the start mirror, and the mirror lets
+    the worker's cancellation exception through, so a revoke-with-SIGTERM arriving
+    while the mirror runs cancels the study instead of leaving it 'processing'."""
+    import signal
+
+    from processor_adapter.cancellation import ProcessorCanceled
+
+    Session, make_study, _root = legacy_env
+    study_id, job_id = make_study(fail=False)
+    real = legacy.mirror_study
+    seen = []
+
+    def mirror_hit_by_sigterm(db, sid, root):
+        if not seen:
+            seen.append(signal.getsignal(signal.SIGTERM))
+            with Session() as other:  # what the cancel endpoint does before revoking
+                other.get(ProcessingJob, job_id).cancel_requested_at = datetime.utcnow()
+                other.commit()
+            raise ProcessorCanceled("Processing canceled by signal 15")
+        return real(db, sid, root)
+
+    monkeypatch.setattr(legacy, "mirror_study", mirror_hit_by_sigterm)
+    process_study.run(str(study_id), str(job_id))
+
+    assert seen and seen[0] not in (signal.SIG_DFL, signal.SIG_IGN, None)
+    assert signal.getsignal(signal.SIGTERM) is not seen[0]  # restored afterwards
+    with Session() as db:
+        study = db.get(Study, study_id)
+        assert study.status == StudyStatus.canceled
+        assert db.get(ProcessingJob, job_id).status == "canceled"
+        assert study.pdf_path is None  # the processor never ran
+        assert db.get(PipelineRun, study_id).status == "canceled"  # final mirror

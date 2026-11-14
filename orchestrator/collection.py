@@ -10,7 +10,8 @@ orchestrator only *downgrades* a ``succeeded`` or ``rejected`` attempt to
 - exit 0: every required output present (the manifest's ``required`` outputs and
   the slot's guaranteed ports whose ``when`` holds); no file in ``/out`` other
   than declared ``<port><ext>`` outputs, ``provenance.json``, ``error.json`` and
-  ``extra/``; ``provenance.json`` present, schema-valid, ``StepProvenance`` of
+  ``extra/``, and no symbolic link anywhere at the top of ``/out``
+  (a link could point to any host file); ``provenance.json`` present, schema-valid, ``StepProvenance`` of
   the step that was started, ``status: succeeded``; SHA-256 and size of every
   staged input and every output equal to the record; bundles reported equal to
   the bundles mounted.
@@ -70,7 +71,8 @@ def _violation(code: str, message: str, **kw) -> Verdict:
 
 
 def _read_record(path: Path) -> tuple[dict | None, str | None]:
-    if not path.is_file():
+    # A symlink could point anywhere on the host: never read through it.
+    if path.is_symlink() or not path.is_file():
         return None, None
     raw = path.read_bytes()
     try:
@@ -124,6 +126,10 @@ def assess(
             else None,
             error=stored_error,
         )
+    if result.outcome in (Outcome.SUCCEEDED, Outcome.REJECTED) and any(
+        (out_dir / name).is_symlink() for name in RESERVED
+    ):
+        return _violation("symlink", "Symbolic link in /out is not allowed.")
     if result.outcome is Outcome.REJECTED:
         declared = {e["code"] for e in manifest.get("errors", [])}
         if (
@@ -165,6 +171,10 @@ def _assess_success(
     outputs: dict[str, Path] = {}
     if out_dir.is_dir():
         for entry in sorted(out_dir.iterdir()):
+            if entry.is_symlink():
+                return _violation(
+                    "symlink", f"Symbolic link in /out is not allowed: {entry.name}."
+                )
             if entry.name == "extra" and entry.is_dir():
                 continue
             if entry.name in RESERVED and entry.is_file():

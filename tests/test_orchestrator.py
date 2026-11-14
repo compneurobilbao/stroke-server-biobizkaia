@@ -18,11 +18,12 @@ import textwrap
 import threading
 import time
 import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 import yaml
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, select, update
 from sqlalchemy.orm import sessionmaker
 
 from app.db.base import Base
@@ -250,9 +251,13 @@ def write_step_outputs(
             if mode == "violate" and o["required"]:
                 continue
             target = out / (o["name"] + EXT[o["type"]])
-            target.write_bytes(
-                f"{step['name']}:{o['name']}:{sorted(i['sha256'] for i in inputs)}".encode()
-            )
+            data = f"{step['name']}:{o['name']}:{sorted(i['sha256'] for i in inputs)}"
+            if mode == "symlink":  # same bytes, but /out holds a link to elsewhere
+                real = out.parent / ("elsewhere-" + target.name)
+                real.write_bytes(data.encode())
+                target.symlink_to(real)
+            else:
+                target.write_bytes(data.encode())
             produced.append(
                 {
                     "port": o["name"],
@@ -295,6 +300,7 @@ class FakeExecutor(Executor):
         self.jobs: dict[str, dict] = {}
         self.submitted: list[str] = []
         self.canceled: list[str] = []
+        self.cancel_failures = 0
 
     def submit(self, invocation):
         self.check_policy(invocation)
@@ -335,6 +341,9 @@ class FakeExecutor(Executor):
     def cancel(self, handle):
         job = self.jobs[handle.external_job_id]
         self.canceled.append(job["inv"].step_name)
+        if self.cancel_failures:
+            self.cancel_failures -= 1
+            raise RuntimeError("executor backend unreachable")
         if job["state"] != "running":
             return False
         job["state"], job["stop"] = "done", "canceled"
@@ -926,6 +935,111 @@ def test_tampered_bundle_fails_the_attempt(tmp_path, monkeypatch):
         assert step is not None and step.status == "failed"
         assert db.get(PipelineRun, run_id).status == "failed"
     assert "disc-step" not in env.executor.submitted
+
+
+def test_executor_cancel_failure_is_retried_on_later_ticks(tmp_path):
+    env = Env(tmp_path, script={"norm-step": ["hang"]})
+    env.executor.cancel_failures = 1
+    run_id = env.create(env.make_case())
+    for _ in range(5):
+        env.orch.tick(run_id, "task-1")
+    with env.Session() as db:
+        cancel_run(db, run_id, env.user_id)
+        db.commit()
+    # First tick: the executor's cancel raises; the attempt keeps running.
+    assert env.orch.tick(run_id, "task-1") is TickResult.CONTINUE
+    assert env.attempts(run_id)[-1][3] == "running"
+    with env.Session() as db:
+        step = db.scalar(select(StepRun).where(StepRun.status == "running"))
+        assert step.cancel_requested_at is not None
+        assert not step.executor_state.get("cancel_sent")
+    # Later ticks retry the cancel until it is accepted, then the run ends.
+    assert env.drive(run_id) is TickResult.FINISHED
+    assert env.executor.canceled == ["norm-step", "norm-step"]
+    db, run = env.run(run_id)
+    assert run.status == "canceled"
+    db.close()
+
+
+def test_lease_lost_during_submit_discards_the_new_job(tmp_path):
+    env = Env(tmp_path)
+    run_id = env.create(env.make_case())
+    original = env.executor.submit
+    stolen = []
+
+    def submit_then_lose_lease(invocation):
+        handle = original(invocation)
+        if not stolen:  # another task takes the run over while we submit
+            stolen.append(invocation.step_name)
+            with env.Session() as other:
+                other.execute(
+                    update(PipelineRun)
+                    .where(PipelineRun.id == run_id)
+                    .values(
+                        orchestrator_task_id="task-2",
+                        updated_at=datetime.now(timezone.utc),
+                    )
+                )
+                other.commit()
+        return handle
+
+    env.executor.submit = submit_then_lose_lease
+    assert env.orch.tick(run_id, "task-1") is TickResult.LOST
+    first = stolen[0]
+    assert env.executor.canceled == [first]  # the unrecorded job was stopped
+    with env.Session() as db:
+        orphan = db.scalar(
+            select(StepRun).where(
+                StepRun.attempt == 1, StepRun.executor_state.is_(None)
+            )
+        )
+        assert orphan is not None and orphan.status == "queued"
+    # The new owner sees a used work directory with no handle (lost submission),
+    # fails that attempt and retries it automatically; the run still succeeds.
+    assert env.drive(run_id, owner="task-2") is TickResult.FINISHED
+    db, run = env.run(run_id)
+    assert run.status == "succeeded"
+    lost = db.scalar(select(StepRun).where(StepRun.failure_code == "lost_submission"))
+    assert lost is not None
+    retry = db.scalar(
+        select(StepRun).where(
+            StepRun.run_slot_id == lost.run_slot_id, StepRun.attempt == 2
+        )
+    )
+    assert (retry.trigger, retry.status) == ("auto_retry", "succeeded")
+    db.close()
+
+
+def test_heartbeat_is_renewed_during_a_tick(tmp_path):
+    env = Env(tmp_path, config=OrchestratorConfig(poll_seconds=0, lease_seconds=600))
+    base = datetime.now(timezone.utc)
+    calls = {"n": 0}
+
+    def slow_clock():  # every clock read is 100 s later: one tick spans > lease
+        calls["n"] += 1
+        return base + timedelta(seconds=100 * calls["n"])
+
+    env.orch.clock = slow_clock
+    run_id = env.create(env.make_case())
+    assert env.orch.tick(run_id, "task-1") is TickResult.CONTINUE
+    assert calls["n"] > 6  # the tick read the clock well past the lease length
+    with env.Session() as db:
+        # The heartbeat is recent relative to the tick's own end, not its start.
+        assert stale_runs(db, 600, now=slow_clock()) == []
+
+
+@pytest.mark.skipif(os.name != "posix", reason="symbolic links need POSIX here")
+def test_symlink_in_out_is_a_contract_violation(tmp_path):
+    env = Env(tmp_path, script={"intake-step": ["symlink"]})
+    run_id = env.create(env.make_case())
+    env.drive(run_id)
+    with env.Session() as db:
+        step = db.scalar(select(StepRun).where(StepRun.outcome == "contract_violation"))
+        assert step is not None and step.failure_code == "contract_violation_symlink"
+        assert (
+            db.scalar(select(Artifact.id).where(Artifact.step_run_id == step.id))
+            is None
+        )
 
 
 # ------------------------------------------------- real subprocess executor (POSIX)

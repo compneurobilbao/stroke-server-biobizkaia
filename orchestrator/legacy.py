@@ -334,12 +334,25 @@ def _mirror_job(db, sid, slot_id, index, job, latest, jobs, rel) -> None:
             setattr(step, key, value)
 
 
-def mirror_safely(db: Session, study_id: uuid.UUID, storage_root: Path) -> bool:
-    """Mirror and commit; on any error roll back, log and return False."""
+def mirror_safely(
+    db: Session,
+    study_id: uuid.UUID,
+    storage_root: Path,
+    reraise: tuple[type[BaseException], ...] = (),
+) -> bool:
+    """Mirror and commit; on any error roll back, log and return False.
+
+    Exceptions in ``reraise`` (the worker passes its cancellation exception,
+    raised by its SIGTERM handler) are rolled back and propagated, so that a
+    cancel arriving during the mirror is handled by the legacy code as before.
+    """
     try:
         mirror_study(db, study_id, storage_root)
         db.commit()
         return True
+    except reraise:
+        db.rollback()
+        raise
     except Exception:
         db.rollback()
         log.exception("Could not mirror legacy study %s into the run tables", study_id)

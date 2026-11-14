@@ -114,6 +114,14 @@ def parse_timestamp(value: str | None) -> datetime | None:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
+class LeaseLost(Exception):
+    """Another task took the run over while this tick was working."""
+
+
+# Submission failures worth another attempt (transient); others are final.
+RETRYABLE_SUBMISSION = ("executor_error", "lost_submission")
+
+
 class TickResult(str, enum.Enum):
     CONTINUE = "continue"  # call tick again after the poll interval
     FINISHED = "finished"  # the run is final (or not drivable by this orchestrator)
@@ -238,6 +246,13 @@ class Orchestrator:
             sleep(self.config.poll_seconds)
 
     def tick(self, run_id: uuid.UUID, owner: str) -> TickResult:
+        try:
+            return self._tick(run_id, owner)
+        except LeaseLost:
+            log.warning("Run %s: lease lost by %s during a tick", run_id, owner)
+            return TickResult.LOST
+
+    def _tick(self, run_id: uuid.UUID, owner: str) -> TickResult:
         with self.session_factory() as db:
             if not self._claim(db, run_id, owner):
                 db.rollback()
@@ -281,6 +296,27 @@ class Orchestrator:
             .execution_options(synchronize_session=False)
         )
         return result.rowcount == 1
+
+    def _heartbeat(self, ctx: _Ctx) -> None:
+        """Renew the lease before and after long operations; raise ``LeaseLost``.
+
+        Called only when the session has nothing pending, so the commit writes
+        just the heartbeat. One operation that alone exceeds the lease (for
+        example a very slow image pull inside ``submit``) is detected right
+        after it returns.
+        """
+        result = ctx.db.execute(
+            update(PipelineRun)
+            .where(
+                PipelineRun.id == ctx.run.id,
+                PipelineRun.orchestrator_task_id == ctx.owner,
+            )
+            .values(updated_at=self.clock())
+            .execution_options(synchronize_session=False)
+        )
+        ctx.db.commit()
+        if result.rowcount != 1:
+            raise LeaseLost(str(ctx.run.id))
 
     def _context(self, db, run, pipeline, owner) -> _Ctx:
         db.expire_all()
@@ -549,10 +585,15 @@ class Orchestrator:
             failure_code=code,
             failure_message=message,
         )
+        if code in RETRYABLE_SUBMISSION and ctx.run.cancel_requested_at is None:
+            slot = next(s for s in ctx.slots.values() if s.id == attempt.run_slot_id)
+            if self._retries_left(ctx, slot):
+                self._new_attempt(ctx, slot, "auto_retry")
         ctx.db.commit()
 
     def _advance(self, ctx: _Ctx, attempt: StepRun) -> None:
         db, run = ctx.db, ctx.run
+        self._heartbeat(ctx)
         db.refresh(attempt)
         if attempt.status not in LIVE:
             return
@@ -574,10 +615,8 @@ class Orchestrator:
             return
         handle = ExecutorHandle.from_dict(state["handle"])
         executor = self.executors.get(handle.executor)
-        if run.cancel_requested_at is not None and attempt.cancel_requested_at is None:
-            self._cas_step(db, attempt, LIVE, cancel_requested_at=self.clock())
-            db.commit()
-            executor.cancel(handle)
+        if run.cancel_requested_at is not None and not state.get("cancel_sent"):
+            self._propagate_cancel(ctx, attempt, executor, handle, state)
         status = executor.poll(handle)
         if not status.finished:
             if attempt.status == "queued" and status.state is JobState.RUNNING:
@@ -591,6 +630,35 @@ class Orchestrator:
                 db.commit()
             return
         self._finalize(ctx, attempt, executor, handle)
+
+    def _propagate_cancel(self, ctx, attempt, executor, handle, state) -> None:
+        """Ask the executor to stop the attempt; retried on later ticks until it
+        succeeds once (``executor_state.cancel_sent``) or the attempt is final."""
+        db = ctx.db
+        if attempt.cancel_requested_at is None:
+            self._cas_step(db, attempt, LIVE, cancel_requested_at=self.clock())
+            db.commit()
+        try:
+            executor.cancel(handle)
+        except Exception:
+            log.exception("Cancel of attempt %s failed; retrying next tick", attempt.id)
+            return
+        self._cas_step(db, attempt, LIVE, executor_state={**state, "cancel_sent": True})
+        db.commit()
+
+    def _discard_handle(self, executor: Executor, handle: ExecutorHandle) -> None:
+        """Best effort: stop and clean up a job whose handle could not be recorded."""
+        try:
+            executor.cancel(handle)
+            if executor.poll(handle).finished:
+                executor.cleanup(handle)
+            else:
+                log.warning(
+                    "Unrecorded job %s is stopping; its staging is left for cleanup",
+                    handle.external_job_id,
+                )
+        except Exception:
+            log.exception("Could not discard unrecorded job %s", handle.external_job_id)
 
     def _ready(self, ctx: _Ctx, slot: RunSlot) -> bool:
         manifest = self._manifest(slot)
@@ -689,6 +757,12 @@ class Orchestrator:
         work_dir = self.store.work_dir(run.case_id, run.id, slot.slot, attempt.attempt)
         if work_dir.exists() and any(work_dir.iterdir()):
             # A previous driver crashed between submit and storing the handle.
+            # The executor interface cannot find a job by work directory, so that
+            # job cannot be stopped from here: a subprocess attempt runs to its
+            # timeout in the old directory; a docker container is named
+            # stepexec-<step run id>-a<attempt> and labelled with the step run id
+            # for an operator (follow-up: Executor.adopt). The window is the few
+            # statements between submit() returning and the handle commit.
             return self._fail_queued(
                 ctx,
                 attempt,
@@ -720,6 +794,7 @@ class Orchestrator:
             bundles=mounts,
             attempt=attempt.attempt,
         )
+        self._heartbeat(ctx)
         try:
             executor = self.executors.get(attempt.executor)
             handle = executor.submit(invocation)
@@ -730,7 +805,12 @@ class Orchestrator:
             return self._fail_queued(
                 ctx, attempt, "executor_error", "The executor could not start the step."
             )
-        self._cas_step(
+        try:
+            self._heartbeat(ctx)
+        except LeaseLost:
+            self._discard_handle(executor, handle)
+            raise
+        recorded = self._cas_step(
             db,
             attempt,
             ("queued",),
@@ -750,6 +830,10 @@ class Orchestrator:
             },
         )
         db.commit()
+        if not recorded:
+            # The attempt changed meanwhile (canceled by the API while queued):
+            # the job just started belongs to nobody.
+            self._discard_handle(executor, handle)
 
     def _mounts(
         self, db: Session, slot: RunSlot, manifest: Mapping[str, Any]
@@ -774,6 +858,8 @@ class Orchestrator:
         db = ctx.db
         slot = next(s for s in ctx.slots.values() if s.id == attempt.run_slot_id)
         result = executor.collect(handle)
+        # Files first (no database writes pending), then renew the lease, then
+        # write the attempt's final state.
         manifest = self._manifest(slot)
         state = attempt.executor_state or {}
         if manifest is None:
@@ -795,16 +881,16 @@ class Orchestrator:
                 ],
             )
         execution = result.execution
+        verdict, artifacts = self._store_step(
+            ctx, attempt, slot, manifest, verdict, result
+        )
+        self._heartbeat(ctx)
         now = self.clock()
         started = attempt.started_at or parse_timestamp(execution.get("started_at"))
         if attempt.status == "queued" and verdict.status != "canceled":
             self._cas_step(
                 db, attempt, ("queued",), status="running", started_at=started or now
             )
-
-        verdict, artifacts = self._store_step(
-            ctx, attempt, slot, manifest, verdict, result
-        )
 
         usage = result.usage
         values = dict(
@@ -852,6 +938,9 @@ class Orchestrator:
             return False
         if verdict.failure_code == "manifest_unavailable":
             return False
+        return self._retries_left(ctx, slot)
+
+    def _retries_left(self, ctx: _Ctx, slot: RunSlot) -> bool:
         # Attempts since the last start or resume: trailing auto retries plus the
         # attempt that started the streak.
         streak = 0

@@ -67,9 +67,13 @@ def process_study(self, study_id: str, job_id: str) -> None:
         record_event(db, "processing_started", study.id, {"job_id": str(job.id)})
         db.commit()
         started = True
-        # Dual write (docs/data-model.md 10.1 stage 1b); never affects the legacy result.
-        mirror_safely(db, study_uuid, settings.storage_root)
         previous_signal_handlers = _install_cancel_signal_handlers()
+        # Dual write (docs/data-model.md 10.1 stage 1b); never affects the legacy
+        # result. Installed handlers first: a cancel SIGTERM arriving during the
+        # mirror raises ProcessorCanceled, which is handled exactly as before.
+        mirror_safely(
+            db, study_uuid, settings.storage_root, reraise=(ProcessorCanceled,)
+        )
 
         processor_backend = study.processor_backend or settings.processor_backend
         adapter = create_processor_adapter(
