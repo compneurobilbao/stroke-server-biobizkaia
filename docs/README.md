@@ -13,6 +13,7 @@ This folder contains the technical and operational documentation of the platform
 - `plan/IMPLEMENTATION_PLAN.md`: implementation plan for the platform and the pipelines (English).
 - `adr/`: architecture decision records (English).
 - `contracts/`: normative step contract specification (step, pipeline, provenance, bundles, artefact types, versioning).
+- `design/`: design proposals awaiting or following owner approval (e.g. `run-plans.md`: presets, free mode, external tools per slot).
 - `architecture.md`: architecture, components, ER diagram and states.
 - `processing-pipeline.md`: API, Redis, worker, adapter, script and PDF flow.
 - `roadmap.md`: historical phase-based roadmap (superseded by the implementation plan).
