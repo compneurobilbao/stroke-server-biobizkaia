@@ -1,4 +1,4 @@
-.PHONY: up down logs test test-steps lint format migrate seed clean smoke check-docs check-secrets frontend-rebuild rebuild create-admin backup restore retention-dry-run retention-execute
+.PHONY: e2e up down logs test test-steps lint format migrate seed clean smoke check-docs check-secrets frontend-rebuild rebuild create-admin backup restore retention-dry-run retention-execute seed-implementations
 
 WORKER_REPLICAS ?=
 DAYS ?= 90
@@ -37,10 +37,10 @@ test-steps:
 	python -m pytest steps -q
 
 lint:
-	ruff check backend worker processor_adapter tests
+	ruff check backend worker processor_adapter orchestrator tests
 
 format:
-	ruff format backend worker processor_adapter tests
+	ruff format backend worker processor_adapter orchestrator tests
 
 migrate:
 	docker compose exec api alembic upgrade head
@@ -54,6 +54,12 @@ retention-dry-run:
 
 retention-execute:
 	docker compose exec api python -m app.cli.retention --days "$(DAYS)" --execute
+
+# Fill slot_implementation_settings from pipelines/<id>/registry.yaml (card F0-30a).
+# PROFILE=deployment|ci; add ARGS=--dry-run to preview, ARGS=--reset to overwrite admin changes.
+PROFILE ?= deployment
+seed-implementations:
+	docker compose exec api python -m app.cli.seed_implementations --profile "$(PROFILE)" $(ARGS)
 
 backup:
 	sh ./scripts/backup.sh
@@ -78,3 +84,8 @@ check-docs:
 
 check-secrets:
 	./scripts/check-no-secrets.sh
+
+# End-to-end test against a running instance with a public OpenNeuro T1w (CC0).
+# Needs E2E_EMAIL and E2E_PASSWORD of a dedicated test account; E2E_BASE_URL defaults to http://localhost.
+e2e:
+	python3 scripts/e2e_openneuro_t1w.py

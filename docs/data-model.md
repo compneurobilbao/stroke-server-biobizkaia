@@ -235,11 +235,12 @@ Indexes: `uq_cases_subject_label`; `ix_cases_owner_user_id_created_at` (`owner_u
 **Age band.** A module constant in `backend/app/models/case.py`:
 
 ```python
-AGE_BAND_WIDTH_YEARS = 5   # bands 0-4, 5-9, ..., 100-104
-AGE_BAND_MAX_LOWER = 100   # highest lower bound accepted
+AGE_BAND_WIDTH_YEARS = 5   # bands 0-4, 5-9, ..., 85-89
+AGE_BAND_TOP_LOWER = 90    # lower bound of the collapsed top band
+AGE_BAND_TOP_UPPER = 104   # upper bound of the collapsed top band
 ```
 
-A valid band has `lo % AGE_BAND_WIDTH_YEARS == 0`, `0 <= lo <= AGE_BAND_MAX_LOWER` and `hi == lo + AGE_BAND_WIDTH_YEARS - 1`. The API accepts only a band string; the UI may offer an age field but converts it to a band in the browser, so an exact age never reaches the server. Five-year bands match the ventricle templates of the normalisation step, which selects the template whose band contains the band's midpoint. Changing the constant later does not invalidate stored values (they remain valid band strings), but new cases would use the new width; that change needs an ADR.
+Valid bands are the 5-year bands `0-4` … `85-89` (`lo % AGE_BAND_WIDTH_YEARS == 0`, `lo < AGE_BAND_TOP_LOWER`, `hi == lo + AGE_BAND_WIDTH_YEARS - 1`) plus the collapsed top band `90-104` (section 12, decision 1). The API accepts only a band string; the UI may offer an age field but converts it to a band in the browser, so an exact age never reaches the server. Five-year bands match the ventricle templates of the normalisation step, which selects the template whose band contains the band's midpoint. Changing the constant later does not invalidate stored values (they remain valid band strings), but new cases would use the new width; that change needs an ADR.
 
 **Ownership.** One owner per case. Visibility to other users comes only from the admin role (Phase 0) and from `case_grants` (Phase 1, section 5.1).
 
@@ -394,7 +395,7 @@ One execution attempt of a selected slot (`RunProvenance.steps[]`). A retry is a
 | `cancel_requested_at` | timestamptz | N | Set by the orchestrator when it propagates a run-level cancellation to this attempt. Executors check it. |
 | `legacy_job_id` | uuid | N | Unique, FK `processing_jobs.id`. Back-filled rows only. Dropped by migration 0013. |
 
-Status and outcome are kept consistent by `ck_step_runs_outcome`:
+Status and outcome are kept consistent by `ck_step_runs_status_outcome` (the column's own enumeration check is `ck_step_runs_outcome`). Every non-null branch also requires `outcome IS NOT NULL`, so a terminal status with a null outcome is rejected:
 
 | `status` | allowed `outcome` |
 |---|---|
@@ -556,9 +557,8 @@ Append-only record of a human review of a step's output (who, when, what changed
 | `result_artifact_id` | uuid | N | FK `artifacts.id`; the edited mask (`origin = 'review'`). Required when `decision = 'edited'`. |
 | `change_summary` | jsonb | N | Structured mask difference: voxels added and removed, volumes before and after, Dice between source and result. |
 | `reason_code` | snake | N | From a fixed list defined by F1-04. |
+| `comment` | varchar(500) | N | Optional free text, at most 500 characters; the UI warns not to enter identifying information (section 12, decision 5). |
 | `created_at` | timestamptz | no | |
-
-No free-text field (open point 12.5).
 
 ### 5.4 `Prediction` (`predictions`) — F1-10
 
@@ -609,8 +609,8 @@ The clinician checklist bound to the report hash is designed by E2-6.
 | `processing_jobs` | Unchanged; authoritative until 0012. | Frozen. | Dropped. |
 | `audit_events` | Add `case_id` uuid N FK `cases.id`, `pipeline_run_id` uuid N FK `pipeline_runs.id`, both indexed; back-filled `case_id = study_id`. | New events set `case_id` (and `pipeline_run_id` when relevant), not `study_id`. | Drop `study_id`. |
 | `notifications` | Add `case_id`, `pipeline_run_id` as above; back-fill `case_id = study_id`. | New rows use `case_id`. | Drop `study_id`. |
-| `share_links` | Add `case_id` uuid FK (nullable in 0011, back-filled, then `NOT NULL`), `report_id` uuid N FK `reports.id`, both indexed. | `study_id` becomes nullable; new links set `case_id` and `report_id`. | Drop `study_id`. |
-| quota | No table. `users.storage_quota_bytes` unchanged. | Usage computed from `input_files` (4.2). | — |
+| `share_links` | Add `case_id` uuid FK (nullable in 0011 and back-filled; made `NOT NULL` in 0012 together with `study_id` becoming nullable, because legacy endpoints still create links without a case until then), `report_id` uuid N FK `reports.id`, both indexed. | `study_id` becomes nullable; new links set `case_id` and `report_id`. | Drop `study_id`. |
+| quota | No table. `users.storage_quota_bytes` unchanged. | Usage computed from `input_files` (4.2) plus every stored `artifacts` row of the owner's cases (section 12, decision 4). | — |
 | retention | No table. | `services/retention.py` operates on `cases`: candidates are non-deleted cases with `keep_forever = false`, created before the cut-off, with no active run. | — |
 
 Audit and notification rows are never deleted with a case. New audit event types introduced by the new model: `case_created`, `case_updated`, `case_deleted`, `input_file_uploaded`, `input_file_replaced`, `run_created`, `run_cancel_requested`, `run_canceled`, `run_resumed`, `run_succeeded`, `run_failed`, `artifact_downloaded`, `report_downloaded`, `implementation_setting_changed`, `bundle_registered`, `bundle_withdrawn`; later `review_recorded`, `model_version_locked`, `report_sealed`, `seal_opened`, `observation_recorded`. Details never contain file names chosen by users. Notification preferences (`notify_on_processing_completed`, `notify_on_processing_failed`) apply to `run_succeeded` and `run_failed`.
@@ -937,6 +937,14 @@ Also recorded in [ADR-0016](adr/0016-data-model-design.md).
 15. Three-stage migration with dual writing by the worker between F0-15 and F0-30, derived ids for an idempotent back-fill, and legacy jobs mapped to attempts of one `legacy` slot.
 16. Reserved roles added to a `CHECK` on `users.role` now; enforcement from F1-03.
 17. Models are bundles; `ModelVersion` is a one-to-one extension of a model bundle.
+
+Taken during implementation (F0-12):
+
+18. `share_links.case_id` stays nullable in 0011 and becomes `NOT NULL` in 0012 (section 6), because the unchanged legacy endpoints still create links for studies without a case row.
+19. The status/outcome check on `step_runs` is named `ck_step_runs_status_outcome` (the documented name collided with the column's enumeration check), and each terminal branch requires `outcome IS NOT NULL` (section 4.7).
+20. Back-filled `run_slots.implementation_id` is the legacy processor backend name normalised to kebab case, or `unknown` if nothing valid remains; `executor_state` is stored only when a worker name exists.
+21. The 0011 downgrade refuses to run if rows exist that the legacy tables cannot rebuild, including reference bundles, slot settings or non-legacy runs; `alembic -x allow_data_loss=true downgrade ...` overrides it.
+22. Back-filled rows: `failed_step_run_id` stays null; artefact and report `created_at` is the study's `updated_at`; `processor_name` and `processor_version` go into `legacy_attributes`. Legacy absolute paths are made relative to `STORAGE_ROOT` (compared both as written and resolved); the back-fill aborts listing ids if a path lies outside it.
 
 ## 12. Owner decisions on the open points (13 Nov 2026)
 

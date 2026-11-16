@@ -16,6 +16,12 @@ class AuditEvent(Base):
     study_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("studies.id"), index=True
     )
+    case_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("cases.id"), index=True
+    )
+    pipeline_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("pipeline_runs.id"), index=True
+    )
     actor_user_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id"), index=True
     )

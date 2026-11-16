@@ -1,0 +1,99 @@
+# Registry of the implementations of the stroke-lnm slots and the profiles that say which of
+# them are enabled (D15, docs/contracts/pipeline.md section 7). It mirrors pipeline.yaml
+# (`python pipelines/stroke-lnm/registry.py check` keeps the two in step) and adds what the
+# pipeline file does not carry: where each step comes from, whether it is real, a stub or
+# not available yet, and what a deployment or the CI mounts.
+#
+# Image digests are placeholders (64 zeros). A deployment fills them from the published
+# images; CI builds the steps and writes the local digests at run time
+# (`registry.py materialize`). Nothing here is ever pulled while a digest is a placeholder.
+registry_version: 1
+pipeline: {id: stroke-lnm, version: 0.1.0}
+
+# kind: real     a merged step that runs on real data
+#       stub     synthetic output, only enabled in the ci profile (and demo deployments)
+#       planned  no merged code: defined by the pipeline, never mounted
+implementations:
+  lesion-intake:
+    lesion-qc:
+      step: {name: lesion-qc, version: 1.0.0}
+      kind: real
+      image: docker.io/compneurobilbaolab/step-lesion-qc@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      source: {repository: this, dockerfile: steps/lesion-qc/Dockerfile}
+  normalisation:
+    ct-lesion-to-mni152:
+      step: {name: ct-lesion-to-mni152, version: 1.0.0}
+      kind: planned
+      image: docker.io/compneurobilbaolab/step-ct-lesion-to-mni152@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      source: {repository: compneurobilbao/CTLesion2MNI152, note: "pending review; not built by CI"}
+  functional-disconnection:
+    fdisconnection-stub:
+      step: {name: fdisconnection-stub, version: 0.1.0}
+      kind: stub
+      image: docker.io/compneurobilbaolab/step-fdisconnection-stub@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      source: {repository: this, dockerfile: steps/stubs/fdisconnection-stub/Dockerfile}
+  tract-disconnection:
+    lnm-tracts:
+      step: {name: lnm-tracts, version: 1.0.0}
+      kind: real
+      image: docker.io/compneurobilbaolab/step-lnm-tracts@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      source:
+        repository: compneurobilbao/lnm
+        commit: 123f3298b23dafa02a67b6f096790cfe3b775fb2
+        dockerfile: step/Dockerfile
+  cognet-profile:
+    cognet-stroke:
+      step: {name: cognet-stroke, version: 1.0.0}
+      kind: real
+      image: docker.io/compneurobilbaolab/step-cognet-stroke@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      source:
+        repository: compneurobilbao/COGNET-STROKE
+        commit: 566721668922ff3383cc955e5ec67b8cc223416d
+        dockerfile: step/Dockerfile
+  report:
+    research-report:
+      step: {name: research-report, version: 0.1.0}
+      kind: real
+      image: docker.io/compneurobilbaolab/step-research-report@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      source: {repository: this, dockerfile: steps/report/Dockerfile}
+    research-report-es:
+      step: {name: research-report, version: 0.1.0}
+      kind: real
+      image: docker.io/compneurobilbaolab/step-research-report@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      source: {repository: this, dockerfile: steps/report/Dockerfile}
+
+profiles:
+  # What a deployment enables. Slots absent from `enabled` are left unmounted: functional
+  # disconnection has no real implementation, normalisation is not merged. Stubs and planned
+  # entries are never enabled here.
+  deployment:
+    enabled:
+      lesion-intake: [lesion-qc]
+      tract-disconnection: [lnm-tracts]
+      cognet-profile: [cognet-stroke]
+      report: [research-report, research-report-es]
+    default:
+      lesion-intake: lesion-qc
+      tract-disconnection: lnm-tracts
+      cognet-profile: cognet-stroke
+      report: research-report
+
+  # The CI configuration: every slot that can run on fixtures is filled, with the real step
+  # where a light one exists and with the stub for functional disconnection. Normalisation
+  # stays unmounted (the CT step is not merged), so CI runs the MNI-mask input set only.
+  ci:
+    enabled:
+      lesion-intake: [lesion-qc]
+      functional-disconnection: [fdisconnection-stub]
+      tract-disconnection: [lnm-tracts]
+      cognet-profile: [cognet-stroke]
+      report: [research-report, research-report-es]
+    default:
+      lesion-intake: lesion-qc
+      functional-disconnection: fdisconnection-stub
+      tract-disconnection: lnm-tracts
+      cognet-profile: cognet-stroke
+      report: research-report
+    # The implementation the end-to-end test picks in one slot to show that a
+    # non-default choice runs.
+    alternate: {slot: report, implementation: research-report-es}

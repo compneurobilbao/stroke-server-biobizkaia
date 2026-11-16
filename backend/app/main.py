@@ -2,6 +2,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import admin, auth, notifications, shares, studies, users
+from app.api import v1
+from app.api.v1.errors import V1Error, v1_error_handler
 from app.core.config import get_settings
 from app.core.errors import ApiError, api_error_handler
 
@@ -17,6 +19,7 @@ app = FastAPI(
 )
 
 app.add_exception_handler(ApiError, api_error_handler)
+app.add_exception_handler(V1Error, v1_error_handler)
 
 app.add_middleware(
     CORSMiddleware,
@@ -28,3 +31,4 @@ app.add_middleware(
 
 for api_module in (admin, auth, notifications, users, studies, shares):
     app.include_router(api_module.router, prefix=settings.api_prefix)
+app.include_router(v1.router, prefix=settings.api_prefix)

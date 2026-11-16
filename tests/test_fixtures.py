@@ -180,9 +180,20 @@ def test_connectome_bundle_content():
 
 def test_tract_bundle_reference_disconnection():
     root = DATA / "bundles" / "toy-tract-atlas" / "1.0.0"
-    for line in (root / "tracts.tsv").read_text().splitlines()[1:]:
-        name, mask_file, _ = line.split("\t")
-        assert _check_grid_mask(root / mask_file, mni=True).sum() > 0, name
+    # Layout read by the lnm-tracts step: labels.txt and one <tract>.tck per label.
+    names = (root / "labels.txt").read_text().split()
+    assert names == sorted(set(names)) and len(names) == 4
+    on_disk = {p.name for p in root.iterdir()}
+    assert on_disk == {
+        "bundle.yaml",
+        "README.md",
+        "labels.txt",
+        *(f"{n}.tck" for n in names),
+    }
+    for name in names:
+        tck = nib.streamlines.load(str(root / f"{name}.tck"), lazy_load=False)
+        assert len(tck.streamlines) == 60, name
+        assert all(s.dtype == np.float32 and s.shape[1] == 3 for s in tck.streamlines)
     lesion = np.asarray(
         nib.load(DATA / "mni_masks" / "lesion_right_large.nii.gz").dataobj
     )

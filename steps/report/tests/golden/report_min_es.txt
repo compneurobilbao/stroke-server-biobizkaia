@@ -1,0 +1,39 @@
+Informe de investigación Análisis de lesión y desconexión, flujo de cartografía de redes de lesión en ictus
+Solo para uso en investigación, no para decisiones clínicas. Los valores de este informe son resultados de
+investigación y no se han validado para diagnóstico, pronóstico ni tratamiento. Ejecución
+6f1c2a9e-3b7d-4e21-9c55-0d8e4f7a1b23 Caso c3a81f40-5e92-4b6d-8a17-2f9b0c6d4e85 Flujo de procesamiento stroke-
+lnm 0.1.0 Versión de la plataforma 0.3.0 (tipos de artefacto 1.0.0) Conjunto de entradas mni-mask Ejecución
+creada 2026-11-13T11:00:00Z Generador del informe research-report 0.1.0 1. Resumen Sección Estado Lesión
+disponible Mapa de desconexión funcional ausente (entrada no proporcionada) Desconexión de tractos ausente
+(entrada no proporcionada) Perfil cognitivo ausente (entrada no proporcionada) Volumen de la lesión 12.128 mL,
+hemisferio: Izquierdo, 1 componente(s) conexo(s).• 2. Lesión Figura 1. Vistas ortogonales por el centroide de
+la lesión (espacio MNI152, L y R indican izquierda y derecha). Fondo: una plantilla T1 MNI152 incluida en la
+biblioteca de figuras (no la versión NLin6Asym), solo como orientación; son esperables pequeños
+desplazamientos respecto a la rejilla de la lesión. Volumen 12.128 mL (1516 vóxeles) Hemisferio Izquierdo
+(izquierdo 1516, derecho 0, línea media 0 vóxeles) Componentes conexos 1, el mayor contiene el 100.0 % del
+volumen Centroide (mm) -38.0, -15.0, 15.0 Rejilla MNI152NLin6Asym-res2, forma 91 x 109 x 91, vóxel 2.0 x 2.0 x
+2.0 mm Máscara en la rejilla de trabajo12.128 mL, 1516 vóxeles (coherente con el control de calidad) El
+control de calidad de la lesión no registró avisos. 3. Desconexión 3.1 Mapa de desconexión funcional No
+disponible: el mapa de desconexión funcional no se proporcionó a este informe, por lo que esta sección está
+vacía. 3.2 Desconexión de tractos No disponible: la tabla de desconexión de tractos no se proporcionó a este
+informe, por lo que esta sección está vacía. 4. Perfil cognitivo No disponible: el perfil cognitivo no se
+proporcionó a este informe, por lo que esta sección está vacía. 5. Procedencia Flujo stroke-lnm 0.1.0, huella
+de la definición sha256:c8feb380411aad0d2619b60361ae599eb407526546239c6be5b1f20bc996c408. Estado de la
+ejecución al construir el informe: running. 5.1 Pasos e imágenes de contenedor Ranura Estado Paso Imagen de
+contenedor (con huella) Software lesion-intake selected lesion-qc 1.0.0 docker.io/compneurobilbaolab/step-
+lesion- qc@sha256:cdaa743124272cc44e7eee7 deac206d4f413f799fd2fd480085def3b5 81aa344 nibabel 5.2.1, compneuro-
+step- sdk 1.0.0 normalisationskipped (condition_false) - - - functional- disconnection unavailable
+(no_implementation) - - - tract- disconnection selected lnm-tracts 1.0.0 docker.io/compneurobilbaolab/step-
+lnm- tracts@sha256:416b7a381284de83b86 f811b915af688143d974508d623b0d79d2 b6b4d56a9b5 MRtrix3 3.0.4,
+compneuro-step- sdk 1.0.0 cognitive- profile skipped (upstream_absent) - - - report selected research- report
+0.1.0 docker.io/compneurobilbaolab/step- research- report@sha256:43199ac0a3fd5c92e41
+b6db66eb06d2015c87231c08c3f2877102 dddabfbc9ad 5.2 Paquetes de referencia Paquete VersiónHuella del contenido
+tracts (hcp1065-tracts)1.0.0 sha256:c7e0e0a7664ec23a3958c9c76e4352460b31e017c232f90baa43354bed68d75a 5.3
+Artefactos leídos por este informe Entrada Tipo SHA-256 Bytes cognet_profile cognet_profile no proporcionado -
+ct_mni ct_mni no proporcionado - fdisconnection_mapfdisconnection_mapno proporcionado - lesion_mask
+lesion_mask_mni7120e719b6659b5a9a900a90794494a6f21c69a065e45769411237520209e ade 1210 lesion_qc lesion_qc
+c537306779f57d9fd5dc718f4e721849df2d06fd7a1c45c1062340b56a7f61 60 1261 run_provenance run_provenance
+6bec65b148fb7bbfb23611ee58ec9a9deed7d4b619d6f3d5bedc51546aa56 c02 7325
+tract_disconnectiontract_disconnectionno proporcionado - 6. Notas Este documento es solo para uso en
+investigación, no para decisiones clínicas. El contenido legible por máquina de este informe está en
+report.json; sus bytes son la base del sellado. • •

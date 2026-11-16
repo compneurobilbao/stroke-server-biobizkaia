@@ -84,6 +84,95 @@ jobs:
       - name: Postgres-marked tests (pytest -m postgres)
         run: PYTHONPATH=.:backend pytest tests -m postgres -v
 
+  tests-postgres:
+    name: API and orchestrator tests on PostgreSQL
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        # Same major version as docker-compose.yml
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: tests
+          POSTGRES_USER: tests
+          POSTGRES_PASSWORD: tests
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tests -d tests"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # tests/pgdb.py migrates a template database with Alembic once, then clones one
+      # database per test; the user is a superuser, so it may create databases.
+      TEST_DB: postgres
+      TEST_POSTGRES_URL: postgresql+psycopg://tests:tests@localhost:5432/tests
+      CELERY_BROKER_URL: memory://
+      CELERY_RESULT_BACKEND: cache+memory://
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-python@v5.3.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
+      - name: Selected suites and lock concurrency tests on PostgreSQL 16
+        run: |
+          PYTHONPATH=.:backend pytest -v -ra             tests/test_api_v1.py             tests/test_api_v1_hardening.py             tests/test_orchestrator.py             tests/test_orchestrator_legacy.py             tests/test_data_model.py             tests/test_bundles.py             tests/test_seed_implementations.py             tests/test_postgres_concurrency.py
+
+  docker-executor:
+    name: Docker executor integration (socket proxy)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      registry:
+        image: registry:2
+        ports:
+          - 5000:5000
+    env:
+      # Keep in sync with the docker-proxy service in docker-compose.yml
+      PROXY_IMAGE: tecnativa/docker-socket-proxy@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459
+      STEP_TAG: localhost:5000/ci/template-step:ci
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-python@v5.3.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
+      - name: Build the template step image and push it to the local registry
+        run: |
+          docker build -f steps/template/Dockerfile -t "$STEP_TAG" .
+          docker push "$STEP_TAG"
+          ref="$(docker image inspect "$STEP_TAG" --format '{{index .RepoDigests 0}}')"
+          echo "Pinned reference: $ref"
+          echo "STROKE_TEST_STEP_IMAGE=$ref" >> "$GITHUB_ENV"
+      - name: Start the restricted socket proxy
+        run: |
+          docker run -d --name docker-proxy             -p 127.0.0.1:2375:2375             -v /var/run/docker.sock:/var/run/docker.sock:ro             -e CONTAINERS=1 -e IMAGES=1 -e POST=1 -e DELETE=1             "$PROXY_IMAGE"
+          for _ in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:2375/_ping && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:2375/_ping
+          echo "STROKE_TEST_DOCKER_PROXY_URL=http://127.0.0.1:2375" >> "$GITHUB_ENV"
+      - name: Proxy refuses what the executor does not need
+        run: |
+          code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:2375/volumes)"
+          test "$code" = 403
+          code="$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:2375/networks/create)"
+          test "$code" = 403
+      - name: Docker executor tests (pytest)
+        run: PYTHONPATH=.:backend pytest tests/test_docker_executor.py tests/test_docker_executor_integration.py -v -rs
+      - name: Proxy log
+        if: failure()
+        run: docker logs docker-proxy
+
   frontend:
     name: Frontend typecheck, lint, test and build
     runs-on: ubuntu-24.04
@@ -108,6 +197,77 @@ jobs:
       - name: Build
         run: npm run build
 
+  frontend-e2e:
+    # Mocked API: seconds, no backend. The same wizard against the real Compose stack is the
+    # `e2e-real-stack` workflow (.github/workflows/e2e-real-stack.yml).
+    name: Frontend Playwright (mocked API)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    needs: frontend
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.playwright-browsers
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-node@v4.1.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Playwright browser cache
+        uses: actions/cache@v4.2.0
+        with:
+          path: ${{ env.PLAYWRIGHT_BROWSERS_PATH }}
+          key: playwright-chromium-1.56.1-${{ runner.os }}
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+      - name: Build
+        run: npm run build
+      - name: Playwright tests (API mocked in the browser)
+        run: npx playwright test --project=mocked
+      - name: Upload report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4.6.0
+        with:
+          name: playwright-report
+          path: frontend/playwright-report
+          retention-days: 7
+
+  bids-validator:
+    name: BIDS validator on produced case trees
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      # Pinned: Deno runtime and the BIDS validator release published on JSR.
+      DENO_VERSION: "2.5.6"
+      BIDS_VALIDATOR_VERSION: "3.0.2"
+      BIDS_TREE_EXPORT: ${{ github.workspace }}/bids-export
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-python@v5.3.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
+      - uses: denoland/setup-deno@v2.0.3
+        with:
+          deno-version: ${{ env.DENO_VERSION }}
+      - name: Build a synthetic case tree (raw inputs, two step derivatives, run provenance)
+        run: PYTHONPATH=.:backend pytest tests/test_bids.py -k test_export_tree_for_bids_validator -v
+      - name: Validate the raw and derivative datasets
+        run: |
+          status=0
+          for d in bids-export/*/rawdata bids-export/*/runs/*/derivatives/*; do
+            echo "== $d"
+            deno run -A "jsr:@bids/validator@${BIDS_VALIDATOR_VERSION}" "$d" || status=1
+          done
+          exit $status
+
   repo-checks:
     name: Docs and secrets checks
     runs-on: ubuntu-24.04
@@ -116,6 +276,12 @@ jobs:
       - uses: actions/checkout@v4.2.2
       - run: make check-docs
       - run: make check-secrets
+      - name: Compose files are valid (legacy stack and pipelines profile)
+        run: |
+          docker compose config -q
+          docker compose --profile pipelines config -q
+          # The legacy stack must not contain any pipeline service.
+          ! docker compose config --services | grep -E '^(pipeline-worker|beat|docker-proxy)$'
 
   gitleaks:
     name: Gitleaks scan
@@ -151,6 +317,8 @@ jobs:
             dockerfile: backend/Dockerfile
           - name: frontend
             dockerfile: frontend/Dockerfile
+          - name: worker
+            dockerfile: worker/Dockerfile
     steps:
       - uses: actions/checkout@v4.2.2
       - uses: docker/setup-buildx-action@v3.8.0

@@ -49,8 +49,24 @@ jobs:
         run: |
           python contracts/validate.py --kind step steps/template/step.yaml
           python contracts/validate.py --kind step steps/lesion-qc/step.yaml
+      - name: Research report step dependencies (WeasyPrint system libraries, pinned packages)
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends             libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0 fonts-dejavu-core
+          pip install -r steps/report/requirements-step.txt pypdf==5.1.0
+      - name: Research report step manifest is valid
+        run: python contracts/validate.py --kind step steps/report/step.yaml
       - name: Tests (pytest)
+        env:
+          REPORT_ACTUAL_DIR: ${{ runner.temp }}/report-actual
         run: python -m pytest steps -q
+      - name: Keep the report PDFs and text of the test runs
+        if: always()
+        uses: actions/upload-artifact@v4.6.0
+        with:
+          name: research-report-test-outputs
+          path: ${{ runner.temp }}/report-actual
+          if-no-files-found: ignore
 
   template-container:
     name: Template step under Docker and Apptainer
@@ -318,5 +334,138 @@ jobs:
         if: always()
         with:
           name: lesion-qc-step-outputs
+          path: artifacts/
+          if-no-files-found: warn
+
+  report-container:
+    name: Research report step under Docker and Apptainer
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      IMAGE: research-report-step:ci
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-python@v5.3.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: steps/sdk/requirements-image.txt
+      - name: Install SDK (host side, for the reference-test runner and validator)
+        run: |
+          pip install -r steps/sdk/requirements-image.txt scipy==1.14.1 pypdf==5.1.0
+          pip install --no-deps -e steps/sdk
+
+      - name: Generate the synthetic reference dataset
+        run: python steps/report/tests/make_reference.py
+
+      - name: Build the step image
+        run: docker build -f steps/report/Dockerfile -t "$IMAGE" .
+
+      - name: Image size and checks (mount points, manifest location, file permissions)
+        run: |
+          docker image ls "$IMAGE" --format 'image size: {{.Size}}' | tee -a "$GITHUB_STEP_SUMMARY"
+          docker run --rm --entrypoint /bin/sh "$IMAGE" -c '
+            set -eu
+            test -x /usr/local/bin/run
+            test -r /opt/step/step.yaml
+            for d in /in /out /ref /tmp; do test -d "$d"; test -z "$(ls -A "$d")"; done
+            # nothing in the step directories may be unreadable by an arbitrary user
+            test -z "$(find /opt/step /usr/local/bin/run -not -perm -o=r)"
+          '
+          # the manifest is read from the image, as the registry will do
+          docker run --rm --entrypoint cat "$IMAGE" /opt/step/step.yaml > "$RUNNER_TEMP/step-from-image.yaml"
+          cmp "$RUNNER_TEMP/step-from-image.yaml" steps/report/step.yaml
+
+      - name: Reference test under Docker (contract section 6 flags, arbitrary UID)
+        run: |
+          mkdir -p artifacts
+          stroke-step-reftest --step-dir steps/report --mode docker --image "$IMAGE" \
+            --workdir "$RUNNER_TEMP/docker-run" --save-provenance artifacts/provenance-docker.json
+
+      - name: Validate manifest, provenance and outputs with contracts/validate.py (Docker run)
+        run: |
+          python contracts/validate.py steps/report/step.yaml artifacts/provenance-docker.json
+          cat artifacts/provenance-docker.json
+          cp "$RUNNER_TEMP/docker-run/out/report_json.json" "$RUNNER_TEMP/docker-run/out/report_pdf.pdf" artifacts/
+
+      - name: Container report.json equals the golden file and the PDF text matches (Docker run)
+        run: |
+          cmp artifacts/report_json.json steps/report/tests/golden/report_full_en.json
+          python steps/report/tests/report_pdftext.py artifacts/report_pdf.pdf steps/report/tests/golden/report_full_en.txt en
+
+      - name: Rejection path under Docker (exit code 10 and error.json)
+        run: |
+          work="$RUNNER_TEMP/docker-reject"
+          mkdir -p "$work/in" "$work/out"
+          chmod 777 "$work/out"
+          echo '{}' > "$work/in/params.json"
+          # no required input staged: the SDK must reject the run
+          set +e
+          docker run --rm --read-only --user 12345:12345 --cap-drop ALL \
+            --security-opt no-new-privileges --network none --tmpfs /tmp:rw,mode=1777 \
+            -v "$work/in:/in:ro" -v "$work/out:/out" -e HOME=/tmp -e TMPDIR=/tmp -e TZ=UTC \
+            -e STEP_CPUS=1 --entrypoint /usr/local/bin/run "$IMAGE" \
+            --in /in --out /out --params /in/params.json
+          code=$?
+          set -e
+          echo "exit code: $code"
+          test "$code" -eq 10
+          python contracts/validate.py steps/report/step.yaml "$work/out/provenance.json" "$work/out/error.json"
+          cp "$work/out/error.json" artifacts/error-docker.json
+
+      - name: Install Apptainer (official release package)
+        run: |
+          deb="apptainer_${APPTAINER_VERSION}_amd64.deb"
+          curl -sSfL -o "$RUNNER_TEMP/$deb" \
+            "https://github.com/apptainer/apptainer/releases/download/v${APPTAINER_VERSION}/${deb}"
+          echo "${APPTAINER_DEB_SHA256}  $RUNNER_TEMP/$deb" | sha256sum -c -
+          sudo apt-get update -q
+          sudo apt-get install -y -q "$RUNNER_TEMP/$deb"
+          # Ubuntu 24.04 restricts unprivileged user namespaces, which Apptainer needs
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          apptainer --version
+
+      - name: Build the SIF from the Docker image with the step's definition file
+        run: |
+          sudo apptainer build --build-arg IMAGE="$IMAGE" "$RUNNER_TEMP/step.sif" steps/report/Apptainer.def
+          sudo chown "$(id -u):$(id -g)" "$RUNNER_TEMP/step.sif"
+          sha256sum "$RUNNER_TEMP/step.sif"
+
+      - name: Reference test under Apptainer (--containall --cleanenv --no-home)
+        run: |
+          stroke-step-reftest --step-dir steps/report --mode apptainer --sif "$RUNNER_TEMP/step.sif" \
+            --workdir "$RUNNER_TEMP/apptainer-run" --save-provenance artifacts/provenance-apptainer.json
+
+      - name: Validate the Apptainer run with contracts/validate.py
+        run: python contracts/validate.py steps/report/step.yaml artifacts/provenance-apptainer.json
+
+      - name: Docker and Apptainer report.json are identical
+        run: |
+          cmp "$RUNNER_TEMP/docker-run/out/report_json.json" "$RUNNER_TEMP/apptainer-run/out/report_json.json"
+          python steps/report/tests/report_pdftext.py "$RUNNER_TEMP/apptainer-run/out/report_pdf.pdf" steps/report/tests/golden/report_full_en.txt en
+          python - <<'PY'
+          import json
+          a = json.load(open("artifacts/provenance-docker.json"))
+          b = json.load(open("artifacts/provenance-apptainer.json"))
+          out = lambda p: {o["port"]: o["sha256"] for o in p["outputs"] if o["port"] == "report_json"}
+          assert out(a) == out(b), "report_json hash differs between runtimes"
+          assert a["inputs"] == b["inputs"], "input hashes differ between runtimes"
+          PY
+
+      - name: Publish the validated provenance
+        if: always()
+        run: |
+          {
+            echo "### Validated step provenance (research-report step, Docker run)"
+            echo
+            echo '```json'
+            cat artifacts/provenance-docker.json 2>/dev/null || echo "not produced"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4.6.0
+        if: always()
+        with:
+          name: research-report-step-outputs
           path: artifacts/
           if-no-files-found: warn

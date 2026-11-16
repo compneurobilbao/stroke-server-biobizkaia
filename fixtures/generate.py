@@ -10,7 +10,7 @@ access and no third-party data. Output tree::
     mni_masks/<name>.nii.gz                lesion_mask_mni
     mni_masks/index.tsv                    volume and side of every mask
     bundles/toy-normative-connectome/1.0.0/   (bundle.yaml + files)
-    bundles/toy-tract-atlas/1.0.0/            (bundle.yaml + files)
+    bundles/toy-tract-atlas/1.0.0/            (bundle.yaml, labels.txt, <tract>.tck)
     CHECKSUMS.json                         file and payload SHA-256 of everything
 """
 
@@ -19,8 +19,10 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+import nibabel as nib
 import numpy as np
 import yaml
+from nibabel.streamlines import TckFile, Tractogram
 
 from . import phantom
 from .io import (
@@ -300,52 +302,50 @@ def _to_voxel(points: np.ndarray) -> np.ndarray:
     return np.rint((points - MNI2_AFFINE[:3, 3]) / np.diag(MNI2_AFFINE)[:3]).astype(int)
 
 
+def _nudge_off_voxel_boundaries(points: np.ndarray) -> np.ndarray:
+    """Move vertices lying within 0.05 voxel of a rounding tie, so that no consumer
+    (numpy rounding here, MRtrix3 ``tckedit -exclude`` in the step) can disagree on a tie."""
+    vox = (points - MNI2_AFFINE[:3, 3]) / np.diag(MNI2_AFFINE)[:3]
+    frac = vox - np.floor(vox)
+    shift = np.where(np.abs(frac - 0.5) < 0.05, 0.1, 0.0) * np.diag(MNI2_AFFINE)[:3]
+    return points + shift
+
+
+def write_tck(path: Path, lines: list[np.ndarray]) -> None:
+    """Write streamlines as an MRtrix ``.tck`` file (header without timestamp: deterministic)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    TckFile(Tractogram(streamlines=lines, affine_to_rasmm=np.eye(4))).save(str(path))
+
+
 def make_tract_bundle(out: Path) -> None:
     root = out / "bundles" / "toy-tract-atlas" / BUNDLE_VERSION
     rng = np.random.default_rng([SEED, 3])
     t = np.linspace(0.0, 1.0, N_POINTS)[:, None]
-    all_pts, offsets, tract_of = [], [0], []
-    rows = ["tract\tmask_file\tn_streamlines"]
-    for ti, (name, ctrl) in enumerate(sorted(TRACTS.items())):
-        p0, p1, p2 = (np.array(p, float) for p in ctrl)
-        voxels = np.zeros(MNI2_SHAPE, dtype=np.uint8)
+    names = sorted(TRACTS)
+    for name in names:
+        p0, p1, p2 = (np.array(p, float) for p in TRACTS[name])
+        lines = []
         for _ in range(N_STREAMLINES):
             jit = rng.normal(0.0, 2.5, (3, 3))
             a, b, c = p0 + jit[0], p1 + 2 * jit[1], p2 + jit[2]
             line = (1 - t) ** 2 * a + 2 * (1 - t) * t * b + t**2 * c
-            line = np.round(line, 2).astype(np.float32)
-            all_pts.append(line)
-            offsets.append(offsets[-1] + N_POINTS)
-            tract_of.append(ti)
-            voxels[tuple(_to_voxel(line).T)] = 1
-        write_nifti_gz(
-            root / "tracts" / f"{name}.nii.gz", voxels, MNI2_AFFINE, mni=True
-        )
-        rows.append(f"{name}\ttracts/{name}.nii.gz\t{N_STREAMLINES}")
-    write_text(root / "tracts.tsv", "\n".join(rows) + "\n")
-    write_npz(
-        root / "streamlines.npz",
-        points=np.concatenate(all_pts),
-        offsets=np.array(offsets, dtype=np.int64),
-        tract_index=np.array(tract_of, dtype=np.int16),
-        tract_names=np.array(sorted(TRACTS)),
-    )
+            line = _nudge_off_voxel_boundaries(np.round(line, 2)).astype(np.float32)
+            lines.append(line)
+        write_tck(root / f"{name}.tck", lines)
+    write_text(root / "labels.txt", "\n".join(names) + "\n")
     write_text(
         root / "README.md",
         """# Toy tract atlas (synthetic)
 
 Four synthetic tracts, defined as bundles of curved streamlines in MNI152NLin6Asym
-millimetre coordinates. Placeholder layout until the tract-wise disconnection step
-fixes the real one.
+millimetre coordinates, in the layout read by the tract-wise disconnection step
+(`lnm-tracts`):
 
-- `tracts.tsv`: `tract`, `mask_file`, `n_streamlines`.
-- `tracts/<tract>.nii.gz`: binary voxelisation of the tract on the 2 mm working grid.
-- `streamlines.npz`: `points` float32 (N, 3) concatenated streamlines; `offsets` int64
-  (S + 1), streamline s is `points[offsets[s]:offsets[s+1]]`; `tract_index` int16 (S)
-  indexes `tract_names` (sorted tract names).
+- `labels.txt`: one tract name per line (the order of the output table);
+- `<tract name>.tck`: the streamlines of that tract (MRtrix3 format, float32), 60 each.
 
 Tract disconnection of a lesion = fraction of a tract's streamlines with at least one
-point inside the lesion mask.
+vertex inside the lesion mask.
 """,
     )
     finish_bundle(
@@ -358,7 +358,8 @@ point inside the lesion mask.
             "type": "tract-atlas",
             "title": "Toy tract atlas (synthetic)",
             "description": (
-                "Four synthetic streamline bundles with voxel masks. For CI and demos only."
+                "Four synthetic streamline bundles (labels.txt and one .tck per tract). "
+                "For CI and demos only."
             ),
             "synthetic": True,
             "licence": {
@@ -369,6 +370,7 @@ point inside the lesion mask.
             "metadata": {
                 "n_tracts": len(TRACTS),
                 "n_streamlines_per_tract": N_STREAMLINES,
+                "layout": "labels.txt + <tract>.tck",
             },
         },
     )
@@ -376,11 +378,12 @@ point inside the lesion mask.
 
 def tract_disconnection(root: Path, lesion: np.ndarray) -> dict[str, float]:
     """Reference tract disconnection of a working-grid lesion mask (for tests)."""
-    z = np.load(root / "streamlines.npz")
-    pts, off, idx, names = z["points"], z["offsets"], z["tract_index"], z["tract_names"]
-    hit = lesion[tuple(_to_voxel(pts).T)] > 0
-    per_line = np.add.reduceat(hit.astype(int), off[:-1]) > 0
-    return {str(n): float(per_line[idx == k].mean()) for k, n in enumerate(names)}
+    out = {}
+    for name in (root / "labels.txt").read_text(encoding="utf-8").split():
+        tck = nib.streamlines.load(str(root / f"{name}.tck"), lazy_load=False)
+        hit = [bool((lesion[tuple(_to_voxel(s).T)] > 0).any()) for s in tck.streamlines]
+        out[name] = float(np.mean(hit))
+    return out
 
 
 # --- driver ---------------------------------------------------------------------

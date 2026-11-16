@@ -4,8 +4,15 @@ from pathlib import Path
 
 from processor_adapter import CompneuroAnatprocAdapter, ProcessorAdapter
 from processor_adapter.artifacts import write_outputs_zip, write_technical_pdf
-from processor_adapter.nifti_renderer import build_slicer_command, find_nifti_files, render_nifti_outputs
-from processor_adapter.technical_pdf_report import TechnicalReportMetadata, write_technical_pdf_report
+from processor_adapter.nifti_renderer import (
+    build_slicer_command,
+    find_nifti_files,
+    render_nifti_outputs,
+)
+from processor_adapter.technical_pdf_report import (
+    TechnicalReportMetadata,
+    write_technical_pdf_report,
+)
 
 
 def test_adapter_detects_generated_pdf(tmp_path):
@@ -15,7 +22,9 @@ def test_adapter_detects_generated_pdf(tmp_path):
     input_dir.mkdir()
     (input_dir / "study.nii").write_text("dummy", encoding="utf-8")
     script = Path("external_processor/dummy_processor.py").resolve()
-    adapter = ProcessorAdapter(f"python {script} --input {{input_dir}} --output {{output_dir}} --study-id {{study_id}} --sleep 0")
+    adapter = ProcessorAdapter(
+        f"python {script} --input {{input_dir}} --output {{output_dir}} --study-id {{study_id}} --sleep 0"
+    )
 
     result = adapter.run(input_dir, output_dir, "abc", logs_dir)
 
@@ -32,7 +41,9 @@ def test_adapter_reports_failed_script(tmp_path):
     logs_dir = tmp_path / "logs"
     input_dir.mkdir()
     script = Path("external_processor/dummy_processor.py").resolve()
-    adapter = ProcessorAdapter(f"python {script} --input {{input_dir}} --output {{output_dir}} --study-id {{study_id}} --sleep 0 --fail")
+    adapter = ProcessorAdapter(
+        f"python {script} --input {{input_dir}} --output {{output_dir}} --study-id {{study_id}} --sleep 0 --fail"
+    )
 
     result = adapter.run(input_dir, output_dir, "abc", logs_dir)
 
@@ -60,7 +71,9 @@ def test_compneuro_adapter_detects_preproc_outputs(tmp_path):
     anat_dir = data_dir / "sub-O01" / "anat"
     anat_dir.mkdir(parents=True)
     (anat_dir / "sub-O01_T1w.nii.gz").write_bytes(b"nifti")
-    (data_dir / "participants.tsv").write_text("participant_id\nsub-O01\n", encoding="utf-8")
+    (data_dir / "participants.tsv").write_text(
+        "participant_id\nsub-O01\n", encoding="utf-8"
+    )
     output_dir = tmp_path / "output"
     logs_dir = tmp_path / "logs"
     runtime_project_dir = tmp_path / "runtime_project"
@@ -147,9 +160,16 @@ def test_find_nifti_files_only_returns_nifti_from_preproc(tmp_path):
 
 
 def test_build_slicer_command_uses_configured_renderer(tmp_path):
-    command = build_slicer_command("slicer", tmp_path / "input.nii.gz", tmp_path / "output.png")
+    command = build_slicer_command(
+        "slicer", tmp_path / "input.nii.gz", tmp_path / "output.png"
+    )
 
-    assert command == ["slicer", str(tmp_path / "input.nii.gz"), "-a", str(tmp_path / "output.png")]
+    assert command == [
+        "slicer",
+        str(tmp_path / "input.nii.gz"),
+        "-a",
+        str(tmp_path / "output.png"),
+    ]
 
 
 def test_render_nifti_outputs_uses_runner_without_requiring_fsl(tmp_path):
@@ -162,7 +182,9 @@ def test_render_nifti_outputs_uses_runner_without_requiring_fsl(tmp_path):
         Path(args[3]).write_bytes(_png_bytes())
         return type("Completed", (), {"returncode": 0, "stderr": ""})()
 
-    rendered = render_nifti_outputs(preproc_dir, tmp_path / "output" / "rendered_png", runner=fake_runner)
+    rendered = render_nifti_outputs(
+        preproc_dir, tmp_path / "output" / "rendered_png", runner=fake_runner
+    )
 
     assert len(rendered) == 1
     assert rendered[0].success is True
@@ -177,7 +199,9 @@ def test_render_nifti_outputs_records_failed_render(tmp_path):
     def fake_runner(args, **kwargs):
         return type("Completed", (), {"returncode": 2, "stderr": "forced"})()
 
-    rendered = render_nifti_outputs(preproc_dir, tmp_path / "rendered_png", runner=fake_runner)
+    rendered = render_nifti_outputs(
+        preproc_dir, tmp_path / "rendered_png", runner=fake_runner
+    )
 
     assert rendered[0].success is False
     assert rendered[0].error_message == "slicer exited with code 2"
@@ -246,8 +270,18 @@ def _png_bytes() -> bytes:
     height = 2
     raw_rows = b"\x00\xff\x00\x00\x00\xff\x00" * height
     ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
-    return b"\x89PNG\r\n\x1a\n" + _chunk(b"IHDR", ihdr) + _chunk(b"IDAT", zlib.compress(raw_rows)) + _chunk(b"IEND", b"")
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + _chunk(b"IHDR", ihdr)
+        + _chunk(b"IDAT", zlib.compress(raw_rows))
+        + _chunk(b"IEND", b"")
+    )
 
 
 def _chunk(kind: bytes, data: bytes) -> bytes:
-    return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+    return (
+        struct.pack(">I", len(data))
+        + kind
+        + data
+        + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+    )

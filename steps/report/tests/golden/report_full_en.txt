@@ -1,0 +1,48 @@
+Research report Lesion and disconnection analysis, stroke lesion-network mapping pipeline For research use
+only, not for clinical decisions. The values in this report are research outputs and have not been validated
+for diagnosis, prognosis or treatment. Run 6f1c2a9e-3b7d-4e21-9c55-0d8e4f7a1b23 Case
+c3a81f40-5e92-4b6d-8a17-2f9b0c6d4e85 Pipeline stroke-lnm 0.1.0 Platform version 0.3.0 (artefact types 1.0.0)
+Input set mni-mask Run created 2026-11-13T11:00:00Z Report generator research-report 0.1.0 1. Summary Section
+Status Lesion available Functional disconnection map available Tract disconnection available Cognitive profile
+available Lesion volume 12.128 mL, hemisphere: Left, 1 connected component(s). Most disconnected tract:
+toy_cst_left (0.812); 1 of 4 tracts above 0.5. Cognitive profile: 1 of 3 concepts significant after
+correction. • • • 2. Lesion Figure 1. Orthogonal views through the lesion centroid (MNI152 space, L and R
+marked). Background: an MNI152 T1 template bundled with the figure library (not the NLin6Asym version), shown
+for orientation only; small offsets to the lesion grid are expected. Volume 12.128 mL (1516 voxels) Hemisphere
+Left (left 1516, right 0, midline 0 voxels) Connected components 1, largest holds 100.0 % of the volume
+Centroid (mm) -38.0, -15.0, 15.0 Grid MNI152NLin6Asym-res2, shape 91 x 109 x 91, voxel 2.0 x 2.0 x 2.0 mm Mask
+on the working grid 12.128 mL, 1516 voxels (consistent with the QC) The lesion QC recorded no warnings. 3.
+Disconnection 3.1 Functional disconnection map Figure 2. Functional disconnection map on the lesion centroid
+cuts; larger values mean more disconnection. Maximum 0.9495 Voxels above zero 11512 Mean of positive voxels
+0.2496 3.2 Tract disconnection Disconnection is the fraction of the streamlines of a tract that intersect the
+lesion (0 to 1). 4 tracts; mean 0.328. Figure 3. Disconnection of the most disconnected tracts (up to 20),
+horizontal axis from 0 to 1. Tract Disconnection toy_cst_left 0.812 toy_arcuate_left 0.438 toy_cc_body 0.062
+toy_cst_right 0.000 4. Cognitive profile Method concept-to-disconnection-representation, profile version 1.0;
+1000 null maps, 100 parcels, bonferroni correction, alpha 0.05. Concept maps bundle: toy-concept-maps 1.0.0
+(synthetic), content digest sha256:ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12. Domain
+ConceptsMeasure Score p p correctedSignificant executive 1 Positive disconnection0.7500 0.3000 0.6000no
+Negative disconnection0.5000 0.4500 0.9000no Lesion overlap 0.2500 - - no language 2 Positive
+disconnection1.5000 0.0250 0.0500yes Negative disconnection0.3750 0.5500 1.0000no Lesion overlap 1.7500 0.0100
+0.0200yes Significant concepts ConceptDomainMeasures naming languagePositive disconnection (p corrected
+0.0375); Lesion overlap (p corrected 0.0150) 5. Provenance Pipeline stroke-lnm 0.1.0, definition digest
+sha256:c8feb380411aad0d2619b60361ae599eb407526546239c6be5b1f20bc996c408. Run status when the report was built:
+running. 5.1 Steps and container images Slot Status Step Container image (with digest) Software lesion-intake
+selected lesion-qc 1.0.0 docker.io/compneurobilbaolab/step- lesion- qc@sha256:cdaa743124272cc44e7eee7
+deac206d4f413f799fd2fd480085def3b5 81aa344 nibabel 5.2.1, compneuro-step- sdk 1.0.0 normalisationskipped
+(condition_false) - - - functional- disconnection unavailable (no_implementation) - - - tract- disconnection
+selected lnm-tracts 1.0.0 docker.io/compneurobilbaolab/step- lnm- tracts@sha256:416b7a381284de83b86
+f811b915af688143d974508d623b0d79d2 b6b4d56a9b5 MRtrix3 3.0.4, compneuro-step- sdk 1.0.0 cognitive- profile
+skipped (upstream_absent) - - - report selected research- report 0.1.0 docker.io/compneurobilbaolab/step-
+research- report@sha256:43199ac0a3fd5c92e41 b6db66eb06d2015c87231c08c3f2877102 dddabfbc9ad 5.2 Reference
+bundles Bundle VersionContent digest tracts (hcp1065-tracts)1.0.0
+sha256:c7e0e0a7664ec23a3958c9c76e4352460b31e017c232f90baa43354bed68d75a 5.3 Artefacts read by this report
+Input Type SHA-256 Bytes cognet_profile cognet_profile
+65efb1fc792d756a4301a1734c8ed3a1bf92963441ecd0a498355b60ea e49e10 3081 ct_mni ct_mni not provided -
+fdisconnection_mapfdisconnection_map48475b5288fb9038b9e86b1262e7381bdca95f98439afcc17de67065789 ec143 3611171
+lesion_mask lesion_mask_mni7120e719b6659b5a9a900a90794494a6f21c69a065e4576941123752020 9eade 1210 lesion_qc
+lesion_qc c537306779f57d9fd5dc718f4e721849df2d06fd7a1c45c1062340b56a7 f6160 1261 run_provenance run_provenance
+6bec65b148fb7bbfb23611ee58ec9a9deed7d4b619d6f3d5bedc51546a a56c02 7325
+tract_disconnectiontract_disconnectionb44c733c05e3ff6f5b3545c4e5d987cee6d5867293582fc91c50b36fd39 e3fb6 101 6.
+Notes This document is for research use only, not for clinical decisions. The machine-readable content of this
+report is in report.json; its bytes are the basis for sealing. The reference data used for the cognitive
+profile are flagged as synthetic. • • •

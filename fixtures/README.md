@@ -21,7 +21,7 @@ asserted on the decompressed payload (`payload_sha256` in `fixtures/data/CHECKSU
 | `cases/case-01`, `cases/case-02` | `ct_native`, `lesion_mask_native`, `lesion_mask_mni` | Synthetic "patient" CT (76x92x60 voxels, 2.5x2.5x3 mm, HU, int16), its native lesion mask, and the exact MNI ground-truth mask on the working grid. `truth.json` holds the random affine, deformation and lesion parameters. |
 | `mni_masks/*.nii.gz` | `lesion_mask_mni` | Seven masks on `MNI152NLin6Asym-res2` (1 to 90 mL, left and right, one two-part blob). `index.tsv` lists side and volume. |
 | `bundles/toy-normative-connectome/1.0.0` | bundle type `normative-connectome` | Synthetic parcellation (100 parcels), random low-rank connectivity for 20 synthetic participants with sex and age band. Placeholder layout (`placeholder-v0`), documented in the bundle `README.md`, because the flnm-fast input format is not yet known. |
-| `bundles/toy-tract-atlas/1.0.0` | bundle type `tract-atlas` | Four synthetic tracts as streamlines (`streamlines.npz`) plus voxel masks on the working grid. Placeholder layout. |
+| `bundles/toy-tract-atlas/1.0.0` | bundle type `tract-atlas` | Four synthetic tracts in the layout read by the `lnm-tracts` step: `labels.txt` and one MRtrix3 `<tract>.tck` per tract (60 streamlines each, MNI millimetre coordinates). |
 
 Both bundles have `synthetic: true`, licence CC0-1.0 and `redistributable: true`.
 

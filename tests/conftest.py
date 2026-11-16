@@ -2,7 +2,6 @@ import os
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 os.environ.setdefault("DATABASE_URL", "sqlite:///./test.db")
@@ -11,9 +10,9 @@ os.environ.setdefault("CELERY_BROKER_URL", "memory://")
 os.environ.setdefault("CELERY_RESULT_BACKEND", "cache+memory://")
 
 from app.core.config import get_settings
-from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
+from tests import pgdb
 
 
 def pytest_configure(config):
@@ -21,6 +20,19 @@ def pytest_configure(config):
         "markers",
         "postgres: needs a PostgreSQL database; skipped unless TEST_POSTGRES_URL is set",
     )
+
+
+@pytest.fixture(autouse=True)
+def _drop_postgres_databases():
+    """With TEST_DB=postgres every test gets its own database; drop it afterwards."""
+    yield
+    if pgdb.enabled():
+        pgdb.cleanup_test_databases()
+
+
+def pytest_sessionfinish(session, exitstatus):
+    if pgdb.enabled():
+        pgdb.cleanup_template()
 
 
 @pytest.fixture()
@@ -39,9 +51,7 @@ def compneuro_client(tmp_path, monkeypatch):
 
 
 def _make_client(tmp_path, monkeypatch, **extra_env):
-    db_path = tmp_path / "test.db"
     storage_path = tmp_path / "studies"
-    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_path}")
     monkeypatch.setenv("STORAGE_ROOT", str(storage_path))
     monkeypatch.setenv("PROCESSOR_BACKEND", "dummy")
     monkeypatch.setenv(
@@ -51,11 +61,11 @@ def _make_client(tmp_path, monkeypatch, **extra_env):
         monkeypatch.setenv(key, value)
     get_settings.cache_clear()
 
-    engine = create_engine(
-        f"sqlite:///{db_path}", connect_args={"check_same_thread": False}
+    engine = pgdb.new_engine(
+        tmp_path, "test.db", connect_args={"check_same_thread": False}
     )
+    monkeypatch.setenv("DATABASE_URL", pgdb.database_url(engine))
     TestingSessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
-    Base.metadata.create_all(bind=engine)
 
     def override_get_db():
         db = TestingSessionLocal()

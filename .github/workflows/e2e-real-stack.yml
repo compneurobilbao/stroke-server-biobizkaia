@@ -1,0 +1,178 @@
+name: e2e real stack
+
+# Card F0-31a: the case wizard (both modes) driven by Playwright against the real Docker Compose
+# stack, with nothing mocked: postgres, redis, api, the legacy worker, the frontend and the
+# reverse proxy, plus the `pipelines` profile (pipeline-worker, beat, docker-proxy) with the
+# docker executor. The steps are built exactly as in e2e-stroke-lnm (this repository's steps and
+# the external ones at the pinned commits), pushed to a throwaway registry to obtain image
+# digests, and the materialised pipeline, the step manifests read from the images and the
+# reference bundles are mounted into the stack through ./data/e2e (scripts/e2e/real_stack.sh).
+# The `ci` implementation profile is seeded with `app.cli.seed_implementations`, so
+# MNI-mask mode runs the real steps plus the functional-disconnection stub to a finished run and
+# CT mode shows the normalisation slot as unavailable (the CT step is not merged yet).
+#
+# The mocked-API specs stay in the `frontend-e2e` job of ci.yml (seconds, no backend).
+
+on:
+  pull_request:
+    paths:
+      - "frontend/**"
+      - "backend/**"
+      - "worker/**"
+      - "orchestrator/**"
+      - "processor_adapter/**"
+      - "contracts/**"
+      - "pipelines/**"
+      - "steps/**"
+      - "fixtures/**"
+      - "infra/**"
+      - "docker-compose*.yml"
+      - "scripts/e2e/**"
+      - ".github/workflows/e2e-real-stack.yml"
+  push:
+    branches: [develop, main]
+    paths:
+      - "frontend/**"
+      - "backend/**"
+      - "worker/**"
+      - "orchestrator/**"
+      - "processor_adapter/**"
+      - "contracts/**"
+      - "pipelines/**"
+      - "steps/**"
+      - "fixtures/**"
+      - "infra/**"
+      - "docker-compose*.yml"
+      - "scripts/e2e/**"
+      - ".github/workflows/e2e-real-stack.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-real-stack-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e-real-stack:
+    name: e2e-real-stack
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    services:
+      registry:
+        image: registry:2
+        ports:
+          - 5000:5000
+    env:
+      WORK: ${{ github.workspace }}/e2e-work
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.playwright-browsers
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-python@v5.3.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - uses: actions/setup-node@v4.1.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        run: |
+          pip install -r backend/requirements.txt
+          pip install --no-deps -e steps/sdk
+
+      # ---- Steps, digests, manifests, bundles (same recipe as e2e-stroke-lnm)
+      - name: Registry and pipeline agree; committed pipeline is valid
+        run: |
+          python pipelines/stroke-lnm/registry.py check
+          python contracts/validate.py --kind pipeline pipelines/stroke-lnm/pipeline.yaml
+
+      - name: Fetch the external steps at the pinned commits
+        run: python pipelines/stroke-lnm/registry.py fetch --dest "$WORK/external"
+
+      - name: Build the steps, push them to the throwaway registry, record digests
+        run: |
+          python pipelines/stroke-lnm/registry.py build \
+            --external "$WORK/external" --prefix localhost:5000/ci \
+            --digests-out "$WORK/digests.json" --manifests-out "$WORK/step-manifests"
+          cat "$WORK/digests.json"
+
+      - name: Write the digests into the pipeline and validate it with the manifests read from the images
+        run: |
+          python pipelines/stroke-lnm/registry.py materialize \
+            --digests "$WORK/digests.json" --out "$WORK/pipelines"
+          python contracts/validate.py "$WORK/pipelines/stroke-lnm/pipeline.yaml" "$WORK"/step-manifests/*/step.yaml
+
+      - name: Reference data bundles (synthetic fixtures and the synthetic concept maps)
+        run: |
+          mkdir -p "$WORK/bundles" "$WORK/cognet-ref"
+          cp -r fixtures/data/bundles/toy-normative-connectome/1.0.0 "$WORK/bundles/toy-normative-connectome"
+          cp -r fixtures/data/bundles/toy-tract-atlas/1.0.0 "$WORK/bundles/toy-tract-atlas"
+          python "$WORK/external/COGNET-STROKE/step/tests/make_reference.py" "$WORK/cognet-ref" contracts
+          cp -r "$WORK/cognet-ref/bundle" "$WORK/bundles/synthetic-concept-maps"
+
+      # ---- Browser (cached by Playwright version)
+      - name: Playwright browser cache
+        id: browsers
+        uses: actions/cache@v4.2.0
+        with:
+          path: ${{ env.PLAYWRIGHT_BROWSERS_PATH }}
+          key: playwright-chromium-1.56.1-${{ runner.os }}
+      - name: Install Playwright
+        working-directory: frontend
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      # ---- The stack
+      - name: Throwaway credentials (generated here, never committed)
+        run: |
+          for name in E2E_ADMIN_PASSWORD E2E_USER_PASSWORD; do
+            value="$(openssl rand -hex 16)"
+            echo "::add-mask::$value"
+            echo "$name=$value" >> "$GITHUB_ENV"
+          done
+          echo "E2E_ADMIN_EMAIL=e2e-admin@example.org" >> "$GITHUB_ENV"
+          echo "E2E_USER_EMAIL=e2e-researcher@example.org" >> "$GITHUB_ENV"
+
+      - name: Lay out the build outputs and write the stack configuration
+        run: |
+          bash scripts/e2e/real_stack.sh layout
+          bash scripts/e2e/real_stack.sh env
+
+      - name: Start the stack (pipelines profile, docker executor through the socket proxy)
+        run: bash scripts/e2e/real_stack.sh up
+
+      - name: Register the bundles, seed the ci implementations, create the test users
+        run: |
+          bash scripts/e2e/real_stack.sh bundles
+          bash scripts/e2e/real_stack.sh seed
+          bash scripts/e2e/real_stack.sh users
+
+      # ---- The tests
+      - name: Playwright (real stack)
+        working-directory: frontend
+        env:
+          E2E_REAL_STACK: "1"
+          PLAYWRIGHT_BASE_URL: http://localhost
+        run: npx playwright test --project=real-stack
+
+      - name: Compose logs
+        if: always()
+        run: bash scripts/e2e/real_stack.sh logs > compose-logs.txt 2>&1 || true
+
+      - uses: actions/upload-artifact@v4.6.0
+        if: always()
+        with:
+          name: e2e-real-stack
+          # Traces contain what the browser typed; the credentials only exist on this runner.
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+            compose-logs.txt
+            ${{ env.WORK }}/digests.json
+          if-no-files-found: warn
+          retention-days: 7

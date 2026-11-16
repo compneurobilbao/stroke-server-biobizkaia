@@ -17,3 +17,5 @@ backups/
 compneuro-anatproc/
 *.log
 .DS_Store
+
+.e2e-cache/

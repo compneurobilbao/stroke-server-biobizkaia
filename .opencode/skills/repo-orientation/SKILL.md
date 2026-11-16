@@ -1,21 +1,23 @@
 ---
 name: repo-orientation
-description: Explorar este repositorio sin perderse: fuentes de verdad, estructura, comandos y zonas sensibles.
+description: Find your way in this repository: sources of truth, layout, commands and sensitive areas.
 compatibility: opencode
 ---
 
-## Uso
+## When to use
 
-Cargá esta skill cuando empieces una tarea en este repo o cuando necesites reconstruir contexto.
+Load this skill when you start a task in this repository or need to rebuild context.
 
-## Flujo
+## Flow
 
-1. Leé `AGENTS.md`.
-2. Para arquitectura, leé `README.md`, `docs/architecture.md` y `docs/processing-pipeline.md`.
-3. Confirmá comandos en `Makefile`, `backend/requirements.txt`, `frontend/package.json` y `docker-compose.yml`.
-4. Ubicá el cambio en la carpeta correcta: `backend/`, `worker/`, `processor_adapter/`, `frontend/`, `infra/`, `docs/` o `.opencode/`.
-5. Ignorá para contexto normal: `.git/`, `__pycache__/`, `.pytest_cache/`, `.ruff_cache/`, `node_modules/`, `dist/`, `data/studies/` y `.opencode/node_modules/`.
+1. Read `AGENTS.md`.
+2. Read your card in `docs/plan/IMPLEMENTATION_PLAN.md` (search for its ID), plus sections 2 (decisions), 6 (test data) and 7 (review protocol).
+3. For processing work, read `docs/contracts/step-contract.md`, `steps/README.md` and the relevant ADRs in `docs/adr/`.
+4. For the current system, read `docs/architecture.md`, `docs/processing-pipeline.md` and `docs/testing.md`.
+5. Confirm commands in `Makefile`, `frontend/package.json`, `.github/workflows/` and `docker-compose.yml`.
+6. Place the change in the right folder (`backend/app/api/<area>.py`, `backend/app/models/`, `worker/`, `orchestrator/executors/`, `steps/<step>/`, `contracts/`, `fixtures/`, `frontend/src/features/`, `infra/`, `docs/`), and only inside the card's "Touches" list.
+7. Ignore for normal context: `.git/`, `__pycache__/`, `.pytest_cache/`, `.ruff_cache/`, `node_modules/`, `dist/`, `data/studies/`, `.e2e-cache/` and `.opencode/node_modules/`.
 
-## Recordatorio
+## Reminder
 
-El procesador externo entra por `processor_adapter`. No metas lógica clínica en API ni worker.
+Processing tools enter only as steps under the step contract. `processor_adapter/` is the legacy boundary; do not add adapters there.

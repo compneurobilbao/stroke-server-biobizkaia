@@ -1,20 +1,20 @@
 ---
-description: Resume estado actual, decisiones, archivos tocados, validaciones y siguiente paso.
+description: Summarises the current state, decisions, touched files, checks and next step.
 agent: doc-steward
 subtask: true
 ---
 
-Generá un handoff breve y accionable para continuar en otro chat/agente.
+Write a short, actionable hand-off so that another chat or agent can continue.
 
-Incluí:
+Include:
 
-- Objetivo de la sesión.
-- Decisiones tomadas y por qué.
-- Archivos tocados o relevantes.
-- Validaciones ejecutadas y resultado.
-- Riesgos o bloqueos pendientes.
-- Una única siguiente acción recomendada.
+- The card being worked on and the goal of the session.
+- Decisions taken and why; mark the decisions that go beyond the plan.
+- Files touched or relevant.
+- Checks run and their real result; checks that could not run.
+- Open risks or blockers, and the PR state (CI checks, review).
+- One recommended next action.
 
-No edites archivos salvo que el usuario lo pida explícitamente.
+Do not edit files unless the user explicitly asks for it.
 
-Contexto extra: `$ARGUMENTS`
+Extra context: `$ARGUMENTS`

@@ -1,17 +1,20 @@
 ---
-description: Revisa el diff actual contra AGENTS.md y convenciones del proyecto sin editar.
+description: Reviews the current diff against its card, AGENTS.md and the project conventions without editing.
 agent: code-reviewer
 subtask: true
 ---
 
-Revisá los cambios actuales del working tree.
+Review the current changes of the working tree (or of the branch against `origin/develop`).
 
-Usá `AGENTS.md` como referencia principal y contrastá con el código real. Enfocate en:
+Use the card in `docs/plan/IMPLEMENTATION_PLAN.md` and `AGENTS.md` as the reference and check them against the real code. Focus on:
 
-- Bugs, regresiones y riesgos de seguridad.
-- Secretos, `.env`, credenciales o datos clínicos reales.
-- Desvíos de arquitectura o acoplamiento al procesador externo.
-- Tests, docs o validaciones faltantes.
-- Comandos peligrosos o permisos demasiado amplios.
+- Bugs, regressions and security risks.
+- Secrets, `.env`, credentials, or patient or non-redistributable data.
+- Files outside the card's "Touches" list and features the card does not ask for.
+- Step contract compliance and architecture drift (tools wired outside the contract, new adapter classes).
+- Missing tests, docs or checks; new Spanish text outside the i18n catalogues and report templates.
+- Dangerous commands or permissions that are too broad.
 
-No edites archivos. Devolvé hallazgos priorizados con referencias concretas. Si no hay hallazgos, decilo explícitamente.
+Do not edit files. Return prioritised findings with concrete references. If there are none, say so explicitly.
+
+Card or extra context: `$ARGUMENTS`

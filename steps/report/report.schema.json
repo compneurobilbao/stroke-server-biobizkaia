@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/schemas/research_report/1.0",
+  "title": "research report 1.0",
+  "description": "Content of the report_json artefact written by the research-report step. Canonical encoding: UTF-8, sorted keys, no whitespace, no trailing newline, floats in fixed notation rounded to 6 decimals. No clock values of its own, no software versions, no accounting data. A section whose optional input was not provided has only {status: absent}.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind", "report_version", "language", "research_use_only", "research_use_statement",
+    "generator", "sections", "notes", "lesion", "functional_disconnection",
+    "tract_disconnection", "cognitive_profile", "provenance", "inputs"
+  ],
+  "$defs": {
+    "sha256_hex": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "absent": {
+      "type": "object", "additionalProperties": false, "required": ["status"],
+      "properties": {"status": {"const": "absent"}}
+    }
+  },
+  "properties": {
+    "kind": {"const": "ResearchReport"},
+    "report_version": {"const": "1.0"},
+    "language": {"enum": ["en", "es"]},
+    "research_use_only": {"const": true},
+    "research_use_statement": {"const": "For research use only, not for clinical decisions."},
+    "generator": {
+      "type": "object", "additionalProperties": false, "required": ["step", "version"],
+      "properties": {"step": {"type": "string"}, "version": {"type": "string"}}
+    },
+    "sections": {
+      "type": "object", "additionalProperties": false,
+      "required": ["lesion", "functional_disconnection", "tract_disconnection", "cognitive_profile"],
+      "properties": {
+        "lesion": {"enum": ["available"]},
+        "functional_disconnection": {"enum": ["available", "absent"]},
+        "tract_disconnection": {"enum": ["available", "absent"]},
+        "cognitive_profile": {"enum": ["available", "absent"]}
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {"enum": ["lesion_mask_differs_from_qc", "synthetic_reference_data"]}
+    },
+    "lesion": {
+      "type": "object",
+      "required": ["status", "qc_mode", "n_voxels", "volume_ml", "hemisphere", "components", "centroid_mm", "qc_warnings", "mask_on_working_grid", "mask_agrees_with_qc"],
+      "properties": {
+        "status": {"const": "available"},
+        "n_voxels": {"type": "integer", "minimum": 1},
+        "volume_ml": {"type": "number", "exclusiveMinimum": 0},
+        "hemisphere": {"enum": ["left", "right", "bilateral", "midline", "not_assessed"]},
+        "centroid_mm": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
+        "mask_agrees_with_qc": {"type": "boolean"}
+      }
+    },
+    "functional_disconnection": {
+      "oneOf": [
+        {"$ref": "#/$defs/absent"},
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["status", "max", "n_positive_voxels", "mean_of_positive"],
+          "properties": {
+            "status": {"const": "available"},
+            "max": {"type": "number"},
+            "n_positive_voxels": {"type": "integer", "minimum": 0},
+            "mean_of_positive": {"type": "number"}
+          }
+        }
+      ]
+    },
+    "tract_disconnection": {
+      "oneOf": [
+        {"$ref": "#/$defs/absent"},
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["status", "n_tracts", "max_tract", "max_disconnection", "mean_disconnection", "n_tracts_above_0_5", "tracts"],
+          "properties": {
+            "status": {"const": "available"},
+            "n_tracts": {"type": "integer", "minimum": 1},
+            "max_tract": {"type": "string"},
+            "max_disconnection": {"type": "number", "minimum": 0, "maximum": 1},
+            "mean_disconnection": {"type": "number", "minimum": 0, "maximum": 1},
+            "n_tracts_above_0_5": {"type": "integer", "minimum": 0},
+            "tracts": {
+              "type": "array", "minItems": 1,
+              "items": {
+                "type": "object", "additionalProperties": false, "required": ["tract", "disconnection"],
+                "properties": {"tract": {"type": "string"}, "disconnection": {"type": "number", "minimum": 0, "maximum": 1}}
+              }
+            }
+          }
+        }
+      ]
+    },
+    "cognitive_profile": {
+      "oneOf": [
+        {"$ref": "#/$defs/absent"},
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["status", "profile_version", "method", "bundle", "n_concepts", "domains", "significant_concepts"],
+          "properties": {
+            "status": {"const": "available"},
+            "profile_version": {"type": "string"},
+            "method": {"type": "object"},
+            "bundle": {"type": "object"},
+            "n_concepts": {"type": "integer", "minimum": 1},
+            "domains": {"type": "array", "minItems": 1, "items": {"type": "object"}},
+            "significant_concepts": {"type": "array", "items": {"type": "object"}}
+          }
+        }
+      ]
+    },
+    "provenance": {
+      "type": "object", "additionalProperties": false, "required": ["run", "slots", "steps"],
+      "properties": {
+        "run": {
+          "type": "object",
+          "required": ["run_id", "case_id", "pipeline", "platform", "status", "created_at"]
+        },
+        "slots": {
+          "type": "array", "minItems": 1,
+          "items": {
+            "type": "object", "required": ["slot", "status", "bundles"],
+            "properties": {
+              "implementation": {
+                "type": ["object", "null"],
+                "required": ["id", "step_name", "step_version", "image", "image_digest", "stub", "chosen_by"],
+                "properties": {
+                  "image": {"type": "string"},
+                  "image_digest": {"type": ["string", "null"], "pattern": "^sha256:[a-f0-9]{64}$"}
+                }
+              }
+            }
+          }
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["slot", "step_name", "step_version", "image", "outcome", "exit_code", "software", "inputs", "outputs"]
+          }
+        }
+      }
+    },
+    "inputs": {
+      "description": "One record per input port of the step, sorted by port; sha256 and size_bytes only when the input was provided.",
+      "type": "array",
+      "items": {
+        "type": "object", "required": ["port", "type", "present"],
+        "properties": {
+          "port": {"type": "string"},
+          "type": {"type": "string"},
+          "present": {"type": "boolean"},
+          "sha256": {"$ref": "#/$defs/sha256_hex"},
+          "size_bytes": {"type": "integer", "minimum": 0}
+        }
+      }
+    }
+  }
+}
