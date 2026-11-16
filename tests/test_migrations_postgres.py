@@ -1596,3 +1596,42 @@ def test_0012_dry_run_cli(pg_engine, seeded):
     )
     assert refused.returncode == 1
     assert str(sid(5)) in refused.stderr and "outside the storage root" in refused.stderr
+
+
+def test_0012_fills_sizes_of_backfilled_legacy_artefacts(pg_engine, seeded):
+    """Back-filled legacy artefacts get the size of their file so that the quota
+    (inputs plus derivatives) counts them; a missing file leaves the size NULL. The
+    reconciliation does not compare sizes, so a re-run changes nothing."""
+    pdf = seeded / str(sid(4)) / "output" / "report.pdf"
+    pdf.parent.mkdir(parents=True)
+    pdf.write_bytes(b"%PDF-1.4\n" + b"x" * 91)  # the ZIP of study 4 stays missing
+    upgrade_0011(seeded)
+    report = load_cutover_module().fill_legacy_artifact_sizes
+    with pg_engine.begin() as conn:
+        # study 4's PDF is found; its ZIP and study 5's PDF are missing
+        assert report(conn, seeded, dry_run=True) == {
+            "filled": 1,
+            "missing_file": 2,
+            "dry_run": True,
+        }
+    alembic("upgrade", REV_CUTOVER, STORAGE_ROOT=str(seeded))
+    sizes = {
+        r["port"]: r["size_bytes"]
+        for r in rows(
+            pg_engine,
+            "SELECT port, size_bytes FROM artifacts WHERE pipeline_run_id = :i",
+            i=sid(4),
+        )
+    }
+    assert sizes == {"technical_report": 100, "outputs_zip": None}
+    again = reconcile(pg_engine, seeded, dry_run=False)
+    assert again["attempt_sets"]["rewrite"] == 0
+    assert (
+        one(
+            pg_engine,
+            "SELECT size_bytes FROM artifacts WHERE pipeline_run_id = :i"
+            " AND port = 'technical_report'",
+            i=sid(4),
+        )["size_bytes"]
+        == 100
+    )

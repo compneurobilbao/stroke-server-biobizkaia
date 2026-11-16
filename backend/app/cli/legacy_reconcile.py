@@ -6,7 +6,8 @@ revision 0011)::
     python -m app.cli.legacy_reconcile
 
 It prints, per table, how many rows the reconciliation would insert, update or leave
-unchanged and how many attempt sets it would rewrite; it never writes (the work happens
+unchanged, how many attempt sets it would rewrite and how many legacy artefact sizes it
+would fill from the files (and how many files are missing); it never writes (the work happens
 inside a transaction that is rolled back). When legacy rows cannot be mapped it prints
 the affected ids and exits with status 1: fix them and run it again. Running it after
 the cut-over only describes how the frozen legacy tables differ from the live data; the
@@ -59,6 +60,9 @@ def main(argv: list[str] | None = None) -> int:
                     text("SELECT version_num FROM alembic_version")
                 ).scalar()
                 report = module.reconcile(conn, Path(args.storage_root), dry_run=True)
+                report["artifact_sizes"] = module.fill_legacy_artifact_sizes(
+                    conn, Path(args.storage_root), dry_run=True
+                )
             except RuntimeError as exc:
                 print(str(exc), file=sys.stderr)
                 return 1

@@ -35,6 +35,12 @@ celery_app.conf.update(
         "recover-pipeline-runs": {
             "task": "worker.tasks.recover_pipeline_runs",
             "schedule": 300.0,
-        }
+        },
+        # Legacy attempts left without a task (worker/legacy_recovery.py); default
+        # queue. Each legacy worker also schedules one pass at start-up.
+        "recover-legacy-runs": {
+            "task": "worker.tasks.recover_legacy_runs",
+            "schedule": 600.0,
+        },
     },
 )

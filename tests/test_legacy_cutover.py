@@ -191,6 +191,9 @@ def test_upload_process_download_writes_only_the_case_model(legacy):
         assert used == upload.size_bytes + pdf_artifact.size_bytes
     me = c.get("/api/auth/me", headers=h).json()
     assert me["storage_used_bytes"] == used
+    # The notification keeps its legacy study id (legacy study id = case id).
+    listed = c.get("/api/notifications", headers=h).json()
+    assert [n["study_id"] for n in listed] == [str(study_id)]
     assert legacy_tables_empty(legacy.Session)
 
 
@@ -340,40 +343,115 @@ def test_responses_keep_the_legacy_shape_and_announce_the_successor(client):
     assert client.get("/api/auth/me", headers=headers).headers.get("deprecation") is None
 
 
-def test_v1_cases_are_shown_through_the_aliases(client):
+def test_v1_cases_are_not_served_by_the_aliases(client):
+    """The legacy endpoints serve only legacy-profile cases, as /api/v1 serves none."""
     from tests.test_api_v1 import V1Env
 
     v1 = V1Env(client)
     v1.enable_all()
     case_id = v1.native_case()
-    listed = {s["id"]: s for s in client.get("/api/studies", headers=v1.alice).json()}
-    assert listed[case_id]["status"] == "uploaded"
-    assert listed[case_id]["original_filename"] == "ct.nii.gz"
-    assert listed[case_id]["processor_backend"] is None
-    assert client.get("/api/studies", headers=v1.bob).json() == []
-    assert client.post(f"/api/studies/{case_id}/retry", headers=v1.alice).status_code == 409
-
-    run = v1.start(case_id).json()
-    assert client.get(f"/api/studies/{case_id}/status", headers=v1.alice).json()[
-        "status"
-    ] == "queued"
-    canceled = client.post(f"/api/studies/{case_id}/cancel", headers=v1.alice)
-    assert canceled.status_code == 200
-    assert canceled.json()["status"] == "canceled"
     with v1.Session() as db:
-        assert db.get(PipelineRun, uuid.UUID(run["id"])).status == "canceled"
+        db.get(Case, uuid.UUID(case_id)).keep_forever = True
+        db.commit()
+    assert client.get("/api/studies", headers=v1.alice).json() == []
+    assert client.get("/api/studies", headers=v1.admin).json() == []
+    for method, path in (
+        ("get", ""),
+        ("get", "/status"),
+        ("get", "/detail"),
+        ("get", "/logs"),
+        ("get", "/download/pdf"),
+        ("post", "/cancel"),
+        ("post", "/retry"),
+        ("post", "/share-links"),
+        ("get", "/share-links"),
+        ("delete", ""),
+    ):
+        response = getattr(client, method)(
+            f"/api/studies/{case_id}{path}", headers=v1.admin
+        )
+        assert response.status_code == 404, (method, path, response.text)
+        assert response.json()["code"] == "study_not_found"
+    with v1.Session() as db:
+        assert db.get(Case, uuid.UUID(case_id)).deleted_at is None
 
-    _other, finished = v1.finished_run()
-    detail = client.get(f"/api/studies/{_other}/detail", headers=v1.alice).json()
-    assert detail["status"] == "completed"
-    assert detail["has_pdf"] is False  # the test pipeline has no report slot
-    assert len(detail["jobs"]) >= 1 and {j["status"] for j in detail["jobs"]} == {
-        "completed"
+    # A finished v1 run does not count as a legacy job on the dashboard.
+    v1.finished_run()
+    from app.api import admin as admin_routes
+
+    with v1.Session() as db:
+        assert admin_routes._jobs_by_status(db) == {}
+        assert admin_routes._studies_by_status(db) == {}
+
+
+def test_cancel_that_loses_the_race_to_the_worker_cancels_the_running_attempt(
+    legacy, monkeypatch
+):
+    """The run is queued when the cancel reads it, but the worker starts it before the
+    queued->canceled compare-and-set: the cancel continues as a processing cancel."""
+    c, h = legacy.client, legacy.headers
+    study_id = upload_test_study(c, h)  # queued; the task is not run
+    real_latest_step = legacy_studies.latest_step
+    calls = []
+
+    def worker_starts_now(db, run):
+        if not calls:
+            calls.append(run.id)
+            with legacy.Session() as other:  # what process_study's start commits
+                started = datetime.now(timezone.utc)
+                r = other.get(PipelineRun, run.id)
+                r.status, r.started_at = "running", started
+                step = other.scalar(
+                    select(StepRun).where(StepRun.pipeline_run_id == run.id)
+                )
+                step.status, step.started_at = "running", started
+                step.orchestrator_task_id = "celery-live"
+                other.commit()
+        return real_latest_step(db, run)
+
+    monkeypatch.setattr(legacy_studies, "latest_step", worker_starts_now)
+    response = c.post(f"/api/studies/{study_id}/cancel", headers=h)
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "id": str(study_id),
+        "status": "processing",
+        "message": "Cancellation requested",
     }
-    pdf = client.get(f"/api/studies/{_other}/download/pdf", headers=v1.alice)
-    assert pdf.status_code == 404 and pdf.json()["code"] == "pdf_not_ready"
-    with v1.Session() as db:
-        assert db.get(PipelineRun, uuid.UUID(finished)).status == "succeeded"
+    assert ("celery-live", {"terminate": True, "signal": "SIGTERM"}) in legacy.task.revoked
+    with legacy.Session() as db:
+        run = db.get(PipelineRun, study_id)
+        step = db.scalar(select(StepRun).where(StepRun.pipeline_run_id == study_id))
+        assert run.status == "running" and run.cancel_requested_at is not None
+        assert step.status == "running" and step.cancel_requested_at is not None
+
+
+def test_dashboard_ignores_attempts_closed_by_a_retry(legacy, monkeypatch):
+    """An attempt left live by a crashed worker is closed as stale by the retry; it is
+    not a failure to review."""
+    c, h = legacy.client, legacy.headers
+    admin, _ = auth_headers(c, "admin@example.org", "secret-pass", role="admin")
+    study_id = upload_test_study(c, h)
+    with legacy.Session() as db:  # failed run whose attempt still looks live
+        run = db.get(PipelineRun, study_id)
+        run.status, run.finished_at = "failed", datetime.now(timezone.utc)
+        step = db.scalar(select(StepRun).where(StepRun.pipeline_run_id == study_id))
+        step.status = "running"
+        db.commit()
+    assert c.post(f"/api/studies/{study_id}/retry", headers=h).status_code == 200
+    from app.api import admin as admin_routes
+
+    with legacy.Session() as db:
+        closed = db.scalar(
+            select(StepRun).where(
+                StepRun.pipeline_run_id == study_id, StepRun.attempt == 1
+            )
+        )
+        assert closed.failure_code == "legacy_stale_job"
+        assert admin_routes._jobs_by_status(db) == {"failed": 1, "queued": 1}
+    monkeypatch.setattr(admin_routes, "_inspect_worker_stats", lambda: ({}, None))
+    dashboard = c.get("/api/admin/dashboard", headers=admin).json()
+    assert dashboard["recent_failed_jobs"] == []
 
 
 def test_backfilled_study_through_the_aliases(client):

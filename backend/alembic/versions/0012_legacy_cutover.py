@@ -18,7 +18,12 @@ Upgrade:
    ``python -m app.cli.legacy_reconcile``) reports the counts without writing.
 2. ``audit_events``, ``notifications`` and ``share_links`` rows get ``case_id`` from
    ``study_id`` where it is still missing.
-3. ``share_links.case_id`` becomes NOT NULL and ``share_links.study_id`` nullable.
+3. Legacy artefacts without a size (back-filled from ``studies``, which never stored
+   one) get the size of their file under ``STORAGE_ROOT``, so that the quota (inputs
+   plus derivatives, section 12 decision 4) counts them like the artefacts the worker
+   writes from now on. A missing file leaves the size NULL and is logged. Sizes are not
+   part of the 10.3 mapping, so the reconciliation does not compare them.
+4. ``share_links.case_id`` becomes NOT NULL and ``share_links.study_id`` nullable.
 
 Downgrade (10.5, row 0012):
 
@@ -70,6 +75,8 @@ PARENT_TABLES = {
     "run_slots": ("id",),
 }
 CHILD_TABLES = ("step_runs", "artifacts", "reports")  # rewritten as one set per run
+# Columns the 10.3 mapping cannot know (filled later from the files); not compared.
+NOT_COMPARED = {"artifacts": {"size_bytes", "sha256"}}
 LINKED_TABLES = ("audit_events", "notifications", "share_links")
 LEGACY_TYPES = {
     "technical_report": "legacy_technical_report_pdf",
@@ -117,8 +124,12 @@ def _naive(value: datetime | None) -> datetime | None:
 def upgrade() -> None:
     from app.core.config import get_settings
 
-    report = reconcile(op.get_bind(), Path(get_settings().storage_root))
+    conn = op.get_bind()
+    root = Path(get_settings().storage_root)
+    report = reconcile(conn, root)
     log.info("legacy reconciliation: %s", json.dumps(report, sort_keys=True))
+    sizes = fill_legacy_artifact_sizes(conn, root)
+    log.info("legacy artefact sizes: %s", json.dumps(sizes, sort_keys=True))
     op.alter_column("share_links", "case_id", existing_type=sa.Uuid(), nullable=False)
     op.alter_column("share_links", "study_id", existing_type=sa.Uuid(), nullable=True)
 
@@ -311,8 +322,12 @@ def reconcile(conn, storage_root: Path, *, dry_run: bool = False) -> dict:
     columns_of: dict[str, list[str]] = {}
     for table in CHILD_TABLES:
         for row in rows[table]:
-            columns_of.setdefault(table, list(row))
-            mapped_children[row["pipeline_run_id"]][f"{table}/{row['id']}"] = row
+            columns_of.setdefault(
+                table, [c for c in row if c not in NOT_COMPARED.get(table, ())]
+            )
+            mapped_children[row["pipeline_run_id"]][f"{table}/{row['id']}"] = {
+                c: v for c, v in row.items() if c in columns_of[table]
+            }
     current_children: dict[uuid.UUID, dict[str, dict]] = {rid: {} for rid in run_ids}
     for table in CHILD_TABLES:
         if table not in columns_of:
@@ -375,6 +390,43 @@ def reconcile(conn, storage_root: Path, *, dry_run: bool = False) -> dict:
             )
         )
     return report
+
+
+def fill_legacy_artifact_sizes(conn, storage_root: Path, *, dry_run: bool = False) -> dict:
+    """Size of every legacy artefact that has none, from its file under the storage root.
+
+    A missing file (or a path that leaves the root) leaves the size NULL; the count and
+    the first ids are logged. Idempotent: only NULL sizes are touched.
+    """
+    root = storage_root.resolve()
+    filled, missing = 0, []
+    for artifact_id, rel in conn.execute(
+        sa.text(
+            "SELECT id, storage_path FROM artifacts"
+            " WHERE origin = 'legacy' AND size_bytes IS NULL ORDER BY id"
+        )
+    ).all():
+        path = (storage_root / rel).resolve()
+        inside = path == root or root in path.parents
+        if not inside or not path.is_file():
+            missing.append(artifact_id)
+            continue
+        filled += 1
+        if not dry_run:
+            conn.execute(
+                sa.text(
+                    "UPDATE artifacts SET size_bytes = :s WHERE id = :i AND size_bytes IS NULL"
+                ),
+                {"s": path.stat().st_size, "i": artifact_id},
+            )
+    if missing:
+        log.warning(
+            "%s legacy artefact(s) have no file under the storage root; size left empty"
+            " (first ids: %s)",
+            len(missing),
+            ", ".join(str(i) for i in missing[:10]),
+        )
+    return {"filled": filled, "missing_file": len(missing), "dry_run": dry_run}
 
 
 # --- downgrade ---------------------------------------------------------------------------

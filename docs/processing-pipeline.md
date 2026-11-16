@@ -221,12 +221,14 @@ Select with `WORKER_DOCKERFILE`.
 
 Since migration 0012 (legacy cut-over, data-model.md 10.1 stage 2) the legacy upload -> process -> PDF path keeps its behaviour but stores everything in the case model; `studies` and `processing_jobs` are frozen and nothing writes them.
 
-- `POST /api/studies/upload` creates a case (profile `legacy`, hidden from `/api/v1` like the back-filled studies), its `legacy_upload` input file, a `legacy` run (run id = case id) with one `legacy` slot, and a queued first attempt; it enqueues `process_study(case id, attempt id)` and stores the Celery task id on the attempt (`orchestrator_task_id`).
+- `POST /api/studies/upload` creates a case (profile `legacy`, hidden from `/api/v1` like the back-filled studies), its `legacy_upload` input file, a `legacy` run (run id = case id) with one `legacy` slot, and a queued first attempt; it enqueues `process_study(case id, attempt id)` and stores the Celery task id on the attempt (`orchestrator_task_id`). When the task starts the attempt it writes its own task id there, so that a cancel revokes the task that actually runs.
 - `process_study` moves the run and the attempt from `queued` to `running` with a compare-and-set, runs the adapter in the worker process (dummy or compneuro-anatproc), renders PNGs, writes the technical PDF and ZIP and records them as `legacy` artefacts of the attempt (ids derived as in the back-fill, with size and SHA-256) plus a `legacy-technical` report; the upload's file name and the processor fields live in `cases.legacy_attributes` for this release.
 - Cancellation is unchanged: the cancel alias sets `cancel_requested_at` on the run and on the running attempt and revokes the Celery task with `SIGTERM`; the worker's signal handler raises `ProcessorCanceled` and the attempt ends `canceled` only when the flag is set (otherwise `failed`). A queued run is canceled at once and its task revoked.
 - Retry is a resume of the same run: a new attempt of the `legacy` slot with trigger `user_resume`.
 
-Legacy runs are never driven by the orchestrator engine and the v1 run actions refuse them. The legacy endpoints also show cases created through `/api/v1`; for those, cancel and retry go through `orchestrator.actions` (data-model.md 10.4).
+- Recovery (`worker/legacy_recovery.py`): a queued attempt whose message was lost (for example queued before a deploy) is re-enqueued once, and a running attempt whose worker died is failed with `legacy_worker_lost`. It runs once after every legacy worker start, every 10 minutes where celery beat runs, and on demand with `python -m app.cli.legacy_recover [--execute]`.
+
+Legacy runs are never driven by the orchestrator engine and the v1 run actions refuse them. The legacy endpoints serve only legacy-profile cases; cases created through `/api/v1` answer 404 there (data-model.md section 11, item 27).
 
 ### The `stroke-lnm` pipeline (v0)
 

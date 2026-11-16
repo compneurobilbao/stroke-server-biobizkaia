@@ -5,8 +5,9 @@ its status codes; the data now lives in ``cases``, ``input_files``, ``pipeline_r
 ``step_runs``, ``artifacts`` and ``reports`` (legacy study id = case id). ``studies``
 and ``processing_jobs`` are frozen and never written. Legacy uploads still run on the
 legacy worker task (``worker.tasks.process_study``, cancellation by Celery revoke plus
-SIGTERM); runs created through /api/v1 shown here are cancelled and resumed through the
-orchestrator's run actions instead.
+SIGTERM). Only cases of the ``legacy`` profile are served here (back-filled studies and
+uploads through this alias); cases created through /api/v1 answer 404, just as v1 hides
+legacy cases.
 """
 
 from __future__ import annotations
@@ -481,33 +482,15 @@ def get_study_logs(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> StudyLogsRead:
-    """Legacy runs: the processor and rendering logs of the case, as before. Runs created
-    through /api/v1: the log of the latest attempt of the latest run."""
     case = legacy.visible_case(db, study_id, current_user)
     storage = LocalStudyStorage(settings.storage_root)
-    run = legacy.latest_run(db, case.id)
     logs = []
-    if run is not None and run.pipeline_id != LEGACY_PIPELINE_ID:
-        step = legacy.latest_step(db, run)
-        path = _case_file(storage, case.id, step.log_path if step else None)
-        if path is not None:
-            content, truncated = _read_last_lines(path, lines)
-            logs.append(StudyLogEntry(name=path.name, content=content, truncated=truncated))
-        return StudyLogsRead(study_id=case.id, logs=logs)
     for name in ["processor.log", "rendering.log"]:
         path = storage.logs_dir(case.id) / name
         if path.exists() and path.is_file():
             content, truncated = _read_last_lines(path, lines)
             logs.append(StudyLogEntry(name=name, content=content, truncated=truncated))
     return StudyLogsRead(study_id=case.id, logs=logs)
-
-
-def _case_file(storage: LocalStudyStorage, case_id: UUID, rel: str | None) -> Path | None:
-    if not rel:
-        return None
-    from app.api.v1.deps import case_file
-
-    return case_file(storage, case_id, rel)
 
 
 # ------------------------------------------------------------------- run actions
@@ -525,126 +508,103 @@ def cancel_study_processing(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> StudyActionResponse:
-    """Cancel of the latest run (docs/data-model.md 7.3).
+    """Cancel of the latest run (docs/data-model.md 7.3), with the legacy mechanism.
 
-    Legacy runs keep their mechanism: a queued run is canceled at once (the Celery task
-    is revoked); a processing run gets ``cancel_requested_at`` on the run and on its
-    live attempt and the worker task is revoked with SIGTERM, which the worker turns
-    into a cancellation because the flag is set.
+    A queued run is canceled at once (the Celery task is revoked). A processing run gets
+    ``cancel_requested_at`` on the run and on its live attempt and the worker task is
+    revoked with SIGTERM, which the worker turns into a cancellation because the flag is
+    set. A cancel that finds the run queued but loses the race against the worker (the
+    run became ``running`` meanwhile) continues as a processing cancel, as the legacy
+    endpoint did; it never answers 409 for that race.
     """
     case = legacy.visible_case(db, study_id, current_user)
     run = legacy.latest_run(db, case.id)
     current = legacy.study_status(run)
     if current not in {"queued", "processing"}:
         raise api_error(ErrorCode.CANCEL_INVALID_STATE)
-    if run.pipeline_id != LEGACY_PIPELINE_ID:
-        return _cancel_pipeline_run(request, db, case, run, current_user)
     job = legacy.latest_step(db, run)
-    was_processing = current == "processing"
-    if was_processing and (not job or not job.orchestrator_task_id):
-        raise api_error(ErrorCode.CANCEL_WITHOUT_TASK)
     now = legacy.utcnow()
-    if was_processing:
-        updated_runs = db.execute(
+
+    if current == "queued":
+        if job and job.orchestrator_task_id:
+            _revoke(job.orchestrator_task_id, terminate=False)
+        canceled = db.execute(
             update(PipelineRun)
-            .where(PipelineRun.id == run.id, PipelineRun.status == "running")
+            .where(PipelineRun.id == run.id, PipelineRun.status == "queued")
             .values(
-                failure_message=CANCEL_REQUESTED_MESSAGE,
-                cancel_requested_at=now,
-                cancel_requested_by_user_id=current_user.id,
+                status="canceled",
+                finished_at=now,
+                failure_message="Canceled by the user",
                 updated_at=now,
             )
             .execution_options(synchronize_session=False)
         ).rowcount
-        updated_jobs = db.execute(
-            update(StepRun)
-            .where(StepRun.id == job.id, StepRun.status == "running")
-            .values(failure_message=CANCEL_REQUESTED_MESSAGE, cancel_requested_at=now)
-            .execution_options(synchronize_session=False)
-        ).rowcount
-        if updated_runs != 1 or updated_jobs != 1:
-            db.rollback()
-            raise api_error(ErrorCode.PROCESSING_NOT_ACTIVE)
-        record_event(
-            db,
-            "study_cancellation_requested",
-            details={"job_id": str(job.id)},
-            **_actor(request, current_user),
-            case_id=case.id,
-            pipeline_run_id=run.id,
-        )
-        db.commit()
-        _revoke(job.orchestrator_task_id, terminate=True, signal="SIGTERM")
-        return StudyActionResponse(
-            id=case.id, status="processing", message="Cancellation requested"
-        )
+        if canceled == 1:
+            db.execute(
+                update(StepRun)
+                .where(StepRun.pipeline_run_id == run.id, StepRun.status == "queued")
+                .values(
+                    status="canceled",
+                    outcome="canceled",
+                    finished_at=now,
+                    failure_message="Canceled before processing started",
+                )
+                .execution_options(synchronize_session=False)
+            )
+            record_event(
+                db,
+                "study_canceled",
+                details={"job_id": str(job.id) if job else None},
+                **_actor(request, current_user),
+                case_id=case.id,
+                pipeline_run_id=run.id,
+            )
+            db.commit()
+            return StudyActionResponse(
+                id=case.id, status="canceled", message="Processing canceled"
+            )
+        # The worker started the run meanwhile: cancel it as a processing run.
+        db.rollback()
+        db.expire_all()
+        run = legacy.latest_run(db, case.id)
+        if legacy.study_status(run) != "processing":
+            raise api_error(ErrorCode.CANCEL_INVALID_STATE)
+        job = legacy.latest_step(db, run)
 
-    if job and job.orchestrator_task_id:
-        _revoke(job.orchestrator_task_id, terminate=False)
-    canceled = db.execute(
+    if not job or not job.orchestrator_task_id:
+        raise api_error(ErrorCode.CANCEL_WITHOUT_TASK)
+    updated_runs = db.execute(
         update(PipelineRun)
-        .where(PipelineRun.id == run.id, PipelineRun.status == "queued")
+        .where(PipelineRun.id == run.id, PipelineRun.status == "running")
         .values(
-            status="canceled",
-            finished_at=now,
-            failure_message="Canceled by the user",
+            failure_message=CANCEL_REQUESTED_MESSAGE,
+            cancel_requested_at=now,
+            cancel_requested_by_user_id=current_user.id,
             updated_at=now,
         )
         .execution_options(synchronize_session=False)
     ).rowcount
-    if canceled != 1:
-        db.rollback()
-        raise api_error(ErrorCode.CANCEL_INVALID_STATE)
-    db.execute(
+    updated_jobs = db.execute(
         update(StepRun)
-        .where(StepRun.pipeline_run_id == run.id, StepRun.status == "queued")
-        .values(
-            status="canceled",
-            outcome="canceled",
-            finished_at=now,
-            failure_message="Canceled before processing started",
-        )
+        .where(StepRun.id == job.id, StepRun.status == "running")
+        .values(failure_message=CANCEL_REQUESTED_MESSAGE, cancel_requested_at=now)
         .execution_options(synchronize_session=False)
-    )
+    ).rowcount
+    if updated_runs != 1 or updated_jobs != 1:
+        db.rollback()
+        raise api_error(ErrorCode.PROCESSING_NOT_ACTIVE)
     record_event(
         db,
-        "study_canceled",
-        details={"job_id": str(job.id) if job else None},
+        "study_cancellation_requested",
+        details={"job_id": str(job.id)},
         **_actor(request, current_user),
         case_id=case.id,
         pipeline_run_id=run.id,
     )
     db.commit()
+    _revoke(job.orchestrator_task_id, terminate=True, signal="SIGTERM")
     return StudyActionResponse(
-        id=case.id, status="canceled", message="Processing canceled"
-    )
-
-
-def _cancel_pipeline_run(
-    request: Request, db: Session, case: Case, run: PipelineRun, user: User
-) -> StudyActionResponse:
-    """A run created through /api/v1: cancellation through the orchestrator (flag)."""
-    from orchestrator.actions import ActionRefused, cancel_run
-
-    task_id = run.orchestrator_task_id
-    try:
-        result = cancel_run(db, run.id, user.id)
-    except ActionRefused:
-        db.rollback()
-        raise api_error(ErrorCode.PROCESSING_NOT_ACTIVE) from None
-    db.commit()
-    if result.revoke_task and task_id:
-        try:
-            _revoke(task_id)
-        except Exception:
-            log.exception("Could not revoke the task of run %s", run.id)
-    status_value = legacy.STUDY_STATUS[result.status]
-    return StudyActionResponse(
-        id=case.id,
-        status=status_value,
-        message="Processing canceled"
-        if status_value == "canceled"
-        else "Cancellation requested",
+        id=case.id, status="processing", message="Cancellation requested"
     )
 
 
@@ -655,14 +615,12 @@ def retry_failed_study(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> StudyActionResponse:
-    """Resume of the latest run (7.3). A legacy run gets a new attempt of its single
-    ``legacy`` slot (trigger ``user_resume``) and is queued on the legacy worker task."""
+    """Resume of the latest run (7.3): a new attempt of its single ``legacy`` slot
+    (trigger ``user_resume``), queued on the legacy worker task."""
     case = legacy.visible_case(db, study_id, current_user)
     run = legacy.latest_run(db, case.id)
     if legacy.study_status(run) != "failed":
         raise api_error(ErrorCode.RETRY_INVALID_STATE)
-    if run.pipeline_id != LEGACY_PIPELINE_ID:
-        return _resume_pipeline_run(request, db, case, run, current_user)
     slot = db.scalar(
         select(RunSlot).where(
             RunSlot.pipeline_run_id == run.id, RunSlot.slot == LEGACY_SLOT
@@ -699,7 +657,7 @@ def retry_failed_study(
         .values(
             status="failed",
             outcome="failed",
-            failure_code="legacy_stale_job",
+            failure_code=legacy.STALE_ATTEMPT_CODE,
             finished_at=now,
         )
         .execution_options(synchronize_session=False)
@@ -766,43 +724,6 @@ def _drop_legacy_outputs(db: Session, run_id: UUID) -> None:
         delete(Artifact)
         .where(Artifact.pipeline_run_id == run_id, Artifact.origin == "legacy")
         .execution_options(synchronize_session=False)
-    )
-
-
-def _resume_pipeline_run(
-    request: Request, db: Session, case: Case, run: PipelineRun, user: User
-) -> StudyActionResponse:
-    """A run created through /api/v1: resume through the orchestrator."""
-    from app.api.v1.deps import get_orchestration, get_run_queue
-    from orchestrator.actions import ActionRefused, resume_run
-
-    orch = get_orchestration()
-    try:
-        result = resume_run(
-            db,
-            run.id,
-            user.id,
-            pipelines=orch.pipelines,
-            steps=orch.steps,
-            bundles=orch.bundles,
-        )
-    except ActionRefused:
-        db.rollback()
-        raise api_error(ErrorCode.RETRY_INVALID_STATE) from None
-    db.commit()
-    if result.enqueue:
-        try:
-            task_id = get_run_queue().enqueue(run.id)
-        except Exception:
-            # The recovery task re-enqueues runs left queued (data-model.md 7.1).
-            log.exception("Could not enqueue run %s", run.id)
-        else:
-            if task_id:
-                run = db.get(PipelineRun, run.id)
-                run.orchestrator_task_id = task_id
-                db.commit()
-    return StudyActionResponse(
-        id=case.id, status=legacy.STUDY_STATUS[result.status], message="Job requeued"
     )
 
 

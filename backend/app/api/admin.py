@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings, get_settings
 from app.db.session import get_db
 from app.models.case import Case
-from app.models.pipeline_run import PipelineRun, StepRun
+from app.models.pipeline_run import LEGACY_PIPELINE_ID, PipelineRun, StepRun
 from app.models.user import User, UserRole
 from app.schemas.admin import (
     AdminDashboardRead,
@@ -46,8 +46,9 @@ def admin_dashboard(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> AdminDashboardRead:
-    # Legacy view over the run tables (docs/data-model.md 10.4): a study's status is
-    # its latest run's, mapped; a job is a step attempt.
+    # Legacy view over the run tables (docs/data-model.md 10.4): a study is a case of the
+    # legacy profile, its status is its latest run's, mapped; a job is an attempt of a
+    # legacy run. Cases and runs of /api/v1 are not counted here.
     studies_by_status = _studies_by_status(db)
     jobs_by_status = _jobs_by_status(db)
     worker_stats, worker_error = _inspect_worker_stats()
@@ -71,7 +72,12 @@ def admin_dashboard(
         for step, case_id in db.execute(
             select(StepRun, PipelineRun.case_id)
             .join(PipelineRun, PipelineRun.id == StepRun.pipeline_run_id)
-            .where(StepRun.status == "failed")
+            .where(
+                StepRun.status == "failed",
+                PipelineRun.pipeline_id == LEGACY_PIPELINE_ID,
+                # attempts closed because a newer one replaced them are not failures
+                StepRun.failure_code.is_distinct_from(legacy.STALE_ATTEMPT_CODE),
+            )
             .order_by(StepRun.queued_at.desc())
             .limit(5)
         ).all()
@@ -91,7 +97,7 @@ def admin_dashboard(
 
 
 def _studies_by_status(db: Session) -> dict[str, int]:
-    """Non-deleted cases by the legacy status of their latest run (``uploaded`` if none)."""
+    """Non-deleted legacy cases by the mapped status of their latest run."""
     ranked = select(
         PipelineRun.case_id,
         PipelineRun.status,
@@ -106,7 +112,10 @@ def _studies_by_status(db: Session) -> dict[str, int]:
         select(ranked.c.status, func.count())
         .select_from(Case)
         .outerjoin(ranked, and_(ranked.c.case_id == Case.id, ranked.c.rn == 1))
-        .where(Case.deleted_at.is_(None))
+        .where(
+            Case.deleted_at.is_(None),
+            Case.deployment_profile == legacy.LEGACY_PROFILE,
+        )
         .group_by(ranked.c.status)
     ).all()
     counts: dict[str, int] = {}
@@ -119,7 +128,10 @@ def _studies_by_status(db: Session) -> dict[str, int]:
 def _jobs_by_status(db: Session) -> dict[str, int]:
     counts: dict[str, int] = {}
     for status, count in db.execute(
-        select(StepRun.status, func.count()).group_by(StepRun.status)
+        select(StepRun.status, func.count())
+        .join(PipelineRun, PipelineRun.id == StepRun.pipeline_run_id)
+        .where(PipelineRun.pipeline_id == LEGACY_PIPELINE_ID)
+        .group_by(StepRun.status)
     ).all():
         key = legacy.STUDY_STATUS[status]
         counts[key] = counts.get(key, 0) + count

@@ -29,7 +29,7 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import ErrorCode, api_error
 from app.models.artifact import Artifact, Report
-from app.models.case import LEGACY_UPLOAD, Case, InputFile
+from app.models.case import LEGACY_UPLOAD, Case, DeploymentProfile, InputFile
 from app.models.formats import KEBAB
 from app.models.pipeline_run import PipelineRun, StepRun
 from app.models.user import User, UserRole
@@ -52,6 +52,9 @@ STUDY_STATUS = {
     "canceled": "canceled",
 }
 DEFAULT_REVIEW_STATUS = "technical_only"
+# Failure code of an attempt closed because a newer one replaced it (back-fill, retry).
+STALE_ATTEMPT_CODE = "legacy_stale_job"
+LEGACY_PROFILE = DeploymentProfile.legacy.value
 
 
 def derive(case_id: uuid.UUID, suffix: str) -> uuid.UUID:
@@ -101,9 +104,18 @@ def absolute(storage: LocalStudyStorage, rel: str | None) -> Path | None:
 
 
 def visible_case(db: Session, case_id: uuid.UUID, user: User) -> Case:
-    """The case behind a legacy study id; 404 ``study_not_found`` as before."""
+    """The case behind a legacy study id; 404 ``study_not_found`` as before.
+
+    Only cases of the ``legacy`` profile are legacy studies (back-filled studies and
+    uploads through the alias); cases created through /api/v1 are not served by the
+    legacy endpoints, as /api/v1 does not serve legacy cases.
+    """
     case = db.get(Case, case_id)
-    if case is None or case.deleted_at is not None:
+    if (
+        case is None
+        or case.deleted_at is not None
+        or case.deployment_profile != LEGACY_PROFILE
+    ):
         raise api_error(ErrorCode.STUDY_NOT_FOUND)
     require_study_access(case.owner_user_id, user)
     return case
@@ -111,7 +123,9 @@ def visible_case(db: Session, case_id: uuid.UUID, user: User) -> Case:
 
 def visible_cases(db: Session, user: User) -> list[Case]:
     query = (
-        select(Case).where(Case.deleted_at.is_(None)).order_by(Case.created_at.desc())
+        select(Case)
+        .where(Case.deleted_at.is_(None), Case.deployment_profile == LEGACY_PROFILE)
+        .order_by(Case.created_at.desc())
     )
     if user.role != UserRole.admin.value:
         query = query.where(Case.owner_user_id == user.id)
@@ -241,9 +255,8 @@ def _facts(db: Session, cases: Iterable[Case]) -> dict[uuid.UUID, _CaseFacts]:
 
 
 def original_filename(case: Case, upload: InputFile | None) -> str:
-    """The upload's file name for legacy uploads (kept for this release only in
-    ``legacy_attributes``); ``<role><extension>`` of the first input for cases created
-    through /api/v1 (their file names are never stored)."""
+    """The upload's file name (kept for this release only in ``legacy_attributes``);
+    ``<role><extension>`` of the input, or the subject label, if it is missing."""
     name = (case.legacy_attributes or {}).get("original_filename")
     if name:
         return name

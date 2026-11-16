@@ -162,7 +162,7 @@ def download_shared_pdf(
     if not link or link.revoked_at or link.expires_at <= now:
         _raise_public_share_not_found()
     case = db.get(Case, link.case_id)
-    if not case or case.deleted_at:
+    if not case or case.deleted_at or case.deployment_profile != legacy.LEGACY_PROFILE:
         _raise_public_share_not_found()
     if link.report_id is not None:
         report = db.get(Report, link.report_id)

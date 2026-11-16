@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID
 
+from celery.signals import worker_ready
 from celery.utils.log import get_task_logger
 from sqlalchemy import select, update
 
@@ -81,14 +82,19 @@ def process_study(self, study_id: str, job_id: str) -> None:
             )
             .execution_options(synchronize_session=False)
         ).rowcount
+        started_values = {
+            "status": "running",
+            "started_at": now,
+            "executor_state": {"worker_name": socket.gethostname()},
+        }
+        if self.request.id:
+            # The task that runs the attempt is the one a cancel must revoke, even if
+            # a recovery re-enqueued the attempt meanwhile (worker/legacy_recovery.py).
+            started_values["orchestrator_task_id"] = self.request.id
         step_started = db.execute(
             update(StepRun)
             .where(StepRun.id == step.id, StepRun.status == "queued")
-            .values(
-                status="running",
-                started_at=now,
-                executor_state={"worker_name": socket.gethostname()},
-            )
+            .values(**started_values)
             .execution_options(synchronize_session=False)
         ).rowcount
         if run_started != 1 or step_started != 1:
@@ -465,6 +471,50 @@ def _notify_processing_finished(db, case: Case, run: PipelineRun, settings) -> N
     except Exception:
         db.rollback()
         logger.exception("Notification dispatch failed for study %s", case.id)
+
+
+@celery_app.task(name="worker.tasks.recover_legacy_runs")
+def recover_legacy_runs() -> dict:
+    """Re-enqueue orphaned queued legacy attempts and fail attempts whose worker is gone
+    (worker/legacy_recovery.py). Idempotent; scheduled at worker start-up and by beat."""
+    from worker.legacy_recovery import (
+        live_task_ids,
+        recover_legacy_runs as recover,
+        thresholds,
+    )
+
+    settings = get_settings()
+    queued_after, running_after = thresholds(settings)
+
+    def on_failed(db, case, run):
+        _notify_processing_finished(db, case, run, settings)
+
+    report = recover(
+        SessionLocal,
+        live_ids=live_task_ids(celery_app),
+        enqueue=enqueue_attempt,
+        queued_after=queued_after,
+        running_after=running_after,
+        execute=True,
+        on_failed=on_failed,
+    )
+    if report.requeued or report.failed_lost:
+        logger.warning("Legacy recovery: %s", report.as_dict())
+    return report.as_dict()
+
+
+def enqueue_attempt(case_id: UUID, step_id: UUID, task_id: str) -> None:
+    process_study.apply_async(args=(str(case_id), str(step_id)), task_id=task_id)
+
+
+@worker_ready.connect
+def _schedule_legacy_recovery(sender=None, **_kwargs) -> None:
+    """After a (re)start, look for legacy attempts left without a task once the worker
+    is consuming. Several replicas may schedule it; the recovery is idempotent."""
+    try:
+        recover_legacy_runs.apply_async(countdown=60)
+    except Exception:
+        logger.exception("Could not schedule the legacy recovery")
 
 
 # --------------------------------------------------------------- pipeline runs (F0-15)
