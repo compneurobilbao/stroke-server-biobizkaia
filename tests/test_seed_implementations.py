@@ -80,6 +80,7 @@ def test_deployment_enables_real_entries_only(factory, capsys):
     assert got[("lesion-intake", "lesion-qc")] == (True, True)
     assert got[("report", "research-report")] == (True, True)
     assert got[("report", "research-report-es")] == (True, False)
+    assert got[("functional-disconnection", "flnm-fast")] == (True, True)
     assert got[("functional-disconnection", "fdisconnection-stub")] == (False, False)
     assert got[("normalisation", "ct-lesion-to-mni152")] == (False, False)
     out = capsys.readouterr().out
@@ -91,6 +92,7 @@ def test_ci_profile_enables_the_stub(factory):
     assert run(factory, "--profile", "ci") == 0
     got = rows(factory)
     assert got[("functional-disconnection", "fdisconnection-stub")] == (True, True)
+    assert got[("functional-disconnection", "flnm-fast")] == (True, False)
     assert got[("normalisation", "ct-lesion-to-mni152")] == (False, False)
 
 

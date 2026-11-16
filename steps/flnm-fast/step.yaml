@@ -1,0 +1,132 @@
+contract_version: "1.1"
+kind: Step
+name: flnm-fast
+version: 1.0.0
+title: Functional lesion network mapping (flnm-fast)
+description: >-
+  Functional lesion network z-map of one lesion. The packaged engine (image
+  compneurobilbaolab/flnm-fast, unchanged) weights the parcels of the normative
+  parcellation by their overlap with the lesion mask, selects the normative participants of
+  the same sex with the nearest age, computes the lesion-weighted functional connectivity
+  profile of each of them, tests every target parcel against zero across those participants
+  with a one-sample t-test, converts the signed t statistics to signed z scores and writes
+  them on the working grid, piecewise constant per parcel. The normative functional
+  connectivity data is a reference bundle of type normative-fc (docs/reference-data.md).
+  The case sex and age band come from the case metadata through parameter bindings; the step
+  never receives exact ages or identifiers. Values are signed z scores of lesion-to-parcel
+  connectivity: positive where a parcel is positively coupled with the lesion site.
+provides: functional-disconnection
+image:
+  repository: docker.io/compneurobilbaolab/step-flnm-fast
+licence:
+  spdx: MIT
+  third_party:
+    - {name: flnm-fast (lesion_zmaps engine), version: "1.0", spdx: MIT}
+    - {name: nibabel, version: 5.3.1, spdx: MIT}
+    - {name: numpy, version: 2.1.2, spdx: BSD-3-Clause}
+    - {name: pandas, version: 2.2.3, spdx: BSD-3-Clause}
+    - {name: scipy, version: 1.14.1, spdx: BSD-3-Clause}
+    - {name: Python, version: 3.12.13, spdx: PSF-2.0}
+
+inputs:
+  - name: lesion_mask
+    type: lesion_mask_mni
+    required: true
+    description: Binary lesion mask on the 2 mm MNI152NLin6Asym working grid.
+
+outputs:
+  - name: fdisconnection_map
+    type: fdisconnection_map
+    required: true
+    description: >-
+      Signed z score of every parcel of the normative parcellation, written on the
+      parcels' voxels of the working grid (zero outside the parcellation, NaN for a parcel
+      whose statistic is undefined).
+
+parameters:
+  type: object
+  additionalProperties: false
+  properties:
+    sex:
+      description: >-
+        Sex of the case; only normative participants of the same sex are used. Bound to the
+        case metadata. The run is rejected (participant_sex_missing) when it is unset.
+      type: [string, "null"]
+      enum: [female, male, null]
+      default: null
+    age_band:
+      description: >-
+        Age band of the case in whole years ("65-69"); the midpoint is the age the nearest
+        normative participants are selected for. Bound to the case metadata. The run is
+        rejected (participant_age_missing) when it is unset.
+      type: [string, "null"]
+      pattern: "^[0-9]{1,3}-[0-9]{1,3}$"
+      default: null
+    control_count:
+      description: >-
+        Number of same-sex, nearest-age normative participants the statistic is computed
+        over (the engine default).
+      type: integer
+      minimum: 2
+      default: 1000
+
+bundles:
+  - name: normative
+    type: normative-fc
+    version: ">=1.0.0, <2.0.0"
+    description: >-
+      Normative parcel-by-parcel functional connectivity of a healthy cohort with sex and
+      age labels (layout in steps/flnm-fast/README.md). Licence terms of the cohort apply:
+      real data is not redistributable and is installed locally.
+
+resources:
+  cpus: 1
+  memory_mb: 4096
+  wall_time_minutes: 30
+  scratch_mb: 256
+
+errors:
+  - code: participant_sex_missing
+    category: input_rejected
+    description: The case has no sex recorded, which the normative control selection needs.
+  - code: participant_age_missing
+    category: input_rejected
+    description: The case has no age band recorded, which the normative control selection needs.
+  - code: mask_empty
+    category: input_rejected
+    description: The lesion mask has no voxels set.
+  - code: lesion_outside_parcellation
+    category: input_rejected
+    description: The lesion does not overlap any parcel of the normative parcellation.
+  - code: lesion_single_parcel
+    category: input_rejected
+    description: >-
+      The lesion lies within a single parcel; the packaged engine always omits the
+      lowest-numbered overlapped parcel and then has nothing left to weight.
+  - code: insufficient_controls
+    category: input_rejected
+    description: The normative cohort has fewer participants of the requested sex than control_count.
+
+reference_test:
+  description: >-
+    A synthetic normative cohort (27 block parcels, 2100 participants with sex and age, seeded
+    hash-based connectivity) and a synthetic ball lesion straddling several parcels, all
+    written by tests/make_reference.py (nothing is committed). The expected z-map is computed
+    independently of the engine with the standard library (exact t distribution and normal
+    quantile functions) and numpy. Run with the generated bundle as
+    --bundle normative=steps/flnm-fast/tests/reference/bundle.
+  generator: tests/make_reference.py
+  inputs:
+    lesion_mask: tests/reference/lesion_mask.nii.gz
+  bundles:
+    normative: {id: synthetic-normative-fc, version: 1.0.0}
+  parameters:
+    sex: female
+    age_band: 60-64
+    control_count: 16
+  expected:
+    fdisconnection_map:
+      compare: allclose
+      file: tests/reference/expected/fdisconnection_map.nii.gz
+      rtol: 0.00001
+      atol: 0.00001

@@ -64,6 +64,7 @@ jobs:
           python pipelines/stroke-lnm/registry.py check
           python contracts/validate.py --kind pipeline pipelines/stroke-lnm/pipeline.yaml
           python contracts/validate.py --kind step steps/stubs/fdisconnection-stub/step.yaml
+          python contracts/validate.py --kind step steps/flnm-fast/step.yaml
 
       - name: Fetch the external steps at the pinned commits
         run: python pipelines/stroke-lnm/registry.py fetch --dest "$WORK/external"
@@ -84,11 +85,16 @@ jobs:
           cmp "$WORK/step-manifests/lesion-qc-1.0.0/step.yaml" steps/lesion-qc/step.yaml
           cmp "$WORK/step-manifests/research-report-0.1.0/step.yaml" steps/report/step.yaml
           cmp "$WORK/step-manifests/fdisconnection-stub-0.1.0/step.yaml" steps/stubs/fdisconnection-stub/step.yaml
+          cmp "$WORK/step-manifests/flnm-fast-1.0.0/step.yaml" steps/flnm-fast/step.yaml
 
-      - name: Reference data bundles (synthetic fixtures and the COGNET-STROKE synthetic concept maps)
+      - name: Reference data bundles (synthetic fixtures, the flnm-fast synthetic normative bundle and the COGNET-STROKE synthetic concept maps)
         run: |
-          mkdir -p "$WORK/bundles" "$WORK/cognet-ref"
+          mkdir -p "$WORK/bundles" "$WORK/cognet-ref" "$WORK/flnm-ref"
           cp -r fixtures/data/bundles/toy-normative-connectome/1.0.0 "$WORK/bundles/toy-normative-connectome"
+          # deterministic generator of the flnm-fast step (synthetic data only; the real
+          # normative data is never used in CI)
+          python steps/flnm-fast/tests/make_reference.py "$WORK/flnm-ref"
+          cp -r "$WORK/flnm-ref/bundle" "$WORK/bundles/synthetic-normative-fc"
           cp -r fixtures/data/bundles/toy-tract-atlas/1.0.0 "$WORK/bundles/toy-tract-atlas"
           # generator of the pinned COGNET-STROKE step (fixed seed, nothing committed here)
           python "$WORK/external/COGNET-STROKE/step/tests/make_reference.py" "$WORK/cognet-ref" contracts
