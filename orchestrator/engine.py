@@ -37,8 +37,8 @@ Design (docs/processing-pipeline.md, "Pipeline orchestrator"):
   ``user_resume`` attempt for every selected slot whose latest attempt is failed
   or canceled; slots that succeeded are kept.
 
-Legacy runs (``pipeline_id = 'legacy'``) are not driven here; see
-``orchestrator.legacy``.
+Legacy runs (``pipeline_id = 'legacy'``) are not driven here: the legacy worker task
+``worker.tasks.process_study`` runs their single attempt (docs/data-model.md 10.1).
 """
 
 from __future__ import annotations

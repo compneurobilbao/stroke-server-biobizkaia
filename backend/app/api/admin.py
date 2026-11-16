@@ -10,13 +10,13 @@ from fastapi import (
     APIRouter,
     Depends,
 )
-from sqlalchemy import func, select, text
+from sqlalchemy import and_, func, select, text
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
 from app.db.session import get_db
-from app.models.processing_job import ProcessingJob
-from app.models.study import Study, StudyStatus
+from app.models.case import Case
+from app.models.pipeline_run import PipelineRun, StepRun
 from app.models.user import User, UserRole
 from app.schemas.admin import (
     AdminDashboardRead,
@@ -25,12 +25,12 @@ from app.schemas.admin import (
     AdminStorageSummary,
     AdminUserSummary,
 )
-from app.schemas.study import (
-    ProcessingJobRead,
-)
+from app.services import legacy_studies as legacy
 from app.services.auth import (
     require_admin,
 )
+from app.services.quota import storage_used
+from app.services.storage import LocalStudyStorage
 
 router = APIRouter()
 
@@ -46,14 +46,16 @@ def admin_dashboard(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> AdminDashboardRead:
-    studies_by_status = _count_by(db, Study.status, Study.deleted_at.is_(None))
-    jobs_by_status = _count_by(db, ProcessingJob.status)
+    # Legacy view over the run tables (docs/data-model.md 10.4): a study's status is
+    # its latest run's, mapped; a job is a step attempt.
+    studies_by_status = _studies_by_status(db)
+    jobs_by_status = _jobs_by_status(db)
     worker_stats, worker_error = _inspect_worker_stats()
     worker_capacity = _worker_capacity(settings, worker_stats)
     queue = AdminQueueSummary(
-        queued=jobs_by_status.get(StudyStatus.queued.value, 0),
-        processing=jobs_by_status.get(StudyStatus.processing.value, 0),
-        failed=jobs_by_status.get(StudyStatus.failed.value, 0),
+        queued=jobs_by_status.get("queued", 0),
+        processing=jobs_by_status.get("processing", 0),
+        failed=jobs_by_status.get("failed", 0),
         worker_replicas=worker_capacity["worker_replicas"],
         worker_concurrency=worker_capacity["worker_concurrency"],
         processing_capacity=worker_capacity["processing_capacity"],
@@ -61,19 +63,19 @@ def admin_dashboard(
     queue.active = queue.queued + queue.processing
     queue.processing_available = max(0, queue.processing_capacity - queue.processing)
     users = _user_summary(db)
-    studies_bytes = db.scalar(
-        select(func.coalesce(func.sum(Study.file_size), 0)).where(
-            Study.deleted_at.is_(None)
-        )
-    )
-    storage = _storage_summary(settings.storage_root, int(studies_bytes or 0))
+    storage = _storage_summary(settings.storage_root, storage_used(db, None))
     services = _service_health(db, settings, worker_stats, worker_error)
-    recent_failed_jobs = db.scalars(
-        select(ProcessingJob)
-        .where(ProcessingJob.status == StudyStatus.failed.value)
-        .order_by(ProcessingJob.queued_at.desc())
-        .limit(5)
-    ).all()
+    case_store = LocalStudyStorage(settings.storage_root)
+    recent_failed_jobs = [
+        legacy.job_read(step, case_id, case_store)
+        for step, case_id in db.execute(
+            select(StepRun, PipelineRun.case_id)
+            .join(PipelineRun, PipelineRun.id == StepRun.pipeline_run_id)
+            .where(StepRun.status == "failed")
+            .order_by(StepRun.queued_at.desc())
+            .limit(5)
+        ).all()
+    ]
     alerts = _dashboard_alerts(queue, storage, services)
     return AdminDashboardRead(
         generated_at=datetime.utcnow(),
@@ -83,22 +85,45 @@ def admin_dashboard(
         jobs_by_status=jobs_by_status,
         storage=storage,
         services=services,
-        recent_failed_jobs=[
-            ProcessingJobRead.model_validate(job) for job in recent_failed_jobs
-        ],
+        recent_failed_jobs=recent_failed_jobs,
         alerts=alerts,
     )
 
 
-def _count_by(db: Session, column, *conditions) -> dict[str, int]:
-    query = select(column, func.count()).group_by(column)
-    for condition in conditions:
-        query = query.where(condition)
-    return {_status_key(value): count for value, count in db.execute(query).all()}
+def _studies_by_status(db: Session) -> dict[str, int]:
+    """Non-deleted cases by the legacy status of their latest run (``uploaded`` if none)."""
+    ranked = select(
+        PipelineRun.case_id,
+        PipelineRun.status,
+        func.row_number()
+        .over(
+            partition_by=PipelineRun.case_id,
+            order_by=(PipelineRun.created_at.desc(), PipelineRun.id.desc()),
+        )
+        .label("rn"),
+    ).subquery()
+    rows = db.execute(
+        select(ranked.c.status, func.count())
+        .select_from(Case)
+        .outerjoin(ranked, and_(ranked.c.case_id == Case.id, ranked.c.rn == 1))
+        .where(Case.deleted_at.is_(None))
+        .group_by(ranked.c.status)
+    ).all()
+    counts: dict[str, int] = {}
+    for status, count in rows:
+        key = legacy.STUDY_STATUS[status] if status else legacy.NO_RUN_STATUS
+        counts[key] = counts.get(key, 0) + count
+    return counts
 
 
-def _status_key(value) -> str:
-    return value.value if hasattr(value, "value") else str(value)
+def _jobs_by_status(db: Session) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for status, count in db.execute(
+        select(StepRun.status, func.count()).group_by(StepRun.status)
+    ).all():
+        key = legacy.STUDY_STATUS[status]
+        counts[key] = counts.get(key, 0) + count
+    return counts
 
 
 def _user_summary(db: Session) -> AdminUserSummary:

@@ -1,6 +1,17 @@
+"""Legacy study endpoints, aliases over the case model since migration 0012.
+
+docs/data-model.md 10.4: every path keeps its method, request and response schema and
+its status codes; the data now lives in ``cases``, ``input_files``, ``pipeline_runs``,
+``step_runs``, ``artifacts`` and ``reports`` (legacy study id = case id). ``studies``
+and ``processing_jobs`` are frozen and never written. Legacy uploads still run on the
+legacy worker task (``worker.tasks.process_study``, cancellation by Celery revoke plus
+SIGTERM); runs created through /api/v1 shown here are cancelled and resumed through the
+orchestrator's run actions instead.
+"""
+
 from __future__ import annotations
 
-from datetime import datetime
+import logging
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -15,17 +26,27 @@ from fastapi import (
     status,
 )
 from fastapi.responses import FileResponse
-from sqlalchemy import select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
 from app.core.errors import ErrorCode, api_error
 from app.db.session import get_db
-from app.models.processing_job import ProcessingJob
-from app.models.study import ClinicalReviewStatus, Study, StudyStatus
-from app.models.user import User, UserRole
+from app.models.artifact import Artifact, Report
+from app.models.case import LEGACY_UPLOAD, Case, DeploymentProfile, InputFile
+from app.models.pipeline_run import (
+    ACTIVE_STATUSES,
+    LEGACY_PIPELINE_ID,
+    LEGACY_SLOT,
+    PipelineRun,
+    RunInput,
+    RunSlot,
+    StepRun,
+)
+from app.models.share_link import ShareLink
+from app.models.study import ClinicalReviewStatus
+from app.models.user import User
 from app.schemas.study import (
-    ProcessingJobRead,
     ClinicalReviewUpdate,
     StudyActionResponse,
     StudyDetailRead,
@@ -35,13 +56,14 @@ from app.schemas.study import (
     StudyStatusRead,
     UploadResponse,
 )
+from app.services import legacy_studies as legacy
 from app.services.audit import record_event
 from app.services.auth import (
     client_ip,
     get_current_user,
-    require_study_access,
 )
 from app.services.bids import prepare_single_subject_t1w_bids
+from app.services.quota import storage_used
 from app.services.security import (
     resolve_bids_subject_id,
     sanitize_filename,
@@ -50,9 +72,41 @@ from app.services.security import (
 )
 from app.services.storage import LocalStudyStorage
 from worker.tasks import process_study
-from app.api.helpers import _get_visible_study, _latest_job, _user_storage_used
 
 router = APIRouter()
+log = logging.getLogger(__name__)
+
+CANCEL_REQUESTED_MESSAGE = "Cancellation requested by the user"
+
+
+def _actor(request: Request, user: User) -> dict:
+    return {
+        "actor": user.email,
+        "actor_user_id": user.id,
+        "ip_address": client_ip(request),
+    }
+
+
+def _new_case_id(db: Session) -> UUID:
+    """A case id whose subject label (first 12 hex characters) is not taken."""
+    while True:
+        case_id = uuid4()
+        taken = db.scalar(
+            select(Case.id).where(Case.subject_label == case_id.hex[:12])
+        )
+        if taken is None:
+            return case_id
+
+
+def _lock_owner_quota(db: Session, user: User, additional: int) -> None:
+    """Quota check under the owner's row lock (same lock as the v1 uploads)."""
+    if user.storage_quota_bytes is None:
+        return
+    db.execute(
+        select(User.id).where(User.id == user.id).with_for_update()
+    ).all()
+    if storage_used(db, user.id) + additional > user.storage_quota_bytes:
+        raise api_error(ErrorCode.STORAGE_QUOTA_EXCEEDED)
 
 
 @router.post(
@@ -68,13 +122,14 @@ def upload_study(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> UploadResponse:
+    """A case with one ``legacy_upload`` input file and one queued ``legacy`` run."""
     processor_backend = settings.processor_backend.strip().lower()
     if processor_backend == "compneuro":
         safe_filename = sanitize_filename(file.filename or "")
         validate_nifti_gz_filename(safe_filename)
     else:
         safe_filename = validate_upload(file, settings.allowed_extension_list)
-    study_id = uuid4()
+    study_id = _new_case_id(db)
     resolved_bids_subject_id = (
         resolve_bids_subject_id(bids_subject_id, study_id)
         if processor_backend == "compneuro" or bids_subject_id
@@ -88,11 +143,12 @@ def upload_study(
     if file_size > settings.max_upload_size_bytes:
         storage.remove_study(study_id)
         raise api_error(ErrorCode.UPLOAD_TOO_LARGE)
-    if current_user.storage_quota_bytes is not None:
-        used_bytes = _user_storage_used(db, current_user.id)
-        if used_bytes + file_size > current_user.storage_quota_bytes:
-            storage.remove_study(study_id)
-            raise api_error(ErrorCode.STORAGE_QUOTA_EXCEEDED)
+    try:
+        _lock_owner_quota(db, current_user, file_size)
+    except Exception:
+        db.rollback()
+        storage.remove_study(study_id)
+        raise
 
     bids_paths = None
     if processor_backend == "compneuro" and resolved_bids_subject_id:
@@ -101,38 +157,108 @@ def upload_study(
                 storage, study_id, stored_path, resolved_bids_subject_id
             )
         except Exception as exc:
+            db.rollback()
             storage.remove_study(study_id)
             raise api_error(ErrorCode.BIDS_PREPARATION_FAILED) from exc
 
-    study = Study(
+    now = legacy.utcnow()
+    rel = lambda path: legacy.relative(storage, path)  # noqa: E731
+    case = Case(
         id=study_id,
         owner_user_id=current_user.id,
-        original_filename=file.filename or safe_filename,
-        stored_path=str(stored_path),
-        output_path=str(storage.output_dir(study_id)),
-        bids_path=str(bids_paths.bids_project_dir) if bids_paths else None,
-        preproc_output_path=str(storage.preproc_output_dir(study_id))
-        if processor_backend == "compneuro"
-        else None,
-        bids_subject_id=resolved_bids_subject_id,
-        processor_backend=processor_backend,
-        container_image=settings.compneuro_container_image
-        if processor_backend == "compneuro"
-        else None,
-        status=StudyStatus.queued,
-        processor_name=settings.processor_name,
-        processor_version=settings.processor_version,
-        file_size=file_size,
-        checksum=checksum,
+        subject_label=study_id.hex[:12],
+        # Legacy uploads stay in the legacy world for this release: hidden from /api/v1
+        # like the back-filled studies (docs/data-model.md 10.4 and section 11).
+        deployment_profile=DeploymentProfile.legacy.value,
+        created_at=now,
+        updated_at=now,
+        legacy_attributes={
+            "original_filename": file.filename or safe_filename,
+            "bids_subject_id": resolved_bids_subject_id,
+            "processor_backend": processor_backend,
+            "processor_name": settings.processor_name,
+            "processor_version": settings.processor_version,
+            "container_image": settings.compneuro_container_image
+            if processor_backend == "compneuro"
+            else None,
+            "processing_warnings": None,
+            "bids_path": rel(bids_paths.bids_project_dir) if bids_paths else None,
+            "preproc_output_path": rel(storage.preproc_output_dir(study_id))
+            if processor_backend == "compneuro"
+            else None,
+            "rendered_png_dir": None,
+            "output_path": rel(storage.output_dir(study_id)),
+        },
     )
-    job = ProcessingJob(study_id=study_id, status=StudyStatus.queued.value)
-    db.add(study)
-    db.add(job)
+    input_file = InputFile(
+        id=legacy.derive(study_id, "input"),
+        case_id=study_id,
+        role=LEGACY_UPLOAD,
+        artefact_type=LEGACY_UPLOAD,
+        storage_path=rel(stored_path),
+        sha256=checksum,
+        size_bytes=file_size,
+        uploaded_by_user_id=current_user.id,
+        created_at=now,
+    )
+    run = PipelineRun(
+        id=study_id,
+        case_id=study_id,
+        created_by_user_id=current_user.id,
+        pipeline_id=LEGACY_PIPELINE_ID,
+        pipeline_version="0.0.0",
+        platform_version="legacy",
+        artefact_types_version="legacy",
+        input_set="legacy-single-file",
+        seed=0,
+        status="queued",
+        requested_implementations={},
+        accounting_submitted_by=f"user:{current_user.id}",
+        accounting_submit_as="service-account",
+        created_at=now,
+        updated_at=now,
+        legacy_clinical_review_status=ClinicalReviewStatus.technical_only.value,
+    )
+    implementation = legacy.kebab(processor_backend)
+    slot = RunSlot(
+        id=legacy.derive(study_id, "slot/legacy"),
+        pipeline_run_id=study_id,
+        slot=LEGACY_SLOT,
+        position=0,
+        optional=False,
+        status="selected",
+        implementation_id=implementation,
+        step_name=f"legacy-{implementation}",
+        step_version="0.0.0",
+        stub=processor_backend == "dummy",
+        chosen_by="deployment_default",
+        effective_parameters={},
+    )
+    step = StepRun(
+        id=uuid4(),
+        pipeline_run_id=study_id,
+        run_slot_id=slot.id,
+        attempt=1,
+        trigger="initial",
+        status="queued",
+        executor="subprocess",
+        runtime="none",
+        queued_at=now,
+    )
+    db.add(case)
+    db.flush()
+    db.add_all([input_file, run])
+    db.flush()
+    db.add_all(
+        [RunInput(pipeline_run_id=run.id, role=LEGACY_UPLOAD, input_file_id=input_file.id), slot]
+    )
+    db.flush()
+    db.add(step)
+    db.flush()
     record_event(
         db,
         "study_uploaded",
-        study_id,
-        {
+        details={
             "filename": safe_filename,
             "processor_backend": processor_backend,
             "bids_subject_id": resolved_bids_subject_id,
@@ -140,6 +266,8 @@ def upload_study(
         actor=current_user.email,
         actor_user_id=current_user.id,
         ip_address=request.client.host if request.client else None,
+        case_id=study_id,
+        pipeline_run_id=run.id,
     )
     db.commit()
 
@@ -158,31 +286,34 @@ def upload_study(
         },
     )
 
-    async_result = process_study.delay(str(study_id), str(job.id))
-    if getattr(async_result, "id", None):
-        job.celery_task_id = async_result.id
-        db.commit()
+    _enqueue_attempt(db, study_id, step.id)
     return UploadResponse(
         id=study_id,
-        status=study.status.value,
+        status="queued",
         message="Study received and queued for processing",
         bids_subject_id=resolved_bids_subject_id,
     )
+
+
+def _enqueue_attempt(db: Session, case_id: UUID, step_id: UUID) -> None:
+    """Enqueue the legacy worker task for one attempt and remember its task id."""
+    async_result = process_study.delay(str(case_id), str(step_id))
+    task_id = getattr(async_result, "id", None)
+    if task_id:
+        db.execute(
+            update(StepRun)
+            .where(StepRun.id == step_id)
+            .values(orchestrator_task_id=task_id)
+            .execution_options(synchronize_session=False)
+        )
+        db.commit()
 
 
 @router.get("/studies", response_model=list[StudyRead])
 def list_studies(
     current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ) -> list[StudyRead]:
-    query = (
-        select(Study)
-        .where(Study.deleted_at.is_(None))
-        .order_by(Study.created_at.desc())
-    )
-    if current_user.role != UserRole.admin.value:
-        query = query.where(Study.owner_user_id == current_user.id)
-    studies = db.scalars(query).all()
-    return [to_study_read(study) for study in studies]
+    return legacy.study_reads(db, legacy.visible_cases(db, current_user))
 
 
 @router.get("/studies/{study_id}", response_model=StudyRead)
@@ -191,13 +322,7 @@ def get_study(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> StudyRead:
-    study = db.get(Study, study_id)
-    if not study:
-        raise api_error(ErrorCode.STUDY_NOT_FOUND)
-    if study.deleted_at:
-        raise api_error(ErrorCode.STUDY_NOT_FOUND)
-    require_study_access(study.owner_user_id, current_user)
-    return to_study_read(study)
+    return legacy.study_read(db, legacy.visible_case(db, study_id, current_user))
 
 
 @router.get("/studies/{study_id}/detail", response_model=StudyDetailRead)
@@ -205,12 +330,15 @@ def get_study_detail(
     study_id: UUID,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> StudyDetailRead:
-    study = _get_visible_study(db, study_id, current_user)
-    jobs = sorted(study.jobs, key=lambda item: item.queued_at, reverse=True)
+    case = legacy.visible_case(db, study_id, current_user)
+    run = legacy.latest_run(db, case.id)
+    storage = LocalStudyStorage(settings.storage_root)
+    steps = legacy.run_steps(db, run.id) if run else []
     return StudyDetailRead(
-        **to_study_read(study).model_dump(),
-        jobs=[ProcessingJobRead.model_validate(job) for job in jobs],
+        **legacy.study_read(db, case).model_dump(),
+        jobs=[legacy.job_read(step, case.id, storage) for step in steps],
     )
 
 
@@ -220,22 +348,7 @@ def get_study_status(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> StudyStatusRead:
-    study = db.get(Study, study_id)
-    if not study:
-        raise api_error(ErrorCode.STUDY_NOT_FOUND)
-    if study.deleted_at:
-        raise api_error(ErrorCode.STUDY_NOT_FOUND)
-    require_study_access(study.owner_user_id, current_user)
-    return StudyStatusRead(
-        id=study.id,
-        status=study.status.value,
-        error_message=study.error_message,
-        has_pdf=bool(study.pdf_path),
-        has_output_zip=bool(study.output_zip_path),
-        processing_warnings=study.processing_warnings,
-        clinical_review_status=study.clinical_review_status,
-        updated_at=study.updated_at,
-    )
+    return legacy.status_read(db, legacy.visible_case(db, study_id, current_user))
 
 
 @router.patch("/studies/{study_id}/clinical-review", response_model=StudyRead)
@@ -246,28 +359,50 @@ def update_clinical_review_status(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> StudyRead:
-    study = _get_visible_study(db, study_id, current_user)
+    """``legacy_clinical_review_status`` of the latest run."""
+    case = legacy.visible_case(db, study_id, current_user)
     allowed_statuses = {item.value for item in ClinicalReviewStatus}
     if payload.clinical_review_status not in allowed_statuses:
         raise api_error(ErrorCode.INVALID_CLINICAL_REVIEW_STATUS)
+    run = legacy.latest_run(db, case.id)
     if (
         payload.clinical_review_status != ClinicalReviewStatus.technical_only.value
-        and study.status != StudyStatus.completed
+        and legacy.study_status(run) != "completed"
     ):
         raise api_error(ErrorCode.CLINICAL_REVIEW_REQUIRES_COMPLETED)
-    study.clinical_review_status = payload.clinical_review_status
+    if run is not None:
+        run.legacy_clinical_review_status = payload.clinical_review_status
+        run.updated_at = legacy.utcnow()
     record_event(
         db,
         "study_clinical_review_updated",
-        study.id,
-        {"clinical_review_status": study.clinical_review_status},
-        actor=current_user.email,
-        actor_user_id=current_user.id,
-        ip_address=client_ip(request),
+        details={"clinical_review_status": payload.clinical_review_status},
+        **_actor(request, current_user),
+        case_id=case.id,
+        pipeline_run_id=run.id if run else None,
     )
     db.commit()
-    db.refresh(study)
-    return to_study_read(study)
+    db.refresh(case)
+    return legacy.study_read(db, case)
+
+
+def _completed_report_pdf(
+    db: Session, case: Case, storage: LocalStudyStorage
+) -> Path:
+    """PDF of the case's current report: the report of the latest run, which must have
+    succeeded (``completed``)."""
+    run = legacy.latest_run(db, case.id)
+    report = legacy.current_report(db, run)
+    if legacy.study_status(run) != "completed" or report is None:
+        raise api_error(ErrorCode.PDF_NOT_READY)
+    pdf_path = legacy.report_pdf_path(db, storage, report)
+    if (
+        pdf_path is None
+        or not pdf_path.is_file()
+        or pdf_path.suffix.lower() != ".pdf"
+    ):
+        raise api_error(ErrorCode.PDF_MISSING_IN_STORAGE)
+    return pdf_path
 
 
 @router.get("/studies/{study_id}/download")
@@ -276,31 +411,23 @@ def download_pdf(
     study_id: UUID,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> FileResponse:
-    study = db.get(Study, study_id)
-    if not study:
-        raise api_error(ErrorCode.STUDY_NOT_FOUND)
-    require_study_access(study.owner_user_id, current_user)
-    if study.deleted_at:
-        raise api_error(ErrorCode.STUDY_NOT_FOUND)
-    if study.status != StudyStatus.completed or not study.pdf_path:
-        raise api_error(ErrorCode.PDF_NOT_READY)
-    pdf_path = Path(study.pdf_path)
-    if not pdf_path.exists() or pdf_path.suffix.lower() != ".pdf":
-        raise api_error(ErrorCode.PDF_MISSING_IN_STORAGE)
+    case = legacy.visible_case(db, study_id, current_user)
+    pdf_path = _completed_report_pdf(
+        db, case, LocalStudyStorage(settings.storage_root)
+    )
     record_event(
         db,
         "study_downloaded_pdf",
-        study.id,
-        actor=current_user.email,
-        actor_user_id=current_user.id,
-        ip_address=client_ip(request),
+        **_actor(request, current_user),
+        case_id=case.id,
     )
     db.commit()
     return FileResponse(
         pdf_path,
         media_type="application/pdf",
-        filename=f"technical-report-{study.id}.pdf",
+        filename=f"technical-report-{case.id}.pdf",
     )
 
 
@@ -310,8 +437,9 @@ def download_technical_pdf(
     study_id: UUID,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> FileResponse:
-    return download_pdf(request, study_id, current_user, db)
+    return download_pdf(request, study_id, current_user, db, settings)
 
 
 @router.get("/studies/{study_id}/download/zip")
@@ -320,29 +448,28 @@ def download_outputs_zip(
     study_id: UUID,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> FileResponse:
-    study = db.get(Study, study_id)
-    if not study:
-        raise api_error(ErrorCode.STUDY_NOT_FOUND)
-    require_study_access(study.owner_user_id, current_user)
-    if study.deleted_at:
-        raise api_error(ErrorCode.STUDY_NOT_FOUND)
-    if study.status != StudyStatus.completed or not study.output_zip_path:
+    """``legacy_outputs_zip`` artefact of the latest run."""
+    case = legacy.visible_case(db, study_id, current_user)
+    run = legacy.latest_run(db, case.id)
+    artifact = legacy.outputs_zip(db, run)
+    if legacy.study_status(run) != "completed" or artifact is None:
         raise api_error(ErrorCode.ZIP_NOT_READY)
-    zip_path = Path(study.output_zip_path)
-    if not zip_path.exists() or zip_path.suffix.lower() != ".zip":
+    zip_path = legacy.absolute(
+        LocalStudyStorage(settings.storage_root), artifact.storage_path
+    )
+    if zip_path is None or not zip_path.is_file() or zip_path.suffix.lower() != ".zip":
         raise api_error(ErrorCode.ZIP_MISSING_IN_STORAGE)
     record_event(
         db,
         "study_downloaded_zip",
-        study.id,
-        actor=current_user.email,
-        actor_user_id=current_user.id,
-        ip_address=client_ip(request),
+        **_actor(request, current_user),
+        case_id=case.id,
     )
     db.commit()
     return FileResponse(
-        zip_path, media_type="application/zip", filename=f"outputs-{study.id}.zip"
+        zip_path, media_type="application/zip", filename=f"outputs-{case.id}.zip"
     )
 
 
@@ -354,15 +481,41 @@ def get_study_logs(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> StudyLogsRead:
-    study = _get_visible_study(db, study_id, current_user)
+    """Legacy runs: the processor and rendering logs of the case, as before. Runs created
+    through /api/v1: the log of the latest attempt of the latest run."""
+    case = legacy.visible_case(db, study_id, current_user)
     storage = LocalStudyStorage(settings.storage_root)
+    run = legacy.latest_run(db, case.id)
     logs = []
+    if run is not None and run.pipeline_id != LEGACY_PIPELINE_ID:
+        step = legacy.latest_step(db, run)
+        path = _case_file(storage, case.id, step.log_path if step else None)
+        if path is not None:
+            content, truncated = _read_last_lines(path, lines)
+            logs.append(StudyLogEntry(name=path.name, content=content, truncated=truncated))
+        return StudyLogsRead(study_id=case.id, logs=logs)
     for name in ["processor.log", "rendering.log"]:
-        path = storage.logs_dir(study.id) / name
+        path = storage.logs_dir(case.id) / name
         if path.exists() and path.is_file():
             content, truncated = _read_last_lines(path, lines)
             logs.append(StudyLogEntry(name=name, content=content, truncated=truncated))
-    return StudyLogsRead(study_id=study.id, logs=logs)
+    return StudyLogsRead(study_id=case.id, logs=logs)
+
+
+def _case_file(storage: LocalStudyStorage, case_id: UUID, rel: str | None) -> Path | None:
+    if not rel:
+        return None
+    from app.api.v1.deps import case_file
+
+    return case_file(storage, case_id, rel)
+
+
+# ------------------------------------------------------------------- run actions
+
+
+def _revoke(task_id: str | None, **kwargs) -> None:
+    if task_id:
+        process_study.app.control.revoke(task_id, **kwargs)
 
 
 @router.post("/studies/{study_id}/cancel", response_model=StudyActionResponse)
@@ -372,78 +525,126 @@ def cancel_study_processing(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> StudyActionResponse:
-    study = _get_visible_study(db, study_id, current_user)
-    if study.status not in {StudyStatus.queued, StudyStatus.processing}:
+    """Cancel of the latest run (docs/data-model.md 7.3).
+
+    Legacy runs keep their mechanism: a queued run is canceled at once (the Celery task
+    is revoked); a processing run gets ``cancel_requested_at`` on the run and on its
+    live attempt and the worker task is revoked with SIGTERM, which the worker turns
+    into a cancellation because the flag is set.
+    """
+    case = legacy.visible_case(db, study_id, current_user)
+    run = legacy.latest_run(db, case.id)
+    current = legacy.study_status(run)
+    if current not in {"queued", "processing"}:
         raise api_error(ErrorCode.CANCEL_INVALID_STATE)
-    job = _latest_job(study)
-    was_processing = study.status == StudyStatus.processing
-    if was_processing and (not job or not job.celery_task_id):
+    if run.pipeline_id != LEGACY_PIPELINE_ID:
+        return _cancel_pipeline_run(request, db, case, run, current_user)
+    job = legacy.latest_step(db, run)
+    was_processing = current == "processing"
+    if was_processing and (not job or not job.orchestrator_task_id):
         raise api_error(ErrorCode.CANCEL_WITHOUT_TASK)
-    now = datetime.utcnow()
+    now = legacy.utcnow()
     if was_processing:
-        updated_studies = db.execute(
-            update(Study)
-            .where(Study.id == study.id, Study.status == StudyStatus.processing)
-            .values(error_message="Cancellation requested by the user")
+        updated_runs = db.execute(
+            update(PipelineRun)
+            .where(PipelineRun.id == run.id, PipelineRun.status == "running")
+            .values(
+                failure_message=CANCEL_REQUESTED_MESSAGE,
+                cancel_requested_at=now,
+                cancel_requested_by_user_id=current_user.id,
+                updated_at=now,
+            )
+            .execution_options(synchronize_session=False)
         ).rowcount
         updated_jobs = db.execute(
-            update(ProcessingJob)
-            .where(
-                ProcessingJob.id == job.id,
-                ProcessingJob.status == StudyStatus.processing.value,
-            )
-            .values(
-                error_message="Cancellation requested by the user",
-                cancel_requested_at=now,
-            )
+            update(StepRun)
+            .where(StepRun.id == job.id, StepRun.status == "running")
+            .values(failure_message=CANCEL_REQUESTED_MESSAGE, cancel_requested_at=now)
+            .execution_options(synchronize_session=False)
         ).rowcount
-        if updated_studies != 1 or updated_jobs != 1:
+        if updated_runs != 1 or updated_jobs != 1:
             db.rollback()
             raise api_error(ErrorCode.PROCESSING_NOT_ACTIVE)
         record_event(
             db,
             "study_cancellation_requested",
-            study.id,
-            {"job_id": str(job.id) if job else None},
-            actor=current_user.email,
-            actor_user_id=current_user.id,
-            ip_address=client_ip(request),
+            details={"job_id": str(job.id)},
+            **_actor(request, current_user),
+            case_id=case.id,
+            pipeline_run_id=run.id,
         )
         db.commit()
-        db.refresh(study)
-        process_study.app.control.revoke(
-            job.celery_task_id,
-            terminate=True,
-            signal="SIGTERM",
-        )
+        _revoke(job.orchestrator_task_id, terminate=True, signal="SIGTERM")
         return StudyActionResponse(
-            id=study.id,
-            status=study.status.value,
-            message="Cancellation requested",
+            id=case.id, status="processing", message="Cancellation requested"
         )
 
-    if job and job.celery_task_id:
-        process_study.app.control.revoke(job.celery_task_id, terminate=False)
-
-    study.status = StudyStatus.canceled
-    study.processing_finished_at = now
-    study.error_message = "Canceled by the user"
-    if job:
-        job.status = StudyStatus.canceled.value
-        job.finished_at = now
-        job.error_message = "Canceled before processing started"
+    if job and job.orchestrator_task_id:
+        _revoke(job.orchestrator_task_id, terminate=False)
+    canceled = db.execute(
+        update(PipelineRun)
+        .where(PipelineRun.id == run.id, PipelineRun.status == "queued")
+        .values(
+            status="canceled",
+            finished_at=now,
+            failure_message="Canceled by the user",
+            updated_at=now,
+        )
+        .execution_options(synchronize_session=False)
+    ).rowcount
+    if canceled != 1:
+        db.rollback()
+        raise api_error(ErrorCode.CANCEL_INVALID_STATE)
+    db.execute(
+        update(StepRun)
+        .where(StepRun.pipeline_run_id == run.id, StepRun.status == "queued")
+        .values(
+            status="canceled",
+            outcome="canceled",
+            finished_at=now,
+            failure_message="Canceled before processing started",
+        )
+        .execution_options(synchronize_session=False)
+    )
     record_event(
         db,
         "study_canceled",
-        study.id,
-        {"job_id": str(job.id) if job else None},
-        actor=current_user.email,
-        actor_user_id=current_user.id,
-        ip_address=client_ip(request),
+        details={"job_id": str(job.id) if job else None},
+        **_actor(request, current_user),
+        case_id=case.id,
+        pipeline_run_id=run.id,
     )
     db.commit()
     return StudyActionResponse(
-        id=study.id, status=study.status.value, message="Processing canceled"
+        id=case.id, status="canceled", message="Processing canceled"
+    )
+
+
+def _cancel_pipeline_run(
+    request: Request, db: Session, case: Case, run: PipelineRun, user: User
+) -> StudyActionResponse:
+    """A run created through /api/v1: cancellation through the orchestrator (flag)."""
+    from orchestrator.actions import ActionRefused, cancel_run
+
+    task_id = run.orchestrator_task_id
+    try:
+        result = cancel_run(db, run.id, user.id)
+    except ActionRefused:
+        db.rollback()
+        raise api_error(ErrorCode.PROCESSING_NOT_ACTIVE) from None
+    db.commit()
+    if result.revoke_task and task_id:
+        try:
+            _revoke(task_id)
+        except Exception:
+            log.exception("Could not revoke the task of run %s", run.id)
+    status_value = legacy.STUDY_STATUS[result.status]
+    return StudyActionResponse(
+        id=case.id,
+        status=status_value,
+        message="Processing canceled"
+        if status_value == "canceled"
+        else "Cancellation requested",
     )
 
 
@@ -454,37 +655,154 @@ def retry_failed_study(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> StudyActionResponse:
-    study = _get_visible_study(db, study_id, current_user)
-    if study.status != StudyStatus.failed:
+    """Resume of the latest run (7.3). A legacy run gets a new attempt of its single
+    ``legacy`` slot (trigger ``user_resume``) and is queued on the legacy worker task."""
+    case = legacy.visible_case(db, study_id, current_user)
+    run = legacy.latest_run(db, case.id)
+    if legacy.study_status(run) != "failed":
         raise api_error(ErrorCode.RETRY_INVALID_STATE)
-    retry_count = max((job.retry_count for job in study.jobs), default=0) + 1
-    job = ProcessingJob(
-        study_id=study.id, status=StudyStatus.queued.value, retry_count=retry_count
+    if run.pipeline_id != LEGACY_PIPELINE_ID:
+        return _resume_pipeline_run(request, db, case, run, current_user)
+    slot = db.scalar(
+        select(RunSlot).where(
+            RunSlot.pipeline_run_id == run.id, RunSlot.slot == LEGACY_SLOT
+        )
     )
-    study.status = StudyStatus.queued
-    study.error_message = None
-    study.processing_started_at = None
-    study.processing_finished_at = None
-    study.pdf_path = None
-    study.output_zip_path = None
-    study.processing_warnings = None
-    db.add(job)
+    if slot is None:
+        raise api_error(ErrorCode.RETRY_INVALID_STATE)
+    now = legacy.utcnow()
+    requeued = db.execute(
+        update(PipelineRun)
+        .where(PipelineRun.id == run.id, PipelineRun.status == "failed")
+        .values(
+            status="queued",
+            started_at=None,
+            finished_at=None,
+            failure_code=None,
+            failure_message=None,
+            failed_step_run_id=None,
+            cancel_requested_at=None,
+            cancel_requested_by_user_id=None,
+            resume_count=PipelineRun.resume_count + 1,
+            updated_at=now,
+        )
+        .execution_options(synchronize_session=False)
+    ).rowcount
+    if requeued != 1:
+        db.rollback()
+        raise api_error(ErrorCode.RETRY_INVALID_STATE)
+    # An attempt left live by a crashed worker would block the new one
+    # (uq_step_runs_one_active); it is dead, close it as the back-fill does.
+    db.execute(
+        update(StepRun)
+        .where(StepRun.run_slot_id == slot.id, StepRun.status.in_(ACTIVE_STATUSES))
+        .values(
+            status="failed",
+            outcome="failed",
+            failure_code="legacy_stale_job",
+            finished_at=now,
+        )
+        .execution_options(synchronize_session=False)
+    )
+    attempt = (
+        db.scalar(
+            select(func.max(StepRun.attempt)).where(StepRun.run_slot_id == slot.id)
+        )
+        or 0
+    ) + 1
+    retry_count = attempt - 1
+    # The legacy retry cleared the PDF, the ZIP and the warnings of the study: drop the
+    # run's legacy report and artefacts (a later success writes them again).
+    _drop_legacy_outputs(db, run.id)
+    attrs = dict(case.legacy_attributes or {})
+    if attrs.get("processing_warnings") is not None:
+        attrs["processing_warnings"] = None
+        case.legacy_attributes = attrs
+    step = StepRun(
+        id=uuid4(),
+        pipeline_run_id=run.id,
+        run_slot_id=slot.id,
+        attempt=attempt,
+        trigger="user_resume",
+        status="queued",
+        executor="subprocess",
+        runtime="none",
+        queued_at=now,
+    )
+    db.add(step)
+    db.flush()
     record_event(
         db,
         "study_retry_queued",
-        study.id,
-        {"retry_count": retry_count},
-        actor=current_user.email,
-        actor_user_id=current_user.id,
-        ip_address=client_ip(request),
+        details={"retry_count": retry_count},
+        **_actor(request, current_user),
+        case_id=case.id,
+        pipeline_run_id=run.id,
     )
     db.commit()
-    async_result = process_study.delay(str(study.id), str(job.id))
-    if getattr(async_result, "id", None):
-        job.celery_task_id = async_result.id
-        db.commit()
+    _enqueue_attempt(db, case.id, step.id)
+    return StudyActionResponse(id=case.id, status="queued", message="Job requeued")
+
+
+def _drop_legacy_outputs(db: Session, run_id: UUID) -> None:
+    report_ids = list(
+        db.scalars(select(Report.id).where(Report.pipeline_run_id == run_id))
+    )
+    if report_ids:
+        # Only reports of succeeded runs can be shared, and a succeeded run is never
+        # retried; unbinding is a guard, the link would serve the current report.
+        db.execute(
+            update(ShareLink)
+            .where(ShareLink.report_id.in_(report_ids))
+            .values(report_id=None)
+            .execution_options(synchronize_session=False)
+        )
+        db.execute(
+            delete(Report)
+            .where(Report.id.in_(report_ids))
+            .execution_options(synchronize_session=False)
+        )
+    db.execute(
+        delete(Artifact)
+        .where(Artifact.pipeline_run_id == run_id, Artifact.origin == "legacy")
+        .execution_options(synchronize_session=False)
+    )
+
+
+def _resume_pipeline_run(
+    request: Request, db: Session, case: Case, run: PipelineRun, user: User
+) -> StudyActionResponse:
+    """A run created through /api/v1: resume through the orchestrator."""
+    from app.api.v1.deps import get_orchestration, get_run_queue
+    from orchestrator.actions import ActionRefused, resume_run
+
+    orch = get_orchestration()
+    try:
+        result = resume_run(
+            db,
+            run.id,
+            user.id,
+            pipelines=orch.pipelines,
+            steps=orch.steps,
+            bundles=orch.bundles,
+        )
+    except ActionRefused:
+        db.rollback()
+        raise api_error(ErrorCode.RETRY_INVALID_STATE) from None
+    db.commit()
+    if result.enqueue:
+        try:
+            task_id = get_run_queue().enqueue(run.id)
+        except Exception:
+            # The recovery task re-enqueues runs left queued (data-model.md 7.1).
+            log.exception("Could not enqueue run %s", run.id)
+        else:
+            if task_id:
+                run = db.get(PipelineRun, run.id)
+                run.orchestrator_task_id = task_id
+                db.commit()
     return StudyActionResponse(
-        id=study.id, status=study.status.value, message="Job requeued"
+        id=case.id, status=legacy.STUDY_STATUS[result.status], message="Job requeued"
     )
 
 
@@ -496,59 +814,51 @@ def delete_study(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> StudyActionResponse:
-    study = _get_visible_study(db, study_id, current_user)
-    if study.status == StudyStatus.processing:
+    """Case deletion: soft delete plus removal of the case directory, as before. A
+    queued run is canceled first; a processing run refuses the deletion."""
+    case = legacy.visible_case(db, study_id, current_user)
+    run = legacy.latest_run(db, case.id)
+    current = legacy.study_status(run)
+    if current == "processing":
         raise api_error(ErrorCode.DELETE_WHILE_PROCESSING)
-    job = _latest_job(study)
-    if study.status == StudyStatus.queued:
-        if job and job.celery_task_id:
-            process_study.app.control.revoke(job.celery_task_id)
-        study.status = StudyStatus.canceled
-        if job:
-            job.status = StudyStatus.canceled.value
-            job.finished_at = datetime.utcnow()
-            job.error_message = "Canceled because the study was deleted"
-    study.deleted_at = datetime.utcnow()
+    now = legacy.utcnow()
+    if current == "queued":
+        job = legacy.latest_step(db, run)
+        task_id = (job.orchestrator_task_id if job else None) or run.orchestrator_task_id
+        if task_id:
+            _revoke(task_id)
+        canceled = db.execute(
+            update(PipelineRun)
+            .where(PipelineRun.id == run.id, PipelineRun.status == "queued")
+            .values(status="canceled", finished_at=now, updated_at=now)
+            .execution_options(synchronize_session=False)
+        ).rowcount
+        if canceled != 1:
+            db.rollback()
+            raise api_error(ErrorCode.DELETE_WHILE_PROCESSING)
+        db.execute(
+            update(StepRun)
+            .where(StepRun.pipeline_run_id == run.id, StepRun.status == "queued")
+            .values(
+                status="canceled",
+                outcome="canceled",
+                finished_at=now,
+                failure_message="Canceled because the study was deleted",
+            )
+            .execution_options(synchronize_session=False)
+        )
+        current = "canceled"
+    case.deleted_at = now
     record_event(
         db,
         "study_deleted",
-        study.id,
-        {"status": study.status.value, "physical_delete": True},
-        actor=current_user.email,
-        actor_user_id=current_user.id,
-        ip_address=client_ip(request),
+        details={"status": current, "physical_delete": True},
+        **_actor(request, current_user),
+        case_id=case.id,
     )
     db.commit()
-    LocalStudyStorage(settings.storage_root).remove_study(study.id)
-    return StudyActionResponse(
-        id=study.id, status=study.status.value, message="Study deleted"
-    )
-
-
-def to_study_read(study: Study) -> StudyRead:
-    return StudyRead(
-        id=study.id,
-        owner_user_id=study.owner_user_id,
-        original_filename=study.original_filename,
-        status=study.status.value,
-        created_at=study.created_at,
-        updated_at=study.updated_at,
-        processing_started_at=study.processing_started_at,
-        processing_finished_at=study.processing_finished_at,
-        deleted_at=study.deleted_at,
-        keep_forever=study.keep_forever,
-        error_message=study.error_message,
-        processor_name=study.processor_name,
-        processor_version=study.processor_version,
-        processor_backend=study.processor_backend,
-        bids_subject_id=study.bids_subject_id,
-        file_size=study.file_size,
-        checksum=study.checksum,
-        has_pdf=bool(study.pdf_path),
-        has_output_zip=bool(study.output_zip_path),
-        processing_warnings=study.processing_warnings,
-        clinical_review_status=study.clinical_review_status,
-    )
+    LocalStudyStorage(settings.storage_root).remove_study(case.id)
+    return StudyActionResponse(id=case.id, status=current, message="Study deleted")
 
 
 def _read_last_lines(path: Path, lines: int) -> tuple[str, bool]:

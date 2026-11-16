@@ -1,4 +1,6 @@
-from fastapi import FastAPI
+import re
+
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import admin, auth, notifications, shares, studies, users
@@ -32,3 +34,34 @@ app.add_middleware(
 for api_module in (admin, auth, notifications, users, studies, shares):
     app.include_router(api_module.router, prefix=settings.api_prefix)
 app.include_router(v1.router, prefix=settings.api_prefix)
+
+
+# Legacy endpoints are aliases over the case model for one release (docs/data-model.md
+# 10.4); they announce their deprecation and, where one exists, their successor.
+_LEGACY_PATHS = re.compile(
+    rf"^{re.escape(settings.api_prefix)}/(studies(/|$)|share/|admin/dashboard$)"
+)
+_LEGACY_STUDY = re.compile(
+    rf"^{re.escape(settings.api_prefix)}/studies/([0-9a-fA-F-]{{36}})(/|$)"
+)
+
+
+def legacy_successor(path: str) -> str | None:
+    if not path.startswith(f"{settings.api_prefix}/studies"):
+        return None
+    match = _LEGACY_STUDY.match(path)
+    if match:
+        return f"{settings.api_prefix}/v1/cases/{match.group(1)}"
+    return f"{settings.api_prefix}/v1/cases"
+
+
+@app.middleware("http")
+async def legacy_deprecation_headers(request: Request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    if _LEGACY_PATHS.match(path):
+        response.headers["Deprecation"] = "true"
+        successor = legacy_successor(path)
+        if successor:
+            response.headers["Link"] = f'<{successor}>; rel="successor-version"'
+    return response

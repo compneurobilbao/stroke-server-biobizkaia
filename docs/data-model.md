@@ -222,7 +222,7 @@ A pseudonymous subject with one acute session. Replaces the role of `Study`. Wri
 | `session_label` | varchar(16) | no | Default `'acute'`. BIDS `ses-` label; the only value in Phase 0. |
 | `sex` | varchar(8) | N | `CHECK (sex IN ('female','male'))`. Absent when unknown or not given. Renders as `case.sex`. |
 | `age_band` | varchar(7) | N | `"<lo>-<hi>"` in whole years (format check `^[0-9]{1,3}-[0-9]{1,3}$`), validated against the band constant below. Renders as `case.age_band`. |
-| `deployment_profile` | varchar(32) | no | `CHECK IN ('research-public','mask-only','on-premise','legacy')`. Profile (D14) under which the case was created; `legacy` only for back-filled rows. |
+| `deployment_profile` | varchar(32) | no | `CHECK IN ('research-public','mask-only','on-premise','legacy')`. Profile (D14) under which the case was created; `legacy` only for back-filled rows and for cases created through the legacy upload alias (section 11, item 23). |
 | `created_at` | timestamptz | no | |
 | `updated_at` | timestamptz | no | Updated on any change to this row. |
 | `deleted_at` | timestamptz | N | Soft delete. Set when the case is deleted by a user or by retention; its files are removed from the case store in the same operation. Rows are kept. |
@@ -818,7 +818,7 @@ Phase 0 enforces only the `admin` and `researcher` columns; the API helper that 
 |---|---|---|---|---|
 | 1 | `0011_case_model` | F0-12 | `studies`, `processing_jobs` | New tables and columns (sections 4 and 6); one-time back-fill (10.3). Legacy code untouched. |
 | 1b | none | F0-15 | `studies`, `processing_jobs` | The worker's legacy task runs through the orchestrator. On start it upserts the mirror rows of its study and job with the mapping of 10.3 (same derived ids), and on every state change writes both the legacy rows and the new rows. |
-| 2 | `0012_legacy_cutover` | F0-30 | new tables | Final reconciliation (10.3 re-run as an upsert); `share_links.study_id` nullable; legacy endpoints become aliases over the new tables (10.4); nothing writes `studies` or `processing_jobs` any more. |
+| 2 | `0012_legacy_cutover` | F0-30 (implemented by MIG-02) | new tables | Final reconciliation (10.3 re-run as an upsert); `share_links.study_id` nullable; legacy endpoints become aliases over the new tables (10.4); nothing writes `studies` or `processing_jobs` any more. |
 | 3 | `0013_drop_legacy` | first card of the release after the one that ships F0-30 | new tables | Drops `studies`, `processing_jobs`, the `study_id` columns, `cases.legacy_study_id`, `step_runs.legacy_job_id`, `pipeline_runs.legacy_clinical_review_status`; removes `original_filename` and `bids_subject_id` from `cases.legacy_attributes`; removes the alias endpoints. |
 
 Revision numbers are indicative: other cards may add migrations in between; only the order of these three matters. Between stage 1 and stage 2 nothing user-facing reads the new tables for legacy studies, so mirror rows that lag behind (for example after a legacy delete) are harmless; stage 2 reconciles them.
@@ -945,6 +945,18 @@ Taken during implementation (F0-12):
 20. Back-filled `run_slots.implementation_id` is the legacy processor backend name normalised to kebab case, or `unknown` if nothing valid remains; `executor_state` is stored only when a worker name exists.
 21. The 0011 downgrade refuses to run if rows exist that the legacy tables cannot rebuild, including reference bundles, slot settings or non-legacy runs; `alembic -x allow_data_loss=true downgrade ...` overrides it.
 22. Back-filled rows: `failed_step_run_id` stays null; artefact and report `created_at` is the study's `updated_at`; `processor_name` and `processor_version` go into `legacy_attributes`. Legacy absolute paths are made relative to `STORAGE_ROOT` (compared both as written and resolved); the back-fill aborts listing ids if a path lies outside it.
+
+Taken during implementation of stage 2 (MIG-02, migration 0012):
+
+23. Cases created through the legacy upload alias use `deployment_profile = 'legacy'` (not the deployment's profile, as 10.4 says), so that for this release they stay where the back-filled studies are: served by the legacy aliases, hidden from `/api/v1` (whose run actions refuse legacy runs anyway). Their run has `id = case id`; attempts get new ids; artefacts, report, input file and slot use the derived ids of 10.2 with the case id.
+24. The reconciliation compares the mapped columns and writes only rows that are missing or differ; the attempts, artefacts and report of one study are compared as a set and rewritten together (delete and insert in the migration's transaction) because row-by-row updates could transiently violate the per-slot unique indexes. Besides the 0011 rules it aborts, listing ids, on attempts or runs of a legacy study that no legacy job explains, on a share link bound to a report of a legacy study, and on a subject label taken by another case. `reconcile(..., dry_run=True)` and `python -m app.cli.legacy_reconcile` report the counts without writing.
+25. The 0012 downgrade writes back only fields whose forward mapping differs from the current rows, so a study untouched since the cut-over is restored bit for bit; cases of (b) get `legacy_study_id` and dependent rows get `study_id`, so that the 0011 downgrade guard and the old code treat them like back-filled studies.
+26. Legacy responses keep the legacy representation: naive UTC timestamps, status `uploaded` for a case without a run, `retry_count = attempt - 1`, absolute log paths; `original_filename` falls back to `sub-<subject_label>` for a v1 case without inputs. `has_pdf` and `has_output_zip` mean that the latest run has a report or a `legacy_outputs_zip` artefact; downloads also require the latest run to have succeeded.
+27. Cancel and retry through the legacy endpoints of a run created through `/api/v1` go through `orchestrator.actions.cancel_run` and `resume_run`; their refusals answer with the legacy codes (`processing_not_active`, `retry_invalid_state`).
+28. Retrying a legacy run resets `started_at` and removes its legacy report and artefacts (the legacy retry cleared the PDF, ZIP and warnings of the study); the success of the new attempt writes them again. Resuming pipeline runs keeps `started_at` as section 7.1 says.
+29. Share links created through the alias carry the current report in `report_id`, and, for back-filled cases, the study id in `study_id` so that a downgrade keeps them.
+30. The legacy worker records size and SHA-256 of the PDF and ZIP it writes, so that the quota (inputs plus stored artefacts, `app/services/quota.py`) counts them; the legacy upload checks the quota under the owner's row lock, like the v1 uploads.
+31. Retention (`services/retention.py`) and the admin dashboard work on cases and runs: the dashboard's `studies_by_status` counts non-deleted cases by the mapped status of their latest run, `jobs_by_status` counts attempts.
 
 ## 12. Owner decisions on the open points (13 Nov 2026)
 
