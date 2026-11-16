@@ -100,11 +100,14 @@ def test_deployment_profile_leaves_stub_and_planned_slots_unmounted():
     assert defaults["functional-disconnection"] == "flnm-fast"
     ci = registry_tool.enabled_settings(registry, "ci")
     ci_enabled = {(r["slot"], r["implementation_id"]) for r in ci if r["enabled"]}
-    # the real step is the CI default; the stub stays available as a non-default choice
-    assert {("functional-disconnection", "flnm-fast"), ("functional-disconnection", "fdisconnection-stub")} <= ci_enabled
+    # both are enabled in ci; the stub stays the ci default (the real-stack UI specs assert it)
+    assert {
+        ("functional-disconnection", "flnm-fast"),
+        ("functional-disconnection", "fdisconnection-stub"),
+    } <= ci_enabled
     assert {r["slot"]: r["implementation_id"] for r in ci if r["is_default"]}[
         "functional-disconnection"
-    ] == "flnm-fast"
+    ] == "fdisconnection-stub"
 
 
 def test_tract_atlas_fixture_has_the_layout_of_the_lnm_step():
@@ -297,7 +300,7 @@ def artifact_path(stack, run_id, slot, port) -> Path:
 
 
 def assert_complete_record(
-    stack, record: dict, fdisconnection: str = "flnm-fast"
+    stack, record: dict, fdisconnection: str = "fdisconnection-stub"
 ) -> dict[str, dict]:
     _pipeline, registry = registry_tool.load(Path(PIPELINES_DIR) / "stroke-lnm")
     slots = {s["slot"]: s for s in record["slots"]}
@@ -367,12 +370,29 @@ def test_default_run_on_the_mni_mask(stack, mni_case, tmp_path):
     for slot, port in (("report", "report_pdf"), ("report", "report_json")):
         assert artifact_path(stack, run_id, slot, port).stat().st_size > 0
 
-    # The z-map of the real functional disconnection step (flnm-fast engine, unchanged) equals
-    # the reference computed independently on the synthetic normative bundle: same sex, age
-    # band midpoint, the engine default of 1000 controls.
+
+@needs_e2e
+def test_run_with_the_real_functional_disconnection_step(stack, mni_case, tmp_path):
+    """flnm-fast (the unchanged engine image behind the contract wrapper) on the synthetic normative bundle."""
+    run_id = stack.create(
+        mni_case, requested_implementations={"functional-disconnection": "flnm-fast"}
+    )
+    stack.drive(run_id)
+    record = run_record(stack, run_id)
+    validate_record(record, tmp_path)
+    slots = assert_complete_record(stack, record, fdisconnection="flnm-fast")
+    chosen = slots["functional-disconnection"]["implementation"]
+    assert (chosen["id"], chosen["chosen_by"], chosen["stub"]) == ("flnm-fast", "user", False)
+
+    import nibabel as nib
+    import numpy as np
+
+    # The z-map equals the reference computed independently on the synthetic normative bundle:
+    # same sex, age band midpoint, the engine default of 1000 controls.
     ref = _flnm_fast_reference()
     shape, _affine = ref.working_grid(REPO / "contracts" / "artefact-types.yaml")
     zmap = artifact_path(stack, run_id, "functional-disconnection", "fdisconnection_map")
+    lesion = np.asarray(nib.load(str(MNI_MASK)).dataobj)
     expected_z = ref.expected_zmap(
         ref.parcellation(shape),
         lesion,
@@ -391,25 +411,12 @@ def test_default_run_on_the_mni_mask(stack, mni_case, tmp_path):
         "age_band": CASE_AGE_BAND,
         "control_count": 1000,
     }
+    assert report_bundle(record) == "synthetic-normative-fc"
 
 
-@needs_e2e
-def test_run_with_the_stub_in_the_functional_disconnection_slot(stack, mni_case, tmp_path):
-    """The stub stays available (ci profile) as a non-default choice for the same slot."""
-    run_id = stack.create(
-        mni_case, requested_implementations={"functional-disconnection": "fdisconnection-stub"}
-    )
-    stack.drive(run_id)
-    record = run_record(stack, run_id)
-    validate_record(record, tmp_path)
-    slots = assert_complete_record(stack, record, fdisconnection="fdisconnection-stub")
-    chosen = slots["functional-disconnection"]["implementation"]
-    assert (chosen["id"], chosen["chosen_by"], chosen["stub"]) == (
-        "fdisconnection-stub",
-        "user",
-        True,
-    )
-    assert artifact_path(stack, run_id, "functional-disconnection", "fdisconnection_map").stat().st_size > 0
+def report_bundle(record: dict) -> str:
+    slot = next(s for s in record["slots"] if s["slot"] == "functional-disconnection")
+    return next(b["id"] for b in slot["bundles"] if b["name"] == "normative")
 
 
 @needs_e2e

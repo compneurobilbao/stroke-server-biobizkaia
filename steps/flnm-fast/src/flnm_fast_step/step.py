@@ -48,6 +48,7 @@ PARTICIPANT_ID = "case"
 # image no longer does this.
 ENGINE_DROPS_LOWEST_OVERLAPPED_PARCEL = True
 SEX_PREFIX = {"female": "F", "male": "M"}
+PATHS = re.compile(r"(?:/[\w.@+=,~-]+)+/?")
 BAND = re.compile(r"^([0-9]{1,3})-([0-9]{1,3})$")
 
 # Engine failure texts (str of the exception, written to failures.csv) -> declared code.
@@ -121,10 +122,9 @@ def _check_bundle(bundle: Path) -> None:
         )
 
 
-def _scrub(text: str, *private: Path) -> str:
-    for path in private:
-        text = text.replace(str(path), "<dir>")
-    return " ".join(text.split())[:200]
+def _scrub(text: str) -> str:
+    """Engine text for ``details``: absolute paths removed, whitespace collapsed, truncated."""
+    return " ".join(PATHS.sub("<path>", text).split())[:200]
 
 
 def _engine_failures(path: Path) -> list[str]:
@@ -205,7 +205,7 @@ def run(ctx: StepContext) -> None:
             "The flnm-fast engine stopped with an error.",
             details={
                 "engine_exit_code": proc.returncode,
-                "engine_stderr": _scrub(proc.stderr, work, bundle),
+                "engine_stderr": _scrub(proc.stderr),
             },
         )
 
@@ -220,7 +220,7 @@ def run(ctx: StepContext) -> None:
         raise InternalFailure(
             "engine_failed",
             "The flnm-fast engine could not process the participant.",
-            details={"engine_error": _scrub(text, work, bundle)},
+            details={"engine_error": _scrub(text)},
         )
 
     zmap = out_dir / f"{PARTICIPANT_ID}_zmap.nii.gz"

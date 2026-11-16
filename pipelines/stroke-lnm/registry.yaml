@@ -90,9 +90,11 @@ profiles:
       report: research-report
 
   # The CI configuration: every slot that can run on fixtures is filled with the real step
-  # (functional disconnection runs on a small synthetic normative-fc bundle); the stub of that
-  # slot stays enabled so that a run with a non-default implementation exists. Normalisation
-  # stays unmounted (the CT step is not merged), so CI runs the MNI-mask input set only.
+  # where a light one exists. Functional disconnection enables both: the real flnm-fast step
+  # (runs on a small synthetic normative-fc bundle, requested explicitly by the end-to-end
+  # test) and the stub, which stays the default because the real-stack UI specs
+  # (frontend/e2e/real) assert it. Normalisation stays unmounted (the CT step is not merged),
+  # so CI runs the MNI-mask input set only.
   ci:
     enabled:
       lesion-intake: [lesion-qc]
@@ -102,7 +104,7 @@ profiles:
       report: [research-report, research-report-es]
     default:
       lesion-intake: lesion-qc
-      functional-disconnection: flnm-fast
+      functional-disconnection: fdisconnection-stub
       tract-disconnection: lnm-tracts
       cognet-profile: cognet-stroke
       report: research-report

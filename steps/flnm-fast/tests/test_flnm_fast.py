@@ -376,12 +376,12 @@ def test_empty_overlap_table_is_a_single_parcel_rejection(reference, tmp_path, m
 
 
 def test_unknown_engine_failure_is_internal_and_leaks_no_path(reference, tmp_path, monkeypatch):
-    fake_engine(tmp_path, monkeypatch, FAIL.format(text=f"boom in {tmp_path}/x"))
+    fake_engine(tmp_path, monkeypatch, FAIL.format(text="boom in /data/secret-dir/x.nii.gz"))
     result, out = execute(tmp_path, reference / "lesion_mask.nii.gz", reference / "bundle", PARAMS)
     assert result == EXIT_INTERNAL
     error = json.loads((out / "error.json").read_text(encoding="utf-8"))
     assert error["code"] == "engine_failed"
-    assert str(tmp_path) not in json.dumps(error)
+    assert "secret-dir" not in json.dumps(error) and "<path>" in json.dumps(error)
 
 
 def test_engine_crash_is_internal(reference, tmp_path, monkeypatch):

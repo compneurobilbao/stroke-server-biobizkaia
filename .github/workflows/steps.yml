@@ -367,6 +367,7 @@ jobs:
 
       - name: Image size and unchanged engine
         run: |
+          docker pull "$BASE_IMAGE"
           base=$(docker image inspect "$BASE_IMAGE" --format '{{.Size}}')
           full=$(docker image inspect "$IMAGE" --format '{{.Size}}')
           added=$((full - base))
