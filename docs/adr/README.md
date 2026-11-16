@@ -16,6 +16,7 @@ A decision is changed by a new record that supersedes the old one; accepted reco
 | [0015](0015-selectable-implementations-per-slot.md) | Selectable implementations per pipeline slot (D15) | accepted |
 | [0016](0016-data-model-design.md) | Detailed data model design for cases, runs, step attempts and artefacts (D4, card F0-11) | accepted |
 | [0017](0017-contract-1-1-sdk-gaps.md) | Contract 1.1 closes the gaps found while building the step SDK | accepted |
+| [0018](0018-presets-free-mode-external-tools.md) | Run plans: presets, free mode and external tools per slot (DES-01) | accepted |
 
 Numbers 0001–0015 follow the plan's decision numbers D1–D15; 0009–0014 are reserved for D9–D14. Records for decisions not in the plan continue from 0016.
 The normative specification that these records point to is in [docs/contracts/](../contracts/README.md).
