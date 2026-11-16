@@ -1,6 +1,6 @@
 # Run plans: presets, free mode and external tools per slot
 
-Status: **design proposal** (card DES-01). Decision record: [ADR-0018](../adr/0018-presets-free-mode-external-tools.md) (proposed). Nothing in this document is implemented; it becomes normative only through the contract and data-model changes of the cards in [section 6](#6-phased-implementation), after owner approval.
+Status: **approved design** (card DES-01; approved by the project owner, 16 Nov 2026). Decision record: [ADR-0018](../adr/0018-presets-free-mode-external-tools.md) (accepted). The owner's decisions on the open points are in [section 7](#7-owner-decisions-16-nov-2026). Nothing in this document is implemented yet; it becomes normative through the contract, data-model and pipeline changes of the cards in [section 6](#6-phased-implementation), which are also in the implementation plan (section 5.9).
 
 Builds on: [pipeline.md](../contracts/pipeline.md) (slots, sources, conditions, static availability check, run resolution), [ADR-0015](../adr/0015-selectable-implementations-per-slot.md) (D15), [data-model.md](../data-model.md) §4.3, §4.5, §4.11, §7, §8, §9, [api.md](../api.md) (`/api/v1`), `orchestrator/resolution.py`, `orchestrator/engine.py`, `pipelines/stroke-lnm/`, `frontend/src/features/cases/`.
 
@@ -47,14 +47,14 @@ id: mni-mask-analysis              # kebab-case, unique per pipeline id
 version: 1.0.0                     # semantic version of this preset
 title: Disconnection analysis of an MNI lesion mask
 description: >-
-  Functional and tract-wise disconnection and, where available, the
-  COGNET-STROKE profile, for a lesion mask already in MNI space. No report.
+  Functional and tract-wise disconnection, the research report and, where
+  available, the COGNET-STROKE profile, for a lesion mask already in MNI space.
 pipeline:
   id: stroke-lnm
   versions: ">=0.1.0 <0.2.0"       # range of pipeline versions this preset was written for
 input_sets: [mni-mask]             # MUST be a non-empty subset of the pipeline's input sets
 targets:
-  required: [tract-disconnection, functional-disconnection]
+  required: [tract-disconnection, functional-disconnection, report]
   if_available: [cognet-profile]
 implementations:                   # optional, per slot
   functional-disconnection: {default: flnm-fast}   # preset default; the user may change it
@@ -99,9 +99,9 @@ Checked by `contracts/validate.py` (single document and against a pipeline) and 
 | Preset | Input sets | Required | If available | Resulting plan |
 |---|---|---|---|---|
 | `full` | both | `report` | `functional-disconnection`, `cognet-profile` | MNI mask: `lesion-intake`, `tract-disconnection` (upstream), `report`; functional and COGNET if enabled. CT: as before plus `normalisation` (upstream, because `lesion_mask` takes the first available source). Same slots and statuses as the full plan (only `plan_role` differs: slots reached from `report` are `upstream`); a test asserts the equality for every input set. |
-| `mni-mask-analysis` | `mni-mask` | `tract-disconnection`, `functional-disconnection` | `cognet-profile` | `lesion-intake` (upstream, provides `lesion_mask_mni`), the two targets, COGNET if enabled; `report` is `not_requested`. |
+| `mni-mask-analysis` | `mni-mask` | `tract-disconnection`, `functional-disconnection`, `report` | `cognet-profile` | `lesion-intake` (upstream, provides `lesion_mask_mni` and `lesion_qc`), the three targets, COGNET if enabled. Unlike `full`, functional disconnection is required: the run is refused when it has no enabled implementation instead of silently running without it. |
 | `ct-normalisation` | `ct-and-native-mask` | `lesion-intake`, `normalisation` | — | Intake and normalisation only. Valid as a document today; offered as `available: false` (`no_implementation`, slot `normalisation`) until the normalisation step is enabled. |
-| `lesion-qc-report` | both | `lesion-intake`, `report` | — | In 0.1.0 the report slot requires `tract_disconnection`, so the plan adds `tract-disconnection` (role `upstream`, and in CT mode `normalisation`). A report with QC only needs a pipeline minor version in which that port of the report slot is optional and the report step handles its absence ([open question 5](#7-open-questions-for-the-owner)). |
+| `lesion-qc-report` | both | `lesion-intake`, `report` | — | In 0.1.0 the report slot requires `tract_disconnection`, so the plan would add `tract-disconnection` (role `upstream`, and in CT mode `normalisation`). Owner decision 5: the report must accept runs without tract disconnection. Card F1-26 makes that port optional in a `stroke-lnm` minor version (0.2.0) and the report step handles its absence; with it the plan is `lesion-intake` and `report` only (plus `normalisation` in CT mode, because the report needs `lesion_mask_mni`). The preset's pipeline range starts at that version. |
 
 ## 3. Free mode
 
@@ -174,7 +174,7 @@ Deployment setting `RUN_PLAN_POLICY` (environment, read once at start like `DEPL
 | `free_for_admins` | everyone allowed to create runs | `admin` |
 | `free_for_researchers` | everyone allowed to create runs | `admin`, `researcher` |
 
-Proposed defaults per profile (D14): `research-public` and `mask-only`: `presets_only` (external users get reviewed analyses only; free mode adds support burden and makes results harder to compare across users); `on-premise`: `free_for_researchers`; development and CI: `free_for_researchers`. A configuration that sets a free policy on a public profile is accepted but logged at start as a warning.
+Values per profile (D14, owner decision 1): `research-public` and `mask-only`: `presets_only`, fixed (external users get reviewed analyses only; free mode adds support burden and makes results harder to compare across users); a configuration that sets another value on these profiles is refused at start. `on-premise`: `free_for_researchers` by default; the lab instance runs with it as soon as free mode is released (Phase B). Development and CI: `free_for_researchers`.
 
 Permission matrix additions (data-model.md §9): "Create run with a preset or the full plan" = the existing "Create run" row; new row "Create run in free mode (targets)" = admin `all` and researcher `own` only when the policy allows, otherwise `no`; "Enable or disable presets, set the default preset" = admin `all`. Free mode never widens what a user can run: implementations still have to be enabled, and the plan only contains slots of a loaded, reviewed pipeline.
 
@@ -229,7 +229,7 @@ The OpenAPI snapshot (`docs/api/openapi-v1.json`) is regenerated by the implemen
 - `pipeline.yaml` format and its validator rules (contract 1.1 pipelines stay valid; presets are separate documents).
 - The engine (`orchestrator/engine.py`): readiness, source resolution (first available source of a `from` list; skipped upstream slots are passed over), completion ("every selected slot succeeded"), cancel, resume, retries and crash recovery.
 - The case store layout and the rule that a step version fills one slot per pipeline.
-- One active run per case (`uq_pipeline_runs_active_case`). Free mode makes incremental work more likely (normalise now, analyse later); reusing artefacts of an earlier run is a separate, later feature ([4.7](#47-user-supplied-results-as-run-inputs), origin `platform-run`).
+- One active run per case (`uq_pipeline_runs_active_case`). Free mode makes incremental work more likely (normalise now, analyse later); reusing artefacts of an earlier run is a later feature, out of scope for the first free-mode release (owner decision 6; [4.7](#47-user-supplied-results-as-run-inputs), origin `platform-run`).
 
 ### 3.10 Contract 1.2 (minor)
 
@@ -277,11 +277,13 @@ Recorded in `registry.yaml` per implementation (`origin: external`, `licence_rev
 
 | Check | Rule |
 |---|---|
-| Upstream code licence | SPDX known; permits use for research and redistribution of the wrapper image on the public registry (D7). If redistribution is not allowed, the image is built locally by the deployment and the entry is marked `build: local` ([open question 7](#7-open-questions-for-the-owner)). |
+| Upstream code licence | SPDX known; permits use for research and redistribution of the wrapper image on the public registry (D7). If redistribution is not allowed, see *Local builds* below. |
 | Weights licence | From the bundle's `licence`; non-commercial licences are acceptable for research deployments and must be shown in the UI; `redistributable: false` keeps the bundle out of on-premise tarballs (bundles.md §4). |
 | Training data terms | Recorded in the bundle's model card or notes; weights trained under a data use agreement that forbids distribution of derived models are not accepted. |
 | Intended use | Every result stays "research use only"; a tool whose licence forbids that use (or requires registration per user) is not accepted. |
 | Digest pinning | Upstream image and wrapper image pinned by digest; `registry.py check` fails on tags. |
+
+**Local builds (owner decision 7, a minimal exception to D7).** When the upstream licence forbids publishing an image that contains the tool, the wrapper's source (Dockerfile, adapter code, manifest) stays public in the repository, but its image is never pushed to the public registry. The registry entry is marked `build: local`; each deployment builds the image itself from the pinned source and the upstream artefact it obtained under the licence, and enables the implementation with the digest of its own build (the deployment's materialised pipeline, as `registry.py materialize` does in CI). Rules: the upstream artefact is pinned by digest or checksum, so that every local build of one step version is reproducible and the digest recorded in provenance identifies it; CI builds the image to run the reference test but does not publish it; on-premise installers do not include it (as non-redistributable bundles, bundles.md §4); the UI and report label such implementations like any other external tool. Nothing else in D7 changes: platform code, steps' source and pipeline definitions remain public.
 
 ### 4.4 Validation before enabling
 
@@ -291,7 +293,7 @@ Recorded in `registry.yaml` per implementation (`origin: external`, `licence_rev
 | `reference-tested` | The contract reference test (step-contract.md §1.7) passes in CI for this digest on synthetic fixtures; the nightly reference CI (F1-14) covers it | Deployments whose minimum level allows it; labelled "experimental" in the UI. |
 | `validated` | Agreement with reference results on reference cases, run by lab staff (agents never handle real data, plan §6), with the metrics and thresholds set by the responsible scientist (for segmentation for example Dice and volume difference against reference masks), recorded in `validation.record` (a document in the repository, no data) and signed off (plan §7) | All deployments. |
 
-Deployment configuration `MIN_IMPLEMENTATION_VALIDATION` (default `validated` for `research-public` and `mask-only`, `reference-tested` elsewhere); the admin endpoint refuses to enable an implementation below it with `implementation_not_validated`. The rule applies to all implementations, not only external ones, but it matters most for them because their behaviour on the project's data is unknown.
+Deployment configuration `MIN_IMPLEMENTATION_VALIDATION` (owner decision 8): `validated` on `research-public` and `mask-only`, and it cannot be lowered there (a lower value is refused at start); `reference-tested` on `on-premise`, which includes the lab instance, where such implementations are labelled "experimental"; `unvalidated` only in CI and demo deployments. The admin endpoint refuses to enable an implementation below the minimum with `implementation_not_validated`. The rule applies to all implementations, not only external ones, but it matters most for them because their behaviour on the project's data is unknown.
 
 ### 4.5 Comparing external and in-house results
 
@@ -327,7 +329,7 @@ The supplied mask goes through the same intake checks (type checks at upload and
 
 **Declared origin.** At upload the user may declare where the file comes from: `origin: {kind: manual}` (drawn by hand), `{kind: external-tool, tool: <name>, version: <version>}`, later `{kind: platform-run, run_id, artifact_id}`. Tool name and version are restricted to `[A-Za-z0-9._+-]{1,64}` (no free text, which could carry identifiers). The platform cannot verify a declared origin; UI and report say "declared by the user". The origin is stored in `input_files.origin` and copied into `RunProvenance.inputs[].origin`.
 
-**Reusing an artefact of an earlier run** (`platform-run`): useful with free mode (normalise in one run, analyse in another). It needs the artefact to be registered as an input file of the case (by reference, keeping its SHA-256 and the producing run), and the input set to accept it. Proposed as a later card ([open question 6](#7-open-questions-for-the-owner)).
+**Reusing an artefact of an earlier run** (`platform-run`): useful with free mode (normalise in one run, analyse in another). It needs the artefact to be registered as an input file of the case (by reference, keeping its SHA-256 and the producing run), and the input set to accept it. Out of scope for the first free-mode release (owner decision 6); a later card.
 
 **Not proposed:** replacing an arbitrary step output with an upload at run time ("override any port"). It bypasses the reviewed wiring and the slot's checks; the input-set pattern covers the cases known today. Results computed by a remote service keep the D8 path (`executor: external`, service account), which is for SP2 and not for user uploads.
 
@@ -343,10 +345,12 @@ The supplied mask goes through the same intake checks (type checks at upload and
 
 ## 6. Phased implementation
 
-IDs are provisional (`F1-17` onwards, after the last Phase 1 card); the owner decides the phase. Every card follows the common rules of plan section 5 and the review protocol of section 7. Prerequisite for all: approval of ADR-0018.
+Every card follows the common rules of plan section 5 and the review protocol of section 7. Prerequisite for all: approval of ADR-0018.
 
-**Phase A: presets (no free mode exposed).** F1-17, F1-18, F1-19, F1-20, F1-21, F1-22 with policy `presets_only` everywhere.
-**Phase B: free mode.** Policy values other than `presets_only` become selectable; F1-22's custom card and output checklist are switched on (they ship hidden in Phase A).
+IDs are final and the cards are also in the implementation plan, section 5.9.
+
+**Phase A: presets (no free mode exposed).** F1-26, F1-17, F1-18, F1-19, F1-20, F1-21, F1-22 with policy `presets_only` everywhere.
+**Phase B: free mode.** Policy values other than `presets_only` become selectable on `on-premise` (the lab instance included); F1-22's custom card and output checklist are switched on (they ship hidden in Phase A).
 **Phase C: external tools and supplied inputs.** F1-23, F1-24, F1-25; the first real external segmenter arrives with the segmentation slot (F1-06 and its pipeline version).
 
 **F1-17 Contract 1.2: presets and plan records** · opus · Depends: ADR-0018 approved · Touches: `contracts/`, `docs/contracts/`
@@ -358,7 +362,7 @@ The revision of [3.7](#37-data-model-mapping), back-fill of existing runs, refus
 **F1-19 Orchestrator: plan resolution** · opus · Depends: F1-17, F1-18 · Touches: `orchestrator/resolution.py`, new `orchestrator/planning.py`, `orchestrator/provenance.py`, `orchestrator/catalog.py` (a `PresetRegistry` protocol and directory implementation), `tests/` (orchestrator tests)
 `plan(pipeline, input_set, request, enablement) -> Plan | PlanRefused(reasons)` as a pure function; `create_run` uses it and writes `plan_mode`, preset columns, `targets`, `plan_role`, `upstream`; `RunProvenance` gains `plan`. Accept: property test that R0 equals the current resolution for every pipeline and input set in the repository; one test per refusal code; the engine runs a `not_requested` plan to `succeeded` without attempting skipped slots; resume of a preset run after the preset is disabled succeeds; provenance validates against the 1.2 schema.
 
-**F1-20 `stroke-lnm` presets and registry profiles** · sonnet · Depends: F1-17, F1-19 · Touches: `pipelines/stroke-lnm/`, `docs/processing-pipeline.md`
+**F1-20 `stroke-lnm` presets and registry profiles** · sonnet · Depends: F1-17, F1-19, F1-26 · Touches: `pipelines/stroke-lnm/`, `docs/processing-pipeline.md`
 The presets `full`, `mni-mask-analysis`, `ct-normalisation`, `lesion-qc-report`; `profiles.<p>.presets` in `registry.yaml`; `registry.py check` validates presets and `enabled_settings` seeds `preset_settings`. Accept: `registry.py check` green; the `e2e-stroke-lnm` job runs `mni-mask-analysis` and asserts that `report` is `not_requested` and every other planned slot succeeded; `ct-normalisation` is listed as unavailable while normalisation is unmounted.
 
 **F1-21 API: presets, plan preview, free-mode policy** · sonnet, Opus review · Depends: F1-18, F1-19, F1-20 · Touches: `backend/app/api/v1/`, `backend/app/schemas/`, `docs/api.md`, `docs/api/openapi-v1.json`, `tests/`
@@ -367,25 +371,30 @@ Endpoints and errors of [3.3](#33-refusal-reasons) and [3.8](#38-api); `RUN_PLAN
 **F1-22 Wizard and run page: analysis choice and plan preview** · sonnet · Depends: F1-21 · Touches: `frontend/src/features/cases/`, `frontend/src/api/`, `frontend/src/i18n/`
 The analysis step, live plan preview, custom output checklist (hidden unless the policy allows it), read-only fixed choices, run page plan header, collapsed `not_requested` slots, "Run again with the same plan". Accept: component tests for each slot label and refusal display; Playwright test against the Compose stack with stub steps: create a run from a preset and, under `free_for_researchers`, a custom run whose preview adds an upstream slot; Spanish catalogue entries added.
 
-**F1-23 External implementation onboarding** · sonnet, Opus review of the checklist · Depends: F1-17 · Touches: `pipelines/stroke-lnm/registry.yaml` and `registry.py` (fields `origin`, `licence_review`, `validation`), `steps/README.md` (section "Wrapping an external tool"), `backend/app/api/v1/` admin enable check (`MIN_IMPLEMENTATION_VALIDATION`, `implementation_not_validated`), `tests/`
+**F1-23 External implementation onboarding** · sonnet, Opus review of the checklist · Depends: F1-17, F1-20 · Touches: `pipelines/stroke-lnm/registry.yaml` and `registry.py` (fields `origin`, `licence_review`, `validation`, `build: local`), `steps/flnm-fast/`, `steps/README.md` (section "Wrapping an external tool"), `backend/app/api/v1/` admin enable check (`MIN_IMPLEMENTATION_VALIDATION`, `implementation_not_validated`), `tests/`
 Accept: `registry.py check` fails for an external entry without `upstream`, licence review or digest pins; admin endpoint refuses enabling below the minimum level; `flnm-fast` migrated to `origin: external` with its upstream block as the worked example (a new step version, since its manifest changes).
 
 **F1-24 Declared origin of supplied inputs** · sonnet · Depends: F1-18, F1-21 · Touches: `backend/app/api/v1/` (input upload), `backend/app/schemas/`, `orchestrator/provenance.py`, `frontend/src/features/cases/`, `tests/`
 Optional `origin` on upload with the restricted pattern, stored in `input_files.origin`, in `RunProvenance.inputs[].origin`, shown in the case and run pages. Accept: API tests for valid and refused origins (free text refused); provenance validates; UI shows "declared by the user".
 
-**F1-25 Report: plan, external tools and declared origins** · sonnet · Depends: F1-17 · Touches: `steps/report/`
+**F1-25 Report: plan, external tools and declared origins** · sonnet · Depends: F1-17, F1-26 · Touches: `steps/report/`
 The report states the plan (preset or custom targets), lists tools used with upstream name, version, licence and citation, marks experimental implementations and declared input origins. Accept: golden-file tests for a preset run, a custom run, and a run with an external implementation and a declared mask origin.
 
-Dependency order: ADR-0018 → F1-17 → F1-18 → F1-19 → F1-20 → F1-21 → F1-22; F1-23 and F1-25 after F1-17 in parallel; F1-24 after F1-21. Pipeline changes that some presets need (report slot with optional tract table; the segmentation slot with the input-set pattern of [4.7](#47-user-supplied-results-as-run-inputs)) belong to pipeline cards, not to this list.
+**F1-26 QC-only report: report slot without tract disconnection** · sonnet · Depends: none (ADR-0018 accepted) · Touches: `steps/report/`, `pipelines/stroke-lnm/`
+Owner decision 5. The report step accepts a run without `tract_disconnection` (new step version; the tract section says "not part of this analysis" instead of failing) and `stroke-lnm` 0.2.0 marks the report slot's `tract_disconnection` port `optional: true` (pipeline minor version; `registry.yaml` and the materialised digests updated). Accept: report golden-file tests with and without the tract table; `contracts/validate.py` and `registry.py check` green on 0.2.0; the `e2e-stroke-lnm` job still passes with the full plan, and a run of 0.2.0 whose tract-disconnection slot has no enabled implementation succeeds with a QC-only report.
 
-## 7. Open questions for the owner
+Dependency order: F1-26 can start at once; F1-17 → F1-18 → F1-19 → F1-20 (also after F1-26) → F1-21 → F1-22; F1-23 after F1-17 and F1-20 (both touch `pipelines/stroke-lnm/`); F1-25 after F1-17 and F1-26 (both touch `steps/report/`); F1-24 after F1-21. The segmentation slot with the input-set pattern of [4.7](#47-user-supplied-results-as-run-inputs) belongs to the segmentation cards (F1-06 and its pipeline version).
 
-1. **Free-mode policy defaults.** Are `presets_only` for `research-public` and `mask-only`, and `free_for_researchers` for `on-premise`, the right defaults? Should the lab's own instance allow free mode for researchers from the start?
-2. **Preset governance.** Is a reviewed pull request the only way to add presets, or should administrators also be able to define deployment-local presets (stored in the database, not in Git)? This design assumes PR only.
-3. **Saved custom plans.** Should researchers be able to save their own free-mode requests as personal "saved plans" (not shared, not presets)? Not included here.
-4. **Preset list for `stroke-lnm`.** Are `full`, `mni-mask-analysis`, `ct-normalisation` and `lesion-qc-report` the right first set, and should `mni-mask-analysis` include the report?
-5. **QC-only report.** Should the report slot accept a run without tract disconnection (pipeline minor version plus report step change), so that `lesion-qc-report` means QC and report only?
-6. **Reusing artefacts across runs** (`platform-run` origin): wanted in the first free-mode release, or later?
-7. **Non-redistributable upstream images.** If an external tool's licence forbids redistributing its image, may deployments build the wrapper locally (no public image), given D7 "everything open"?
-8. **Validation levels.** Is `reference-tested` (synthetic contract test only, labelled experimental) acceptable to enable on the lab instance, or must every non-stub implementation be `validated` before any non-CI deployment enables it?
-9. **Contract bump.** Approve contract 1.2 as described in [3.10](#310-contract-12-minor).
+## 7. Owner decisions (16 Nov 2026)
+
+| # | Question | Decision | Effect on this design |
+|---|---|---|---|
+| 1 | Free-mode policy per profile | `presets_only` on `research-public` and `mask-only`; free mode for researchers on `on-premise`, enabled on the lab instance from the start. | [3.5](#35-permissions-and-deployment-policy): fixed on public profiles; Phase B enables it on `on-premise`. |
+| 2 | Who adds presets | Only through reviewed pull requests for now. Deployment-local presets are later work, out of scope. | [2.4](#24-governance) unchanged. |
+| 3 | Saved user plans | Later, out of scope for the first release. | Not designed here. |
+| 4 | First `stroke-lnm` presets | `full`, `mni-mask-analysis`, `ct-normalisation`, `lesion-qc-report`; `mni-mask-analysis` includes the report. | [2.1](#21-what-a-preset-is), [2.5](#25-presets-for-stroke-lnm-010-worked-examples). |
+| 5 | QC-only report | The report step must accept runs without tract disconnection. | New card F1-26 (report step and `stroke-lnm` 0.2.0). |
+| 6 | Reusing outputs of earlier runs as inputs | Later, out of scope for the first free-mode release. | [4.7](#47-user-supplied-results-as-run-inputs): `platform-run` origin deferred. |
+| 7 | Upstream licence forbids publishing the image | Deployments may build the wrapper locally without publishing it: a minimal exception to D7. | [4.3](#43-licence-and-data-use-checks), *Local builds*. |
+| 8 | `reference-tested` implementations | May be enabled on the lab instance (`on-premise`), labelled experimental; never on public profiles. | [4.4](#44-validation-before-enabling). |
+| 9 | Contract 1.2 | Approved as described. | [3.10](#310-contract-12-minor); card F1-17. |
