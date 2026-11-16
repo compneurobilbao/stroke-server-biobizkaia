@@ -1,0 +1,9 @@
+{
+  "contract_version": "1.1",
+  "kind": "StepError",
+  "step": { "name": "ct-lesion-to-mni152", "version": "1.0.0" },
+  "category": "input_rejected",
+  "code": "invalid_parameters",
+  "message": "The parameters do not satisfy the step's parameter schema.",
+  "details": { "problem_count": 1, "first_problem": "mask_threshold: 1.5 is greater than or equal to the maximum of 1" }
+}

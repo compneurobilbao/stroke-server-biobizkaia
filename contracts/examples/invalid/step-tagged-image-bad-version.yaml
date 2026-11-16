@@ -1,6 +1,6 @@
 # Invalid (schema): version is not semver, the image repository carries a tag,
 # a port uses a reserved name and the output list is empty.
-contract_version: "1.0"
+contract_version: "1.1"
 kind: Step
 name: broken-step
 version: "1.0"

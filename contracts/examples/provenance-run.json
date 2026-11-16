@@ -1,5 +1,5 @@
 {
-  "contract_version": "1.0",
+  "contract_version": "1.1",
   "kind": "RunProvenance",
   "run_id": "6f1c2a9e-3b7d-4e21-9c55-0d8e4f7a1b23",
   "case_id": "c3a81f40-5e92-4b6d-8a17-2f9b0c6d4e85",
@@ -74,7 +74,7 @@
         "usage": { "wall_seconds": 29.761 }
       },
       "provenance": {
-        "contract_version": "1.0",
+        "contract_version": "1.1",
         "kind": "StepProvenance",
         "step": { "name": "lesion-qc", "version": "1.0.0" },
         "status": "succeeded",
@@ -90,7 +90,7 @@
           { "port": "qc_figure", "type": "qc_figure", "sha256": "c36d7c7b3e885970f52d357a486303b162a85b18b1660bf6fa03ed95e9b3dfd3", "size_bytes": 201554 }
         ],
         "bundles": [],
-        "software": [ { "name": "nibabel", "version": "5.2.1" }, { "name": "compneuro-step-sdk", "version": "1.0.0" } ]
+        "software": [ { "name": "nibabel", "version": "5.2.1" }, { "name": "compneuro-step-sdk", "version": "1.1.0" } ]
       },
       "error": null
     },
@@ -112,7 +112,7 @@
         "usage": { "wall_seconds": 1965, "cpu_core_hours": 4.367, "gpu_hours": 0, "max_rss_mb": 6120 }
       },
       "provenance": {
-        "contract_version": "1.0",
+        "contract_version": "1.1",
         "kind": "StepProvenance",
         "step": { "name": "lnm-tracts", "version": "1.0.0" },
         "status": "succeeded",
@@ -128,7 +128,7 @@
         "bundles": [
           { "name": "tracts", "id": "hcp1065-tracts", "version": "1.0.0", "content_digest": "sha256:c7e0e0a7664ec23a3958c9c76e4352460b31e017c232f90baa43354bed68d75a" }
         ],
-        "software": [ { "name": "MRtrix3", "version": "3.0.4" }, { "name": "compneuro-step-sdk", "version": "1.0.0" } ]
+        "software": [ { "name": "MRtrix3", "version": "3.0.4" }, { "name": "compneuro-step-sdk", "version": "1.1.0" } ]
       },
       "error": null
     },
@@ -148,7 +148,7 @@
         "usage": { "wall_seconds": 144.109 }
       },
       "provenance": {
-        "contract_version": "1.0",
+        "contract_version": "1.1",
         "kind": "StepProvenance",
         "step": { "name": "research-report", "version": "0.1.0" },
         "status": "succeeded",
@@ -166,7 +166,7 @@
           { "port": "report_json", "type": "report_json", "sha256": "5880dbd098e85b31faca219fd80389c723d7bcf61988aa8c3d10c3ab3e5a7355", "size_bytes": 5893 }
         ],
         "bundles": [],
-        "software": [ { "name": "WeasyPrint", "version": "62.3" }, { "name": "compneuro-step-sdk", "version": "1.0.0" } ]
+        "software": [ { "name": "WeasyPrint", "version": "62.3" }, { "name": "compneuro-step-sdk", "version": "1.1.0" } ]
       },
       "error": null
     }

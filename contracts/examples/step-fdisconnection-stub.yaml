@@ -1,6 +1,6 @@
 # Worked example: the CI stub that fills the functional-disconnection slot
 # (card F0-24). Same interface as the real step will have; synthetic output.
-contract_version: "1.0"
+contract_version: "1.1"
 kind: Step
 name: fdisconnection-stub
 version: 0.1.0

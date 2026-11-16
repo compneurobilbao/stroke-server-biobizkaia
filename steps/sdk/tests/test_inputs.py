@@ -11,7 +11,7 @@ from sdk_helpers import MANIFEST, mni2_grid, write_mask, write_qc
 from stroke_step_sdk import EXIT_INTERNAL, EXIT_OK, EXIT_REJECTED, formats
 
 
-def rejected(run, code, port=None, cross_check=True):
+def rejected(run, code, port=None):
     """The run was rejected with exit 10 and a valid error.json/provenance.json."""
     called = []
 
@@ -24,9 +24,9 @@ def rejected(run, code, port=None, cross_check=True):
     assert err["category"] == "input_rejected" and err["code"] == code
     assert err.get("port") == port
     assert run.files() == {"error.json", "provenance.json"}
-    assert run.json("provenance.json")["status"] == "rejected"
-    if cross_check:
-        assert run.validate() == []
+    prov = run.json("provenance.json")
+    assert prov["status"] == "rejected" and prov["outputs"] == []
+    assert run.validate() == []
     return err
 
 
@@ -115,22 +115,46 @@ def test_params_not_an_object_is_internal(run):
 )
 def test_invalid_parameters_are_rejected(run, params):
     run.write_params(params)
-    # validate.py cross-checks provenance.parameters against the manifest schema, which
-    # cannot hold for rejected parameters (a contract gap; see the PR), so skip that part.
-    rejected(run, "invalid_parameters", cross_check=False)
+    rejected(run, "invalid_parameters")
+    # contract 1.1: the raw supplied parameters are recorded, and validate.py accepts them
+    assert run.json("provenance.json")["parameters"] == params
 
 
-def test_parameters_declared_without_standard_codes_still_run(make_run):
+def _without_reserved_codes(contract_version):
     import copy
 
     manifest = copy.deepcopy(MANIFEST)
+    manifest["contract_version"] = contract_version
     manifest["errors"] = [e for e in manifest["errors"] if e["code"] == "mask_empty"]
-    run = make_run(manifest)
+    return manifest
+
+
+def test_reserved_codes_are_implicit_from_contract_1_1(make_run):
+    run = make_run(_without_reserved_codes("1.1"))
+    assert run.run(write_qc) == EXIT_OK
+    (run.in_dir / "lesion_mask.nii.gz").unlink()
+    run.clear_out()
+    rejected(run, "input_missing", "lesion_mask")
+
+
+def test_contract_1_0_step_must_declare_reserved_codes(make_run):
+    run = make_run(_without_reserved_codes("1.0"))
     assert run.run(write_qc) == EXIT_OK  # only a startup warning
     (run.in_dir / "lesion_mask.nii.gz").unlink()
     run.clear_out()
-    assert run.run(write_qc) == EXIT_INTERNAL  # input_missing is not declared
+    assert run.run(write_qc) == EXIT_INTERNAL  # input_missing is not declared in 1.0
     assert run.json("error.json")["code"] == "undeclared_error_code"
+
+
+def test_contract_1_0_step_with_declared_codes_still_works(make_run):
+    import copy
+
+    manifest = copy.deepcopy(MANIFEST)
+    manifest["contract_version"] = "1.0"
+    run = make_run(manifest)
+    (run.in_dir / "lesion_mask.nii.gz").unlink()
+    err = rejected(run, "input_missing", "lesion_mask")
+    assert err["contract_version"] == "1.0"
 
 
 def test_bundle_is_recorded(run, ref_dir):

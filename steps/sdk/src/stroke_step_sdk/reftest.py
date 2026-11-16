@@ -158,7 +158,12 @@ def check_run_directory(
     problems: list[str] = []
     prov_path = out_dir / "provenance.json"
     err_path = out_dir / "error.json"
-    allowed = {p.filename for p in manifest.outputs} | {"provenance.json", "extra"}
+    allowed = {"provenance.json", "extra"}
+    validate = contracts.validator()
+    # Output port files are allowed after exit 0; contract 1.1 forbids them after exit 10
+    # (step-contract 2.2, 4.1); after an internal failure /out is discarded anyway.
+    if exit_code != 10 or not validate.rules_1_1(manifest.data):
+        allowed |= {p.filename for p in manifest.outputs}
     if exit_code != 0:
         allowed.add("error.json")
     for entry in sorted(out_dir.iterdir()):
@@ -167,7 +172,6 @@ def check_run_directory(
     if not prov_path.is_file():
         return problems + ["provenance.json is missing"]
 
-    validate = contracts.validator()
     docs = [manifest.path, prov_path] + ([err_path] if err_path.is_file() else [])
     for issue in validate.validate_files(docs, strict=False):
         if issue.severity == "error":
@@ -239,6 +243,36 @@ def executor_env(manifest: Manifest) -> dict[str, str]:
     ):
         env[name] = cpus
     return env
+
+
+def fixture_paths(manifest: Manifest) -> list[str]:
+    """Every fixture path named in ``reference_test`` (inputs and expected files)."""
+    rt = manifest.data["reference_test"]
+    paths = list(rt["inputs"].values())
+    paths += [spec["file"] for spec in rt["expected"].values() if "file" in spec]
+    return paths
+
+
+def run_generator(manifest: Manifest, step_dir: Path) -> list[str]:
+    """Run ``reference_test.generator`` (contract 1.1, step-contract 1.7 item 5).
+
+    Returns problems: a failing generator or fixture paths that still do not exist.
+    """
+    rt = manifest.data["reference_test"]
+    generator = rt.get("generator")
+    if generator:
+        script = _safe_fixture(step_dir, generator)
+        print(f"generating fixtures: {generator}", flush=True)
+        proc = subprocess.run(
+            [sys.executable, str(script)], cwd=step_dir, check=False, timeout=600
+        )
+        if proc.returncode != 0:
+            return [f"the fixture generator exited with code {proc.returncode}"]
+    return [
+        f"fixture '{rel}' does not exist"
+        for rel in fixture_paths(manifest)
+        if not _safe_fixture(step_dir, rel).is_file()
+    ]
 
 
 def stage_inputs(manifest: Manifest, step_dir: Path, in_dir: Path) -> None:
@@ -333,6 +367,12 @@ def run_reference_test(
     missing = [n for n in rt.get("bundles", {}) if n not in bundle_dirs]
     if missing:
         print(f"FAIL: reference bundles not supplied: {', '.join(missing)}")
+        return 1
+
+    problems = run_generator(manifest, step_dir)
+    if problems:
+        for p in problems:
+            print(f"FAIL: {p}")
         return 1
 
     work = Path(workdir) if workdir else Path(tempfile.mkdtemp(prefix="reftest-"))

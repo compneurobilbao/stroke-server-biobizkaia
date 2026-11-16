@@ -1,6 +1,6 @@
 # Invalid (schema): every parameter must declare a default, and network access
 # cannot be requested (there is no such field).
-contract_version: "1.0"
+contract_version: "1.1"
 kind: Step
 name: no-default
 version: 1.0.0

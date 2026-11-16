@@ -1,5 +1,5 @@
 {
-  "contract_version": "1.0",
+  "contract_version": "1.1",
   "kind": "StepProvenance",
   "step": { "name": "ct-lesion-to-mni152", "version": "1.0.0" },
   "status": "succeeded",

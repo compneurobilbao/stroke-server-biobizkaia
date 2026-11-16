@@ -1,7 +1,7 @@
 # Worked example: the step manifest that wraps CTLesion2MNI152 (card F0-23).
 # The wrapper is illustrative; the card that builds it may refine error codes
 # and parameters, but must keep the slot interface (provides/inputs/outputs).
-contract_version: "1.0"
+contract_version: "1.1"
 kind: Step
 name: ct-lesion-to-mni152
 version: 1.0.0
@@ -95,6 +95,8 @@ errors:
 
 reference_test:
   description: Synthetic CT and ellipsoid lesion with a known MNI-space ground truth (fixture generator, card F0-20).
+  # The fixtures are not committed; this script writes them byte-identically (contract 1.1).
+  generator: tests/make_reference.py
   inputs:
     ct: tests/reference/sub-synth01_ct.nii.gz
     lesion_mask: tests/reference/sub-synth01_label-lesion_mask.nii.gz
