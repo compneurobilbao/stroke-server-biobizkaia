@@ -119,9 +119,13 @@ The recommended deletion combines soft delete in the database with controlled ph
 
 First check the state in the GUI, then the worker logs, then `processor.log`. For `compneuro`, also check that `output/Preproc/BET`, `output/Preproc/ProbTissue`, `output/rendered_png/` and `logs/rendering.log` exist.
 
+## Legacy studies left without a task
+
+Since migration 0012 a legacy study is a case with a `legacy` run. If a study stays `queued` although workers are idle (its message was lost, for example around a deploy), or stays `processing` after a worker crashed, run `python -m app.cli.legacy_recover` in the worker container: it reports the attempts it would re-enqueue (queued for more than `LEGACY_RECOVERY_QUEUED_MINUTES`, task not seen on any worker; once per attempt) and those it would fail with `legacy_worker_lost` (running, task not active on any worker, older than `LEGACY_RECOVERY_RUNNING_HOURS`); `--execute` does it. Each legacy worker also runs one pass after it starts, and celery beat every 10 minutes where it runs. Failed studies can then be retried from the GUI.
+
 ## Retry And Rerun
 
-Retrying failed studies is exposed in the GUI and creates a new `ProcessingJob`, keeping traceability of the previous attempt.
+Retrying failed studies is exposed in the GUI and creates a new attempt of the study's run (a new `ProcessingJob` before migration 0012), keeping traceability of the previous attempt.
 
 If re-run manually outside the GUI, keep previous results in a versioned or timestamped folder before launching the task again.
 

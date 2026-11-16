@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import ErrorCode, api_error
 from app.db.session import get_db
+from app.models.case import Case, DeploymentProfile
 from app.models.notification import Notification
 from app.models.user import User
 from app.schemas.auth import (
@@ -68,7 +69,7 @@ def list_notifications(
         .order_by(Notification.created_at.desc())
         .limit(limit)
     ).all()
-    return [NotificationRead.model_validate(item) for item in notifications]
+    return _reads(db, notifications)
 
 
 @router.post("/notifications/{notification_id}/read", response_model=NotificationRead)
@@ -84,4 +85,30 @@ def mark_notification_read(
         notification.read_at = datetime.utcnow()
         db.commit()
         db.refresh(notification)
-    return NotificationRead.model_validate(notification)
+    return _reads(db, [notification])[0]
+
+
+def _reads(db: Session, notifications: list[Notification]) -> list[NotificationRead]:
+    """Since the legacy cut-over, notifications of legacy studies link the case instead
+    of the frozen ``studies`` row. ``study_id`` keeps its legacy meaning: for a case of
+    the legacy profile it is the case id (legacy study id = case id)."""
+    case_ids = {n.case_id for n in notifications if n.study_id is None and n.case_id}
+    legacy_cases = (
+        set(
+            db.scalars(
+                select(Case.id).where(
+                    Case.id.in_(case_ids),
+                    Case.deployment_profile == DeploymentProfile.legacy.value,
+                )
+            )
+        )
+        if case_ids
+        else set()
+    )
+    reads = []
+    for item in notifications:
+        read = NotificationRead.model_validate(item)
+        if read.study_id is None and item.case_id in legacy_cases:
+            read = read.model_copy(update={"study_id": item.case_id})
+        reads.append(read)
+    return reads

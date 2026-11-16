@@ -34,6 +34,8 @@ The `.env` file must not be committed. It may contain passwords, local paths or 
 | `COMPNEURO_COMMAND` | Command run by the compneuro adapter. | `bash /app/src/apreproc_launcher.sh` |
 | `PROCESSING_TIMEOUT_SECONDS` | Processor timeout; `0` disables it. | `0` |
 | `MAX_CONCURRENT_PROCESSING_JOBS` | Internal concurrency of each worker. For compneuro it must stay at `1`. | `1` |
+| `LEGACY_RECOVERY_QUEUED_MINUTES` | A queued legacy attempt older than this whose task is not seen on any worker is re-enqueued once (`worker/legacy_recovery.py`). | `30` |
+| `LEGACY_RECOVERY_RUNNING_HOURS` | A running legacy attempt older than this (and than `PROCESSING_TIMEOUT_SECONDS` plus 30 minutes) whose task is not active on any worker is failed with `legacy_worker_lost`. | `6` |
 | `GENERATE_OUTPUT_ZIP` | Generate a ZIP of the `Preproc` results. | `true` |
 | `GENERATE_TECHNICAL_PDF` | Generate the technical processing PDF. | `true` |
 | `GENERATE_RENDERED_PNG` | Render NIfTI results to PNG after `compneuro`. | `true` |

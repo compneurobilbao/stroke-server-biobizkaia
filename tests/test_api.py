@@ -4,16 +4,16 @@ from urllib.parse import urlparse
 from uuid import UUID
 
 from app.models.audit_event import AuditEvent
+from app.models.case import Case
 from app.models.notification import Notification
-from app.models.processing_job import ProcessingJob
 from app.models.share_link import ShareLink
-from app.models.study import Study, StudyStatus
 from app.models.user import User, UserRole
 from app.schemas.admin import AdminServiceHealth
 from app.cli import retention as retention_cli
 from app.services.auth import hash_password, normalize_email
 from app.services.retention import apply_retention_policy
 from app.services.storage import LocalStudyStorage
+from tests import legacy_state
 
 
 def test_healthcheck(client):
@@ -188,15 +188,7 @@ def test_non_owner_cannot_view_or_download_study(client):
     )
     study_id = response.json()["id"]
 
-    db = client.app.state.testing_session_local()
-    study = db.get(Study, UUID(study_id))
-    report_path = Path(study.output_path) / "reports" / "technical_report.pdf"
-    report_path.parent.mkdir(parents=True, exist_ok=True)
-    report_path.write_bytes(b"%PDF-1.4\n%%EOF\n")
-    study.status = StudyStatus.completed
-    study.pdf_path = str(report_path)
-    db.commit()
-    db.close()
+    complete_study_with_pdf(client, study_id)
 
     detail = client.get(f"/api/studies/{study_id}", headers=other_headers)
     download = client.get(
@@ -216,15 +208,7 @@ def test_owner_can_download_completed_report(client):
     )
     study_id = response.json()["id"]
 
-    db = client.app.state.testing_session_local()
-    study = db.get(Study, UUID(study_id))
-    report_path = Path(study.output_path) / "reports" / "technical_report.pdf"
-    report_path.parent.mkdir(parents=True, exist_ok=True)
-    report_path.write_bytes(b"%PDF-1.4\n%%EOF\n")
-    study.status = StudyStatus.completed
-    study.pdf_path = str(report_path)
-    db.commit()
-    db.close()
+    complete_study_with_pdf(client, study_id)
 
     download = client.get(f"/api/studies/{study_id}/download/pdf", headers=headers)
 
@@ -371,12 +355,9 @@ def test_logs_endpoint_returns_truncated_logs(client):
     )
     study_id = response.json()["id"]
 
-    db = client.app.state.testing_session_local()
-    study = db.get(Study, UUID(study_id))
-    log_path = Path(study.output_path).parent / "logs" / "processor.log"
+    log_path = legacy_state.study_dir(study_id) / "logs" / "processor.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.write_text("line1\nline2\nline3\n", encoding="utf-8")
-    db.close()
 
     logs = client.get(f"/api/studies/{study_id}/logs?lines=2", headers=headers)
 
@@ -404,8 +385,8 @@ def test_cancel_queued_study(client):
     assert status_response.json()["status"] == "canceled"
 
     db = client.app.state.testing_session_local()
-    job = db.get(Study, UUID(study_id)).jobs[0]
-    assert job.status == StudyStatus.canceled.value
+    job = legacy_state.steps_of(db, study_id)[0]
+    assert job.status == "canceled"
     assert job.cancel_requested_at is None
     db.close()
 
@@ -419,14 +400,12 @@ def test_cancel_processing_study_terminates_celery_task(client, monkeypatch):
     )
     study_id = response.json()["id"]
 
-    db = client.app.state.testing_session_local()
-    study = db.get(Study, UUID(study_id))
-    job = study.jobs[0]
-    study.status = StudyStatus.processing
-    job.status = StudyStatus.processing.value
-    job.celery_task_id = "celery-task-id"
-    db.commit()
-    db.close()
+    legacy_state.set_state(
+        client.app.state.testing_session_local,
+        study_id,
+        "processing",
+        celery_task_id="celery-task-id",
+    )
 
     revoked = []
 
@@ -450,12 +429,12 @@ def test_cancel_processing_study_terminates_celery_task(client, monkeypatch):
     assert revoked == [("celery-task-id", {"terminate": True, "signal": "SIGTERM"})]
 
     db = client.app.state.testing_session_local()
-    study = db.get(Study, UUID(study_id))
-    job = study.jobs[0]
-    assert study.status == StudyStatus.processing
-    assert study.error_message == "Cancellation requested by the user"
-    assert job.status == StudyStatus.processing.value
-    assert job.error_message == "Cancellation requested by the user"
+    _case, run, job = legacy_state.latest(db, study_id)
+    assert run.status == "running"
+    assert run.failure_message == "Cancellation requested by the user"
+    assert run.cancel_requested_at is not None
+    assert job.status == "running"
+    assert job.failure_message == "Cancellation requested by the user"
     assert job.cancel_requested_at is not None
     db.close()
 
@@ -469,12 +448,12 @@ def test_retry_failed_study_creates_new_job(client):
     )
     study_id = response.json()["id"]
 
-    db = client.app.state.testing_session_local()
-    study = db.get(Study, UUID(study_id))
-    study.status = StudyStatus.failed
-    study.error_message = "forced failure"
-    db.commit()
-    db.close()
+    legacy_state.set_state(
+        client.app.state.testing_session_local,
+        study_id,
+        "failed",
+        error="forced failure",
+    )
 
     retry = client.post(f"/api/studies/{study_id}/retry", headers=headers)
 
@@ -494,11 +473,8 @@ def test_delete_study_soft_deletes_and_removes_storage(client):
     )
     study_id = response.json()["id"]
 
-    db = client.app.state.testing_session_local()
-    study = db.get(Study, UUID(study_id))
-    study_dir = Path(study.output_path).parent
+    study_dir = legacy_state.study_dir(study_id)
     assert study_dir.exists()
-    db.close()
 
     delete = client.delete(f"/api/studies/{study_id}", headers=headers)
 
@@ -507,10 +483,10 @@ def test_delete_study_soft_deletes_and_removes_storage(client):
     assert client.get("/api/studies", headers=headers).json() == []
 
     db = client.app.state.testing_session_local()
-    deleted_study = db.get(Study, UUID(study_id))
+    deleted_case = db.get(Case, UUID(study_id))
     event = db.query(AuditEvent).filter(AuditEvent.event_type == "study_deleted").one()
-    assert deleted_study.deleted_at is not None
-    assert event.study_id == UUID(study_id)
+    assert deleted_case.deleted_at is not None
+    assert event.case_id == UUID(study_id)
     db.close()
 
 
@@ -523,11 +499,9 @@ def test_delete_processing_study_is_rejected(client):
     )
     study_id = response.json()["id"]
 
-    db = client.app.state.testing_session_local()
-    study = db.get(Study, UUID(study_id))
-    study.status = StudyStatus.processing
-    db.commit()
-    db.close()
+    legacy_state.set_state(
+        client.app.state.testing_session_local, study_id, "processing"
+    )
 
     delete = client.delete(f"/api/studies/{study_id}", headers=headers)
 
@@ -543,19 +517,21 @@ def test_retention_dry_run_does_not_delete_study(client):
     )
     study_id = UUID(response.json()["id"])
 
-    db = client.app.state.testing_session_local()
-    study = db.get(Study, study_id)
-    study.status = StudyStatus.completed
-    study.created_at = datetime.utcnow() - timedelta(days=120)
-    study_dir = Path(study.output_path).parent
+    legacy_state.set_state(
+        client.app.state.testing_session_local,
+        study_id,
+        "completed",
+        created_days_ago=120,
+    )
+    study_dir = legacy_state.study_dir(study_id)
     storage = LocalStudyStorage(study_dir.parent)
-    db.commit()
+    db = client.app.state.testing_session_local()
 
     result = apply_retention_policy(db, storage, 90, dry_run=True)
 
     assert [candidate.id for candidate in result.candidates] == [study_id]
     assert result.deleted == []
-    assert db.get(Study, study_id).deleted_at is None
+    assert db.get(Case, study_id).deleted_at is None
     assert study_dir.exists()
     db.close()
 
@@ -566,29 +542,24 @@ def test_retention_execute_deletes_only_expired_terminal_studies(client):
     protected_id = upload_test_study(client, headers, "protected.nii")
     queued_id = upload_test_study(client, headers, "queued.nii")
 
-    db = client.app.state.testing_session_local()
-    old_study = db.get(Study, old_id)
-    protected_study = db.get(Study, protected_id)
-    queued_study = db.get(Study, queued_id)
-    old_study.status = StudyStatus.completed
-    protected_study.status = StudyStatus.completed
-    protected_study.keep_forever = True
-    queued_study.status = StudyStatus.queued
-    old_study.created_at = datetime.utcnow() - timedelta(days=120)
-    protected_study.created_at = datetime.utcnow() - timedelta(days=120)
-    queued_study.created_at = datetime.utcnow() - timedelta(days=120)
-    old_dir = Path(old_study.output_path).parent
-    protected_dir = Path(protected_study.output_path).parent
-    queued_dir = Path(queued_study.output_path).parent
+    sessions = client.app.state.testing_session_local
+    legacy_state.set_state(sessions, old_id, "completed", created_days_ago=120)
+    legacy_state.set_state(
+        sessions, protected_id, "completed", created_days_ago=120, keep_forever=True
+    )
+    legacy_state.set_state(sessions, queued_id, "queued", created_days_ago=120)
+    old_dir = legacy_state.study_dir(old_id)
+    protected_dir = legacy_state.study_dir(protected_id)
+    queued_dir = legacy_state.study_dir(queued_id)
     storage = LocalStudyStorage(old_dir.parent)
-    db.commit()
+    db = sessions()
 
     result = apply_retention_policy(db, storage, 90, dry_run=False)
 
     assert [candidate.id for candidate in result.deleted] == [old_id]
-    assert db.get(Study, old_id).deleted_at is not None
-    assert db.get(Study, protected_id).deleted_at is None
-    assert db.get(Study, queued_id).deleted_at is None
+    assert db.get(Case, old_id).deleted_at is not None
+    assert db.get(Case, protected_id).deleted_at is None
+    assert db.get(Case, queued_id).deleted_at is None
     assert not old_dir.exists()
     assert protected_dir.exists()
     assert queued_dir.exists()
@@ -597,7 +568,7 @@ def test_retention_execute_deletes_only_expired_terminal_studies(client):
         .filter(AuditEvent.event_type == "study_retention_deleted")
         .one()
     )
-    assert event.study_id == old_id
+    assert event.case_id == old_id
     assert event.actor == "system/retention"
     db.close()
 
@@ -949,17 +920,9 @@ def test_admin_dashboard_returns_operational_summary(client, monkeypatch):
         headers=researcher_headers,
     ).json()
 
-    db = client.app.state.testing_session_local()
-    failed_study = db.get(Study, UUID(failed["id"]))
-    failed_study.status = StudyStatus.failed
-    failed_job = (
-        db.query(ProcessingJob)
-        .filter(ProcessingJob.study_id == UUID(failed["id"]))
-        .one()
+    legacy_state.set_state(
+        client.app.state.testing_session_local, failed["id"], "failed"
     )
-    failed_job.status = StudyStatus.failed.value
-    db.commit()
-    db.close()
 
     response = client.get("/api/admin/dashboard", headers=admin_headers)
 
@@ -974,7 +937,15 @@ def test_admin_dashboard_returns_operational_summary(client, monkeypatch):
     assert payload["queue"]["processing_available"] == 2
     assert payload["studies_by_status"]["queued"] == 1
     assert payload["studies_by_status"]["failed"] == 1
-    assert payload["users"]["admins"] == 1
+    # The migrated schema (PostgreSQL run) also holds the system user of migration 0004.
+    db = client.app.state.testing_session_local()
+    expected_admins = (
+        db.query(User)
+        .filter(User.role == UserRole.admin.value, User.deleted_at.is_(None))
+        .count()
+    )
+    db.close()
+    assert payload["users"]["admins"] == expected_admins
     assert payload["users"]["researchers"] == 1
     assert payload["storage"]["exists"] is True
     assert payload["storage"]["studies_bytes"] > 0
@@ -1085,13 +1056,7 @@ def upload_test_study(client, headers, filename: str = "study.nii") -> UUID:
 
 
 def complete_study_with_pdf(client, study_id: str) -> Path:
-    db = client.app.state.testing_session_local()
-    study = db.get(Study, UUID(study_id))
-    report_path = Path(study.output_path) / "reports" / "technical_report.pdf"
-    report_path.parent.mkdir(parents=True, exist_ok=True)
-    report_path.write_bytes(b"%PDF-1.4\n%%EOF\n")
-    study.status = StudyStatus.completed
-    study.pdf_path = str(report_path)
-    db.commit()
-    db.close()
-    return report_path
+    """The state the worker leaves after a success (see tests/legacy_state.py)."""
+    return legacy_state.complete_with_pdf(
+        client.app.state.testing_session_local, study_id
+    )

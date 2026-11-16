@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     compneuro_command: str = "bash /app/src/apreproc_launcher.sh"
     processing_timeout_seconds: int = 0
     max_concurrent_processing_jobs: int = 1
+    # Recovery of legacy attempts left without a live worker task (worker/legacy_recovery.py).
+    legacy_recovery_queued_minutes: int = 30
+    legacy_recovery_running_hours: int = 6
     generate_output_zip: bool = True
     generate_technical_pdf: bool = True
     generate_rendered_png: bool = True

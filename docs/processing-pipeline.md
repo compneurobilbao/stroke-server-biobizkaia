@@ -124,12 +124,12 @@ if executor.poll(handle).finished:
 
 ## Pipeline Orchestrator
 
-`orchestrator/` runs declarative pipelines (`pipeline.yaml`, [docs/contracts/pipeline.md](contracts/pipeline.md), [ADR-0002](adr/0002-declarative-pipelines-own-orchestrator.md)) over the run tables of [docs/data-model.md](data-model.md) (`pipeline_runs`, `run_slots`, `run_slot_bundles`, `step_runs`, `artifacts`, `reports`). Two kinds of run exist side by side until card F0-30:
+`orchestrator/` runs declarative pipelines (`pipeline.yaml`, [docs/contracts/pipeline.md](contracts/pipeline.md), [ADR-0002](adr/0002-declarative-pipelines-own-orchestrator.md)) over the run tables of [docs/data-model.md](data-model.md) (`pipeline_runs`, `run_slots`, `run_slot_bundles`, `step_runs`, `artifacts`, `reports`). Two kinds of run exist side by side until the legacy aliases are removed (migration 0013):
 
 | Run | Created by | Driven by | Worker task |
 |---|---|---|---|
 | Pipeline run (`pipeline_id` of a loaded `pipeline.yaml`) | `orchestrator.resolution.create_run` (called by the run API, F0-30) | `orchestrator.engine.Orchestrator` | `worker.tasks.run_pipeline(run_id)` |
-| Legacy run (`pipeline_id = 'legacy'`, one `legacy` slot) | `POST /api/studies/upload` (legacy tables) | the unchanged legacy flow above | `worker.tasks.process_study(study_id, job_id)` |
+| Legacy run (`pipeline_id = 'legacy'`, one `legacy` slot) | `POST /api/studies/upload` (alias over the case model since migration 0012) | the legacy flow above | `worker.tasks.process_study(study_id, job_id)`, with study id = case id and job id = attempt id |
 
 ### Modules
 
@@ -145,7 +145,6 @@ if executor.poll(handle).finished:
 | `provenance.py` | `RunProvenance` built from the database (data-model.md section 8); staged as the `run.provenance` source and used to initialise the run's provenance file. |
 | `actions.py` | `cancel_run` and `resume_run` for the run API (data-model.md 7.3): compare-and-set transitions, idempotent repeats, refusal codes. |
 | `events.py` | Audit events (`run_succeeded`, `run_failed`, `run_canceled`, `run_cancel_requested`, `run_resumed`) and notifications through the existing notification service. |
-| `legacy.py` | Dual writing of legacy studies into the run tables (data-model.md 10.1 stage 1b). |
 | `config.py` | Builds the worker's orchestrator from environment variables. |
 
 ### Driving a run
@@ -220,7 +219,16 @@ Select with `WORKER_DOCKERFILE`.
 
 ### Legacy runs
 
-The legacy upload -> process -> PDF path is unchanged in behaviour: `process_study` still runs the adapter in the worker process, renders PNGs, writes the technical PDF and ZIP and updates `studies` and `processing_jobs`, which stay authoritative. After the legacy state is committed (when processing starts and when it ends) `orchestrator.legacy.mirror_safely` upserts the study into the run tables with the ids and mapping of the 0011 back-fill: case, input file, a `legacy` run with one `legacy` slot, one attempt per job (`initial`, then `user_resume`), and the PDF and ZIP as `legacy` artefacts with a `legacy-technical` report. A mirror failure is logged and never changes the legacy result. Legacy runs are never driven by the orchestrator engine and the run actions refuse them.
+Since migration 0012 (legacy cut-over, data-model.md 10.1 stage 2) the legacy upload -> process -> PDF path keeps its behaviour but stores everything in the case model; `studies` and `processing_jobs` are frozen and nothing writes them.
+
+- `POST /api/studies/upload` creates a case (profile `legacy`, hidden from `/api/v1` like the back-filled studies), its `legacy_upload` input file, a `legacy` run (run id = case id) with one `legacy` slot, and a queued first attempt; it enqueues `process_study(case id, attempt id)` and stores the Celery task id on the attempt (`orchestrator_task_id`). When the task starts the attempt it writes its own task id there, so that a cancel revokes the task that actually runs.
+- `process_study` moves the run and the attempt from `queued` to `running` with a compare-and-set, runs the adapter in the worker process (dummy or compneuro-anatproc), renders PNGs, writes the technical PDF and ZIP and records them as `legacy` artefacts of the attempt (ids derived as in the back-fill, with size and SHA-256) plus a `legacy-technical` report; the upload's file name and the processor fields live in `cases.legacy_attributes` for this release.
+- Cancellation is unchanged: the cancel alias sets `cancel_requested_at` on the run and on the running attempt and revokes the Celery task with `SIGTERM`; the worker's signal handler raises `ProcessorCanceled` and the attempt ends `canceled` only when the flag is set (otherwise `failed`). A queued run is canceled at once and its task revoked.
+- Retry is a resume of the same run: a new attempt of the `legacy` slot with trigger `user_resume`.
+
+- Recovery (`worker/legacy_recovery.py`): a queued attempt whose message was lost (for example queued before a deploy) is re-enqueued once, and a running attempt whose worker died is failed with `legacy_worker_lost`. It runs once after every legacy worker start, every 10 minutes where celery beat runs, and on demand with `python -m app.cli.legacy_recover [--execute]`.
+
+Legacy runs are never driven by the orchestrator engine and the v1 run actions refuse them. The legacy endpoints serve only legacy-profile cases; cases created through `/api/v1` answer 404 there (data-model.md section 11, item 27).
 
 ### The `stroke-lnm` pipeline (v0)
 

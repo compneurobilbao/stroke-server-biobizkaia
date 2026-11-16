@@ -13,12 +13,14 @@ class ShareLink(Base):
     __tablename__ = "share_links"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    study_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("studies.id"), nullable=False, index=True
+    # Nullable since migration 0012 (legacy cut-over): links of cases that have no
+    # legacy study have none. Dropped by migration 0013.
+    study_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("studies.id"), index=True
     )
-    # Nullable until migration 0012: links created by the legacy code have no case row yet.
-    case_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("cases.id"), index=True
+    # NOT NULL since migration 0012; the legacy share endpoints address links by case.
+    case_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("cases.id"), nullable=False, index=True
     )
     report_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("reports.id"), index=True

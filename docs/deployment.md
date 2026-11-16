@@ -193,6 +193,18 @@ The reference path is the CI one: the `e2e-stroke-lnm` workflow (`.github/workfl
 
 CI runs `docker compose config` with and without the profile, and `tests/test_deploy_wiring.py` checks the queue routing and the structure of the services. Neither starts containers.
 
+## Release with the legacy cut-over (migration 0012)
+
+Migration `0012_legacy_cutover` moves the legacy studies to the case model (docs/data-model.md 10.1 stage 2): from this release the legacy endpoints and the legacy worker task read and write only the new tables, and `studies` and `processing_jobs` are frozen. A worker of the previous release must not process anything after the migration, and a worker of this release must not start before it. Follow this order, on top of the general deployment protocol (backup first):
+
+1. Check that no study is processing (admin dashboard), then stop the worker(s): `docker compose stop worker` (and `pipeline-worker` if used). Uploads made from now on stay queued.
+2. Pull the new images. With the new api image and the database still at revision 0011, run the dry run of the reconciliation: `docker compose run --rm --no-deps api python -m app.cli.legacy_reconcile`. It prints what the migration will insert, update and rewrite, how many legacy artefact sizes it will fill and how many files are missing; it exits with status 1 and lists the ids if legacy rows cannot be mapped. Fix those rows (or `STORAGE_ROOT`) and repeat until it passes.
+3. Start the api of the new release (`docker compose up -d api`): its start command runs `alembic upgrade head`, which applies 0012. Check its log for the `legacy reconciliation` and `legacy artefact sizes` lines.
+4. Start the worker(s) of the new release. About a minute after start-up each legacy worker runs one recovery pass: attempts queued before the deploy whose message was lost (or consumed by the old worker) are re-enqueued once, and running attempts whose worker died are failed with `legacy_worker_lost`. To see it, or to run it by hand: `docker compose exec worker python -m app.cli.legacy_recover` (report) and `... --execute`.
+5. Smoke test and `make e2e`.
+
+Rollback before any new upload: stop the workers, `alembic downgrade 0011_case_model` (writes back to `studies` and `processing_jobs` whatever changed after the cut-over, docs/data-model.md 10.5), then deploy the previous tag. Rows of `audit_events` and `notifications` keep their `case_id` links; the previous release ignores them.
+
 ## Basic Production
 
 - Change secrets in `.env`.

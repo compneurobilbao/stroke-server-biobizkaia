@@ -6,6 +6,7 @@ Add further PostgreSQL migration tests here and mark them with `pytest.mark.post
 """
 
 import importlib.util
+import json
 import os
 import subprocess
 import sys
@@ -478,13 +479,14 @@ def seeded(pg_engine, storage_root):
     return storage_root
 
 
-def upgrade_head(root: Path) -> None:
-    alembic("upgrade", "head", STORAGE_ROOT=str(root))
+def upgrade_0011(root: Path) -> None:
+    """Upgrade to 0011 only: the 0011 tests check the state between stages 1 and 2."""
+    alembic("upgrade", REV_AFTER, STORAGE_ROOT=str(root))
 
 
 def test_0011_backfill_maps_legacy_rows(pg_engine, seeded):
     root = seeded
-    upgrade_head(root)
+    upgrade_0011(root)
     assert NEW_TABLES <= user_tables(pg_engine)
 
     # One case, input file, run and slot per study; ids derived from the legacy ids.
@@ -719,7 +721,7 @@ def test_0011_backfill_maps_legacy_rows(pg_engine, seeded):
 
 
 def test_0011_backfill_is_idempotent(pg_engine, seeded):
-    upgrade_head(seeded)
+    upgrade_0011(seeded)
     before = dump(pg_engine, sorted(NEW_TABLES))
     legacy_before = dump(pg_engine, LEGACY_TABLES)
     migration = load_migration_module()
@@ -732,7 +734,7 @@ def test_0011_backfill_is_idempotent(pg_engine, seeded):
 
 def test_0011_backfill_does_not_overwrite_mirror_rows(pg_engine, seeded):
     """Rows written later by the worker (stage 1b) with the same ids are left alone."""
-    upgrade_head(seeded)
+    upgrade_0011(seeded)
     with pg_engine.begin() as conn:
         conn.execute(
             text(
@@ -757,7 +759,7 @@ def test_0011_downgrade_restores_the_0010_schema(pg_engine, seeded):
     columns_before = {
         t: [c["name"] for c in inspect(pg_engine).get_columns(t)] for t in LEGACY_TABLES
     }
-    upgrade_head(seeded)
+    upgrade_0011(seeded)
     assert one(pg_engine, "SELECT count(*) AS n FROM cases")["n"] == 8
 
     # downgrading is allowed: every case was back-filled from a study
@@ -776,13 +778,13 @@ def test_0011_downgrade_restores_the_0010_schema(pg_engine, seeded):
     assert "ck_users_role" not in constraints
 
     # and the upgrade can be repeated on the downgraded database
-    upgrade_head(seeded)
+    upgrade_0011(seeded)
     assert one(pg_engine, "SELECT count(*) AS n FROM cases")["n"] == 8
     assert one(pg_engine, "SELECT count(*) AS n FROM step_runs")["n"] == 8
 
 
 def test_0011_downgrade_refuses_to_lose_new_data(pg_engine, seeded):
-    upgrade_head(seeded)
+    upgrade_0011(seeded)
     new_case = uuid.uuid4()
     with pg_engine.begin() as conn:
         conn.execute(
@@ -873,7 +875,7 @@ def test_0011_relative_legacy_paths_are_made_relative(pg_engine):
 
 
 def test_0011_database_constraints(pg_engine, seeded):
-    upgrade_head(seeded)
+    upgrade_0011(seeded)
 
     def fails(sql: str, **params) -> str:
         with pytest.raises(IntegrityError) as err:
@@ -1142,3 +1144,494 @@ def test_0011_schema_matches_the_orm_models(pg_engine):
         assert column in Base.metadata.tables[table].columns
         names = {c["name"] for c in inspector.get_check_constraints(table)}
         assert f"ck_{table}_{column}_format" in names
+
+
+# ---------------------------------------------------------------------------------------
+# Migration 0012 (legacy cut-over): final reconciliation, NOT NULL share_links.case_id and
+# the downgrade paths of docs/data-model.md 10.5.
+# ---------------------------------------------------------------------------------------
+
+REV_CUTOVER = "0012_legacy_cutover"
+LINKED_TABLES = ["audit_events", "notifications", "share_links"]
+
+
+def load_cutover_module():
+    path = BACKEND_DIR / "alembic" / "versions" / "0012_legacy_cutover.py"
+    spec = importlib.util.spec_from_file_location("migration_0012", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def reconcile(engine, root: Path, dry_run: bool) -> dict:
+    module = load_cutover_module()
+    with engine.begin() as conn:
+        return module.reconcile(conn, root, dry_run=dry_run)
+
+
+def nullable(engine, table: str, column: str) -> bool:
+    return {c["name"]: c["nullable"] for c in inspect(engine).get_columns(table)}[column]
+
+
+def version(engine) -> str:
+    with engine.connect() as conn:
+        return conn.execute(text("SELECT version_num FROM alembic_version")).scalar()
+
+
+def test_0012_reconciles_lagging_mirror_rows(pg_engine, seeded):
+    """Mirror rows that lagged behind the legacy tables (stage 1b) are brought back to
+    the mapping of 10.3; a dry run reports the work and writes nothing; a second run
+    finds nothing to do."""
+    upgrade_0011(seeded)
+    tables = sorted(NEW_TABLES) + LINKED_TABLES
+    reference = dump(pg_engine, tables)
+    with pg_engine.begin() as conn:
+        # a mirrored run whose state differs from its study
+        conn.execute(
+            text(
+                "UPDATE pipeline_runs SET status = 'failed', finished_at = now(),"
+                " failure_code = 'legacy_failure' WHERE id = :i"
+            ),
+            {"i": sid(2)},
+        )
+        # an attempt renumbered by the mirror, its artefacts and report lost, and
+        # dependent rows not linked yet
+        conn.execute(
+            text("DELETE FROM reports WHERE pipeline_run_id = :i"), {"i": sid(4)}
+        )
+        conn.execute(
+            text("DELETE FROM artifacts WHERE pipeline_run_id = :i"), {"i": sid(4)}
+        )
+        conn.execute(
+            text("UPDATE step_runs SET attempt = 7 WHERE id = :i"), {"i": jid(4, 2)}
+        )
+        conn.execute(
+            text("UPDATE audit_events SET case_id = NULL WHERE study_id = :i"),
+            {"i": sid(4)},
+        )
+        conn.execute(
+            text("UPDATE share_links SET case_id = NULL WHERE study_id = :i"),
+            {"i": sid(4)},
+        )
+        # a study whose mirror never ran
+        for table in ("reports", "artifacts", "step_runs", "run_slots", "run_inputs"):
+            conn.execute(
+                text(f"DELETE FROM {table} WHERE pipeline_run_id = :i"), {"i": sid(5)}
+            )
+        conn.execute(text("DELETE FROM pipeline_runs WHERE id = :i"), {"i": sid(5)})
+        conn.execute(text("DELETE FROM input_files WHERE case_id = :i"), {"i": sid(5)})
+        conn.execute(text("DELETE FROM cases WHERE id = :i"), {"i": sid(5)})
+    tampered = dump(pg_engine, tables)
+
+    report = reconcile(pg_engine, seeded, dry_run=True)
+    assert report["studies"] == 8 and report["dry_run"] is True
+    assert report["cases"] == {"insert": 1, "update": 0, "unchanged": 7}
+    assert report["pipeline_runs"] == {"insert": 1, "update": 1, "unchanged": 6}
+    assert report["attempt_sets"] == {"rewrite": 2, "unchanged": 6}
+    assert report["linked_to_case"]["share_links"] == 1
+    assert report["linked_to_case"]["audit_events"] == 2
+    assert dump(pg_engine, tables) == tampered  # a dry run writes nothing
+
+    alembic("upgrade", REV_CUTOVER, STORAGE_ROOT=str(seeded))
+    assert dump(pg_engine, tables) == reference
+    assert not nullable(pg_engine, "share_links", "case_id")
+    assert nullable(pg_engine, "share_links", "study_id")
+
+    again = reconcile(pg_engine, seeded, dry_run=False)
+    for table in ("cases", "input_files", "pipeline_runs", "run_inputs", "run_slots"):
+        assert again[table]["insert"] == 0 and again[table]["update"] == 0, table
+    assert again["attempt_sets"] == {"rewrite": 0, "unchanged": 8}
+    assert set(again["linked_to_case"].values()) == {0}
+    assert dump(pg_engine, tables) == reference
+
+
+def test_0012_aborts_and_lists_unmappable_rows(pg_engine, seeded):
+    upgrade_0011(seeded)
+    stray = uuid.uuid4()
+    with pg_engine.begin() as conn:
+        # an attempt that no legacy job explains
+        conn.execute(
+            text(
+                "INSERT INTO step_runs (id, pipeline_run_id, run_slot_id, attempt, trigger,"
+                " status, outcome, executor, runtime, queued_at, finished_at) VALUES"
+                " (:i, :r, :s, 9, 'user_resume', 'failed', 'failed', 'subprocess', 'none',"
+                " now(), now())"
+            ),
+            {"i": stray, "r": sid(6), "s": derived(sid(6), "slot/legacy")},
+        )
+        # a study with two completed jobs
+        conn.execute(
+            text(
+                "INSERT INTO processing_jobs (id, study_id, status, queued_at, retry_count)"
+                " VALUES (:i, :s, 'completed', :t, 0)"
+            ),
+            {"i": jid(4, 9), "s": sid(4), "t": BASE + timedelta(hours=2)},
+        )
+    failed = alembic_run("upgrade", "head", STORAGE_ROOT=str(seeded))
+    assert failed.returncode != 0
+    assert str(stray) in failed.stderr and "has no legacy job" in failed.stderr
+    assert str(sid(4)) in failed.stderr and "more than one completed job" in failed.stderr
+    # nothing was applied
+    assert version(pg_engine) == REV_AFTER
+    assert nullable(pg_engine, "share_links", "case_id")
+
+
+def test_0012_round_trip_without_activity_restores_the_legacy_tables(pg_engine, seeded):
+    legacy_before = dump(pg_engine, LEGACY_TABLES)
+    upgrade_0011(seeded)
+    at_0011 = dump(pg_engine, sorted(NEW_TABLES) + LEGACY_TABLES)
+    alembic("upgrade", REV_CUTOVER, STORAGE_ROOT=str(seeded))
+    alembic("downgrade", REV_AFTER, STORAGE_ROOT=str(seeded))
+    assert version(pg_engine) == REV_AFTER
+    assert not nullable(pg_engine, "share_links", "study_id")
+    assert nullable(pg_engine, "share_links", "case_id")
+    assert dump(pg_engine, sorted(NEW_TABLES) + LEGACY_TABLES) == at_0011
+    alembic("downgrade", REV_BEFORE, STORAGE_ROOT=str(seeded))
+    assert dump(pg_engine, LEGACY_TABLES) == legacy_before
+
+
+def _post_cutover_activity(engine) -> dict:
+    """What the aliases and the worker write after the cut-over, as plain SQL."""
+    t0 = datetime(2026, 11, 20, 9, 0, 0, tzinfo=timezone.utc)
+    naive = t0.replace(tzinfo=None)
+    ids = {
+        "retry": uuid.uuid4(),
+        "alias": uuid.uuid4(),
+        "alias_step": uuid.uuid4(),
+        "v1": uuid.uuid4(),
+        "t0": naive,
+    }
+    alias, v1 = ids["alias"], ids["v1"]
+    with engine.begin() as conn:
+        # (a) study 6 failed before the cut-over; it is retried and succeeds afterwards
+        conn.execute(
+            text(
+                "UPDATE pipeline_runs SET status = 'succeeded', finished_at = :t,"
+                " started_at = :t, failure_code = NULL, failure_message = NULL,"
+                " resume_count = 1, updated_at = :t,"
+                " legacy_clinical_review_status = 'validated' WHERE id = :i"
+            ),
+            {"i": sid(6), "t": t0},
+        )
+        conn.execute(
+            text(
+                "INSERT INTO step_runs (id, pipeline_run_id, run_slot_id, attempt, trigger,"
+                " status, outcome, executor, runtime, queued_at, started_at, finished_at,"
+                " exit_code, orchestrator_task_id, executor_state, log_path) VALUES"
+                " (:i, :r, :s, 2, 'user_resume', 'succeeded', 'succeeded', 'subprocess',"
+                " 'none', :t, :t, :t, 0, 'celery-retry', CAST(:state AS jsonb), :log)"
+            ),
+            {
+                "i": ids["retry"],
+                "r": sid(6),
+                "s": derived(sid(6), "slot/legacy"),
+                "t": t0,
+                "state": json.dumps({"worker_name": "w2"}),
+                "log": f"{sid(6)}/logs/processor.log",
+            },
+        )
+        art = derived(sid(6), "artifact/technical_report")
+        conn.execute(
+            text(
+                "INSERT INTO artifacts (id, case_id, pipeline_run_id, step_run_id, origin,"
+                " port, artefact_type, storage_path, synthetic, created_at, size_bytes,"
+                " sha256) VALUES (:a, :c, :c, :s, 'legacy', 'technical_report',"
+                " 'legacy_technical_report_pdf', :p, false, :t, 10, :h)"
+            ),
+            {
+                "a": art,
+                "c": sid(6),
+                "s": ids["retry"],
+                "p": f"{sid(6)}/output/reports/technical_report.pdf",
+                "t": t0,
+                "h": "b" * 64,
+            },
+        )
+        conn.execute(
+            text(
+                "INSERT INTO reports (id, case_id, pipeline_run_id, step_run_id,"
+                " pdf_artifact_id, template, language, created_at) VALUES (:i, :c, :c, :s,"
+                " :a, 'legacy-technical', 'es', :t)"
+            ),
+            {
+                "i": derived(sid(6), "report"),
+                "c": sid(6),
+                "s": ids["retry"],
+                "a": art,
+                "t": t0,
+            },
+        )
+        # (b) a study uploaded through the alias after the cut-over
+        conn.execute(
+            text(
+                "INSERT INTO cases (id, owner_user_id, subject_label, deployment_profile,"
+                " created_at, updated_at, legacy_attributes) VALUES (:i, :u, :l, 'legacy',"
+                " :t, :t, CAST(:attrs AS jsonb))"
+            ),
+            {
+                "i": alias,
+                "u": OWNER_A,
+                "l": alias.hex[:12],
+                "t": t0,
+                "attrs": json.dumps(
+                    {
+                        "original_filename": "new-upload.nii.gz",
+                        "processor_backend": "dummy",
+                        "output_path": f"{alias}/output",
+                        "processing_warnings": None,
+                    }
+                ),
+            },
+        )
+        conn.execute(
+            text(
+                "INSERT INTO input_files (id, case_id, role, artefact_type, storage_path,"
+                " sha256, size_bytes, uploaded_by_user_id, created_at) VALUES (:i, :c,"
+                " 'legacy_upload', 'legacy_upload', :p, :h, 42, :u, :t)"
+            ),
+            {
+                "i": derived(alias, "input"),
+                "c": alias,
+                "p": f"{alias}/input/original/new-upload.nii.gz",
+                "h": "c" * 64,
+                "u": OWNER_A,
+                "t": t0,
+            },
+        )
+        conn.execute(
+            text(
+                "INSERT INTO pipeline_runs (id, case_id, created_by_user_id, pipeline_id,"
+                " pipeline_version, platform_version, artefact_types_version, input_set,"
+                " seed, status, requested_implementations, accounting_submitted_by,"
+                " accounting_submit_as, created_at, updated_at, started_at, finished_at,"
+                " legacy_clinical_review_status) VALUES (:i, :i, :u, 'legacy', '0.0.0',"
+                " 'legacy', 'legacy', 'legacy-single-file', 0, 'succeeded', '{}'::jsonb,"
+                " :acc, 'service-account', :t, :t, :t, :t, 'technical_only')"
+            ),
+            {"i": alias, "u": OWNER_A, "acc": f"user:{OWNER_A}", "t": t0},
+        )
+        conn.execute(
+            text(
+                "INSERT INTO run_inputs (pipeline_run_id, role, input_file_id)"
+                " VALUES (:r, 'legacy_upload', :f)"
+            ),
+            {"r": alias, "f": derived(alias, "input")},
+        )
+        conn.execute(
+            text(
+                "INSERT INTO run_slots (id, pipeline_run_id, slot, position, optional,"
+                " status, implementation_id, step_name, step_version, stub, chosen_by,"
+                " effective_parameters) VALUES (:i, :r, 'legacy', 0, false, 'selected',"
+                " 'dummy', 'legacy-dummy', '0.0.0', true, 'deployment_default',"
+                " '{}'::jsonb)"
+            ),
+            {"i": derived(alias, "slot/legacy"), "r": alias},
+        )
+        conn.execute(
+            text(
+                "INSERT INTO step_runs (id, pipeline_run_id, run_slot_id, attempt, trigger,"
+                " status, outcome, executor, runtime, queued_at, started_at, finished_at,"
+                " exit_code, orchestrator_task_id) VALUES (:i, :r, :s, 1, 'initial',"
+                " 'succeeded', 'succeeded', 'subprocess', 'none', :t, :t, :t, 0,"
+                " 'celery-a')"
+            ),
+            {
+                "i": ids["alias_step"],
+                "r": alias,
+                "s": derived(alias, "slot/legacy"),
+                "t": t0,
+            },
+        )
+        conn.execute(
+            text(
+                "INSERT INTO audit_events (id, case_id, pipeline_run_id, event_type,"
+                " timestamp, actor) VALUES (:i, :c, :c, 'study_uploaded', :t,"
+                " 'a@example.org')"
+            ),
+            {"i": uuid.uuid4(), "c": alias, "t": naive},
+        )
+        # (c) a case created through /api/v1; links of (b) and (c) have no study
+        conn.execute(
+            text(
+                "INSERT INTO cases (id, owner_user_id, subject_label, deployment_profile,"
+                " created_at, updated_at) VALUES (:i, :u, :l, 'research-public', :t, :t)"
+            ),
+            {"i": v1, "u": OWNER_B, "l": v1.hex[:12], "t": t0},
+        )
+        for case_id, owner, token in ((alias, OWNER_A, "1"), (v1, OWNER_B, "2")):
+            conn.execute(
+                text(
+                    "INSERT INTO share_links (id, case_id, created_by_user_id, token_hash,"
+                    " expires_at, created_at, access_count) VALUES (:i, :c, :u, :h, :t,"
+                    " :t, 0)"
+                ),
+                {"i": uuid.uuid4(), "c": case_id, "u": owner, "h": token * 64, "t": naive},
+            )
+    return ids
+
+
+def test_0012_downgrade_writes_back_post_cutover_activity(pg_engine, seeded):
+    root = seeded
+    upgrade_0011(root)
+    alembic("upgrade", REV_CUTOVER, STORAGE_ROOT=str(root))
+    s4_before = one(pg_engine, "SELECT * FROM studies WHERE id = :i", i=sid(4))
+    jobs4_before = rows(
+        pg_engine,
+        "SELECT * FROM processing_jobs WHERE study_id = :i ORDER BY id",
+        i=sid(4),
+    )
+    ids = _post_cutover_activity(pg_engine)
+    t0 = ids["t0"]
+
+    alembic("downgrade", REV_AFTER, STORAGE_ROOT=str(root))
+    assert version(pg_engine) == REV_AFTER
+
+    # (a) the retried study gets its new state and a job for the new attempt
+    s6 = one(pg_engine, "SELECT * FROM studies WHERE id = :i", i=sid(6))
+    assert s6["status"] == "completed"
+    assert s6["error_message"] is None
+    assert s6["clinical_review_status"] == "validated"
+    assert s6["processing_started_at"] == t0 and s6["processing_finished_at"] == t0
+    assert s6["pdf_path"] == str(
+        root / str(sid(6)) / "output" / "reports" / "technical_report.pdf"
+    )
+    assert s6["updated_at"] == t0
+    job = one(pg_engine, "SELECT * FROM processing_jobs WHERE id = :i", i=ids["retry"])
+    assert (job["study_id"], job["status"], job["retry_count"]) == (
+        sid(6),
+        "completed",
+        1,
+    )
+    assert job["celery_task_id"] == "celery-retry" and job["worker_name"] == "w2"
+    assert job["log_path"] == str(root / str(sid(6)) / "logs" / "processor.log")
+    linked_job = one(
+        pg_engine, "SELECT legacy_job_id FROM step_runs WHERE id = :i", i=ids["retry"]
+    )
+    assert linked_job["legacy_job_id"] == ids["retry"]
+    assert (
+        one(pg_engine, "SELECT status FROM processing_jobs WHERE id = :i", i=jid(6, 1))[
+            "status"
+        ]
+        == "failed"
+    )
+    # an untouched study and its jobs are bit for bit what they were
+    assert one(pg_engine, "SELECT * FROM studies WHERE id = :i", i=sid(4)) == s4_before
+    assert (
+        rows(
+            pg_engine,
+            "SELECT * FROM processing_jobs WHERE study_id = :i ORDER BY id",
+            i=sid(4),
+        )
+        == jobs4_before
+    )
+
+    # (b) the alias upload is a study again, linked from its case and dependent rows
+    alias = ids["alias"]
+    study = one(pg_engine, "SELECT * FROM studies WHERE id = :i", i=alias)
+    assert study["original_filename"] == "new-upload.nii.gz"
+    assert study["status"] == "completed" and study["processor_backend"] == "dummy"
+    assert study["stored_path"] == str(
+        root / str(alias) / "input" / "original" / "new-upload.nii.gz"
+    )
+    assert study["file_size"] == 42 and study["checksum"] == "c" * 64
+    assert study["created_at"] == t0
+    job = one(pg_engine, "SELECT * FROM processing_jobs WHERE study_id = :i", i=alias)
+    assert job["id"] == ids["alias_step"] and job["status"] == "completed"
+    case = one(pg_engine, "SELECT legacy_study_id FROM cases WHERE id = :i", i=alias)
+    assert case["legacy_study_id"] == alias
+    event = one(pg_engine, "SELECT study_id FROM audit_events WHERE case_id = :i", i=alias)
+    assert event["study_id"] == alias
+    link = one(pg_engine, "SELECT study_id FROM share_links WHERE case_id = :i", i=alias)
+    assert link["study_id"] == alias
+
+    # (c) the v1 case stays; (d) its share link is deleted
+    assert (
+        one(pg_engine, "SELECT count(*) AS n FROM cases WHERE id = :i", i=ids["v1"])["n"]
+        == 1
+    )
+    assert rows(pg_engine, "SELECT * FROM share_links WHERE case_id = :i", i=ids["v1"]) == []
+    assert not nullable(pg_engine, "share_links", "study_id")
+
+    # the cut-over can be applied again on the downgraded database
+    alembic("upgrade", REV_CUTOVER, STORAGE_ROOT=str(root))
+    assert (
+        one(pg_engine, "SELECT status FROM pipeline_runs WHERE id = :i", i=alias)["status"]
+        == "succeeded"
+    )
+    steps = rows(
+        pg_engine,
+        "SELECT id, attempt, trigger, status FROM step_runs WHERE pipeline_run_id = :i"
+        " ORDER BY attempt",
+        i=sid(6),
+    )
+    assert [(r["id"], r["attempt"], r["trigger"], r["status"]) for r in steps] == [
+        (jid(6, 1), 1, "initial", "failed"),
+        (ids["retry"], 2, "user_resume", "succeeded"),
+    ]
+
+
+def test_0012_dry_run_cli(pg_engine, seeded):
+    upgrade_0011(seeded)
+    env = {
+        **os.environ,
+        "DATABASE_URL": os.environ["TEST_POSTGRES_URL"],
+        "STORAGE_ROOT": str(seeded),
+    }
+    command = [sys.executable, "-m", "app.cli.legacy_reconcile"]
+    ok = subprocess.run(command, cwd=BACKEND_DIR, env=env, capture_output=True, text=True)
+    assert ok.returncode == 0, ok.stderr
+    report = json.loads(ok.stdout)
+    assert report["studies"] == 8 and report["dry_run"] is True
+    assert report["database_revision"] == REV_AFTER
+    assert report["attempt_sets"] == {"rewrite": 0, "unchanged": 8}
+    assert version(pg_engine) == REV_AFTER
+
+    with pg_engine.begin() as conn:
+        conn.execute(
+            text("UPDATE studies SET pdf_path = '/elsewhere/report.pdf' WHERE id = :i"),
+            {"i": sid(5)},
+        )
+    refused = subprocess.run(
+        command, cwd=BACKEND_DIR, env=env, capture_output=True, text=True
+    )
+    assert refused.returncode == 1
+    assert str(sid(5)) in refused.stderr and "outside the storage root" in refused.stderr
+
+
+def test_0012_fills_sizes_of_backfilled_legacy_artefacts(pg_engine, seeded):
+    """Back-filled legacy artefacts get the size of their file so that the quota
+    (inputs plus derivatives) counts them; a missing file leaves the size NULL. The
+    reconciliation does not compare sizes, so a re-run changes nothing."""
+    pdf = seeded / str(sid(4)) / "output" / "report.pdf"
+    pdf.parent.mkdir(parents=True)
+    pdf.write_bytes(b"%PDF-1.4\n" + b"x" * 91)  # the ZIP of study 4 stays missing
+    upgrade_0011(seeded)
+    report = load_cutover_module().fill_legacy_artifact_sizes
+    with pg_engine.begin() as conn:
+        # study 4's PDF is found; its ZIP and study 5's PDF are missing
+        assert report(conn, seeded, dry_run=True) == {
+            "filled": 1,
+            "missing_file": 2,
+            "dry_run": True,
+        }
+    alembic("upgrade", REV_CUTOVER, STORAGE_ROOT=str(seeded))
+    sizes = {
+        r["port"]: r["size_bytes"]
+        for r in rows(
+            pg_engine,
+            "SELECT port, size_bytes FROM artifacts WHERE pipeline_run_id = :i",
+            i=sid(4),
+        )
+    }
+    assert sizes == {"technical_report": 100, "outputs_zip": None}
+    again = reconcile(pg_engine, seeded, dry_run=False)
+    assert again["attempt_sets"]["rewrite"] == 0
+    assert (
+        one(
+            pg_engine,
+            "SELECT size_bytes FROM artifacts WHERE pipeline_run_id = :i"
+            " AND port = 'technical_report'",
+            i=sid(4),
+        )["size_bytes"]
+        == 100
+    )

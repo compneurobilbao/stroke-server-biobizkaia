@@ -1050,7 +1050,7 @@ def test_artifact_of_another_run_cannot_be_fetched_through_this_run(v1):
     assert r.status_code == 404 and r.json()["code"] == "step_run_not_found"
 
 
-def test_legacy_endpoints_are_untouched(v1):
+def test_legacy_uploads_stay_out_of_v1(v1):
     from tests.test_api import upload_test_study
 
     c = v1.client
@@ -1063,11 +1063,14 @@ def test_legacy_endpoints_are_untouched(v1):
         str(study_id)
     ]
     assert c.get(f"/api/studies/{study_id}/status", headers=v1.bob).status_code == 404
-    # The legacy upload creates no case and is invisible to v1.
+    # Since the cut-over (migration 0012) the legacy upload is a case of the legacy
+    # profile with a legacy run; like the back-filled studies it is invisible to v1.
     assert c.get("/api/v1/cases", headers=v1.alice).json() == []
     assert c.get(f"/api/v1/cases/{study_id}", headers=v1.alice).status_code == 404
     with v1.Session() as db:
-        assert db.scalar(select(Case)) is None
+        case = db.scalar(select(Case))
+        assert case.id == study_id and case.deployment_profile == "legacy"
+        assert db.get(PipelineRun, study_id).pipeline_id == "legacy"
 
 
 # ------------------------------------------------------------------- OpenAPI
