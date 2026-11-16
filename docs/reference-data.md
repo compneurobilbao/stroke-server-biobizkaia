@@ -58,5 +58,23 @@ The step is refused, with an exception that names every problem, when a required
 ## Limits and open points
 
 - The cheap check does not detect a same-size content change; that needs a full verification (scheduled or forced with `full=True`).
-- Bundle layouts per bundle type are defined by the consuming steps. The `tract-atlas` type has the layout the structural-disconnection step reads (`labels.txt` plus one `<tract>.tck` per tract at the bundle root); the synthetic fixture `toy-tract-atlas` uses it.
+- Bundle layouts per bundle type are defined by the consuming steps. The `tract-atlas` type has the layout the structural-disconnection step reads (`labels.txt` plus one `<tract>.tck` per tract at the bundle root); the synthetic fixture `toy-tract-atlas` uses it. The `normative-fc` type is described [below](#the-normative-fc-bundle).
 - Installers and release tarballs must skip bundles whose `licence.redistributable` is `false`.
+
+## The `normative-fc` bundle
+
+Bundle type read by the functional disconnection step `flnm-fast` ([`steps/flnm-fast`](../steps/flnm-fast/README.md), mounted at `/ref/normative`): the normative parcel-by-parcel functional connectivity of a healthy cohort, with sex and age labels.
+
+```
+bundle.yaml
+fc_row_subject_col.npy                       # float array, shape (n_roi, n_subject, n_roi): FC[roi, subject, roi]
+normative_subjects.csv                       # columns subject_index, eid, age, sex (subject_index is the position on the subject axis)
+standard/schaefer1000_tian54_2mm.nii.gz      # integer parcellation, labels 1..n_roi, on the 2 mm MNI152NLin6Asym grid (91 x 109 x 91)
+```
+
+These are the names the engine reads by default. The lab's local normative data directory also holds `participants.tsv`, `lesion/` and `zmaps/` (its own cases and outputs): they are **not** part of the bundle and must not be copied into it. The sex column must use labels that start with `F` and `M` (any case), one label each.
+
+**Licence.** The normative data comes from open-access databases (such as the Human Connectome Project) whose data use terms forbid redistribution. A real `normative-fc` bundle therefore has `licence.redistributable: false` and `licence.spdx: LicenseRef-<name>` (terms in `licence.terms_url`, citation in `citation`); it is created and registered on each host from the lab's own copy (`scripts/bundles/registry.py register`), is never committed, never baked into an image, never part of a release tarball or on-premise installer, and is mounted read-only at run time. Agents and CI never download it. CI and the tests use the synthetic bundle `synthetic-normative-fc` (27 block parcels, 2100 participants, `synthetic: true`, CC0-1.0), which `steps/flnm-fast/tests/make_reference.py` writes deterministically.
+
+Preparing a real bundle: copy the three items above into an empty directory, write `bundle.yaml` as in [Preparing a bundle](#preparing-a-bundle) (`type: normative-fc`, `licence.redistributable: false`, `metadata` with participant counts by sex if wanted), then `register` it. The bundle is large (a normative FC array is several gigabytes): keep it on local storage, mount the bundle root read-only, and copy it to the HPC filesystem with a full `verify` afterwards.
+

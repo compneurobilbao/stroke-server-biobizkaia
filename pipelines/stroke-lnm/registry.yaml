@@ -27,6 +27,14 @@ implementations:
       image: docker.io/compneurobilbaolab/step-ct-lesion-to-mni152@sha256:0000000000000000000000000000000000000000000000000000000000000000
       source: {repository: compneurobilbao/CTLesion2MNI152, note: "pending review; not built by CI"}
   functional-disconnection:
+    flnm-fast:
+      step: {name: flnm-fast, version: 1.0.0}
+      kind: real
+      image: docker.io/compneurobilbaolab/step-flnm-fast@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      source:
+        repository: this
+        dockerfile: steps/flnm-fast/Dockerfile
+        note: "wrapper over the public engine image compneurobilbaolab/flnm-fast (digest pinned in the Dockerfile; no source repository)"
     fdisconnection-stub:
       step: {name: fdisconnection-stub, version: 0.1.0}
       kind: stub
@@ -63,34 +71,38 @@ implementations:
       source: {repository: this, dockerfile: steps/report/Dockerfile}
 
 profiles:
-  # What a deployment enables. Slots absent from `enabled` are left unmounted: functional
-  # disconnection has no real implementation, normalisation is not merged. Stubs and planned
-  # entries are never enabled here.
+  # What a deployment enables. Slots absent from `enabled` are left unmounted: normalisation
+  # is not merged. Stubs and planned entries are never enabled here. The functional
+  # disconnection step needs the normative-fc bundle installed locally (docs/reference-data.md)
+  # and the sex and age band on the case.
   deployment:
     enabled:
       lesion-intake: [lesion-qc]
+      functional-disconnection: [flnm-fast]
       tract-disconnection: [lnm-tracts]
       cognet-profile: [cognet-stroke]
       report: [research-report, research-report-es]
     default:
       lesion-intake: lesion-qc
+      functional-disconnection: flnm-fast
       tract-disconnection: lnm-tracts
       cognet-profile: cognet-stroke
       report: research-report
 
-  # The CI configuration: every slot that can run on fixtures is filled, with the real step
-  # where a light one exists and with the stub for functional disconnection. Normalisation
+  # The CI configuration: every slot that can run on fixtures is filled with the real step
+  # (functional disconnection runs on a small synthetic normative-fc bundle); the stub of that
+  # slot stays enabled so that a run with a non-default implementation exists. Normalisation
   # stays unmounted (the CT step is not merged), so CI runs the MNI-mask input set only.
   ci:
     enabled:
       lesion-intake: [lesion-qc]
-      functional-disconnection: [fdisconnection-stub]
+      functional-disconnection: [flnm-fast, fdisconnection-stub]
       tract-disconnection: [lnm-tracts]
       cognet-profile: [cognet-stroke]
       report: [research-report, research-report-es]
     default:
       lesion-intake: lesion-qc
-      functional-disconnection: fdisconnection-stub
+      functional-disconnection: flnm-fast
       tract-disconnection: lnm-tracts
       cognet-profile: cognet-stroke
       report: research-report

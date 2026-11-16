@@ -1,0 +1,9 @@
+# Added on top of the base image compneurobilbaolab/flnm-fast (which brings numpy, nibabel,
+# pandas and scipy at the versions the engine was built with; they are not touched here).
+# The SDK is installed with --no-deps: its numpy and nibabel requirements are met by the base.
+PyYAML==6.0.2
+jsonschema==4.23.0
+attrs==24.2.0
+jsonschema-specifications==2024.10.1
+referencing==0.35.1
+rpds-py==0.20.1

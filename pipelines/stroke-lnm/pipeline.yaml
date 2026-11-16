@@ -82,9 +82,15 @@ slots:
     produces:
       - {port: fdisconnection_map, type: fdisconnection_map}
     implementations:
-      # No default: the real implementation (flnm-fast) is not wrapped yet and stubs are
-      # never a deployment default outside CI.
+      default: flnm-fast
       allowed:
+        - id: flnm-fast
+          step: {name: flnm-fast, version: 1.0.0}
+          image: docker.io/compneurobilbaolab/step-flnm-fast@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          parameter_bindings:
+            sex: case.sex
+            age_band: case.age_band
+        # CI fixture and placeholder: synthetic output, only enabled in the ci profile.
         - id: fdisconnection-stub
           step: {name: fdisconnection-stub, version: 0.1.0}
           image: docker.io/compneurobilbaolab/step-fdisconnection-stub@sha256:0000000000000000000000000000000000000000000000000000000000000000
