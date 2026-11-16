@@ -62,8 +62,8 @@ slots:
       - {port: ct_mni, type: ct_mni, optional: true}
       - {port: qc_figure, type: qc_figure, optional: true}
     implementations:
-      # Not merged yet: listed so that the slot is defined, but no deployment mounts it
-      # (registry.yaml: status planned), so CT-mode runs are refused until it is.
+      # The CT step of the CTLesion2MNI152 repository (registry.yaml pins the commit).
+      # When a deployment leaves this slot unmounted, CT-mode runs are refused.
       default: ct-lesion-to-mni152
       allowed:
         - id: ct-lesion-to-mni152

@@ -5,6 +5,8 @@ name: e2e stroke-lnm
 # executor through the restricted socket proxy. The steps are built here (this repository's
 # steps and the external ones at the commits pinned in registry.yaml), pushed to a throwaway
 # registry to obtain image digests, and those digests are written into the pipeline at run time.
+# CT mode runs the real normalisation step on a reference case built here from a public head CT
+# template (downloaded and SHA-256 checked, cached, never committed).
 
 on:
   pull_request:
@@ -57,6 +59,8 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r backend/requirements.txt pytest==8.3.3
+          # only to build the CT reference case (pipelines/stroke-lnm/ci/ct_reference.sh)
+          pip install scipy==1.14.1
           pip install --no-deps -e steps/sdk
 
       - name: Registry and pipeline agree; committed pipeline is valid
@@ -100,6 +104,17 @@ jobs:
           python "$WORK/external/COGNET-STROKE/step/tests/make_reference.py" "$WORK/cognet-ref" contracts
           cp -r "$WORK/cognet-ref/bundle" "$WORK/bundles/synthetic-concept-maps"
 
+      - name: Cache the public CT template files (pinned by commit, SHA-256 verified on every run)
+        uses: actions/cache@v4.2.0
+        with:
+          path: ${{ env.WORK }}/ct-template
+          key: ct-template-${{ hashFiles('e2e-work/external/CTLesion2MNI152/step/ci/fetch_reference_data.sh') }}
+
+      - name: CT reference case (public head CT template, known transform, MNI lesion; CC BY-NC-SA 4.0 data, test use only)
+        run: |
+          bash pipelines/stroke-lnm/ci/ct_reference.sh             "$WORK/external" "$WORK/ct-template" "$WORK/ct-reference"
+          ls -la "$WORK/ct-reference"
+
       - name: Start the restricted socket proxy
         run: |
           docker run -d --name docker-proxy -p 127.0.0.1:2375:2375 \
@@ -111,12 +126,13 @@ jobs:
           done
           curl -fsS http://127.0.0.1:2375/_ping
 
-      - name: End-to-end runs (default implementations, non-default implementation, CT mode refused)
+      - name: End-to-end runs (default implementations, non-default implementation, CT mode, CT mode refused when unmounted)
         env:
           STROKE_TEST_DOCKER_PROXY_URL: http://127.0.0.1:2375
           STROKE_LNM_PIPELINES_DIR: ${{ env.WORK }}/pipelines
           STROKE_LNM_STEP_MANIFESTS_DIR: ${{ env.WORK }}/step-manifests
           STROKE_LNM_BUNDLES_DIR: ${{ env.WORK }}/bundles
+          STROKE_LNM_CT_REFERENCE_DIR: ${{ env.WORK }}/ct-reference
           STROKE_LNM_OUT_DIR: ${{ env.WORK }}/out
           STROKE_LNM_REQUIRE_E2E: "1"
         run: PYTHONPATH=.:backend pytest pipelines/stroke-lnm/tests -v -rs -p no:cacheprovider

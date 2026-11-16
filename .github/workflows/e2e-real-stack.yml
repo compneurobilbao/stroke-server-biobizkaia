@@ -9,7 +9,8 @@ name: e2e real stack
 # reference bundles are mounted into the stack through ./data/e2e (scripts/e2e/real_stack.sh).
 # The `ci` implementation profile is seeded with `app.cli.seed_implementations`, so
 # MNI-mask mode runs the real steps plus the functional-disconnection stub to a finished run and
-# CT mode shows the normalisation slot as unavailable (the CT step is not merged yet).
+# CT mode runs the real normalisation step on a reference case built here from a public head CT
+# template (downloaded and SHA-256 checked, cached, never committed) to a finished run.
 #
 # The mocked-API specs stay in the `frontend-e2e` job of ci.yml (seconds, no backend).
 
@@ -82,6 +83,8 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r backend/requirements.txt
+          # only to build the CT reference case (pipelines/stroke-lnm/ci/ct_reference.sh)
+          pip install scipy==1.14.1
           pip install --no-deps -e steps/sdk
 
       # ---- Steps, digests, manifests, bundles (same recipe as e2e-stroke-lnm)
@@ -113,6 +116,17 @@ jobs:
           cp -r fixtures/data/bundles/toy-tract-atlas/1.0.0 "$WORK/bundles/toy-tract-atlas"
           python "$WORK/external/COGNET-STROKE/step/tests/make_reference.py" "$WORK/cognet-ref" contracts
           cp -r "$WORK/cognet-ref/bundle" "$WORK/bundles/synthetic-concept-maps"
+
+      - name: Cache the public CT template files (pinned by commit, SHA-256 verified on every run)
+        uses: actions/cache@v4.2.0
+        with:
+          path: ${{ env.WORK }}/ct-template
+          key: ct-template-${{ hashFiles('e2e-work/external/CTLesion2MNI152/step/ci/fetch_reference_data.sh') }}
+
+      - name: CT reference case (public head CT template, known transform, MNI lesion; CC BY-NC-SA 4.0 data, test use only)
+        run: |
+          bash pipelines/stroke-lnm/ci/ct_reference.sh             "$WORK/external" "$WORK/ct-template" "$WORK/ct-reference"
+          ls -la "$WORK/ct-reference"
 
       # ---- Browser (cached by Playwright version)
       - name: Playwright browser cache
@@ -158,6 +172,8 @@ jobs:
         env:
           E2E_REAL_STACK: "1"
           PLAYWRIGHT_BASE_URL: http://localhost
+          # CT reference case: ct.nii.gz and lesion_mask_native.nii.gz (CT mode spec)
+          E2E_CT_REFERENCE_DIR: ${{ env.WORK }}/ct-reference
         run: npx playwright test --project=real-stack
 
       - name: Compose logs
