@@ -1,6 +1,6 @@
 # ADR-0017: Contract 1.1 closes the gaps found while building the step SDK
 
-- Status: proposed
+- Status: accepted (approved by the project owner, 16 Nov 2026)
 - Date: 2026-11-13
 - Plan reference: decision D1, cards F0-10 and F0-21 (plan section 7: contract changes need a new ADR and a version bump)
 
