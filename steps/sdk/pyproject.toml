@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "compneuro-step-sdk"
-version = "1.0.0"
-description = "Step side of the step contract 1.0: argument parsing, validation, provenance, error reporting."
+version = "1.1.0"
+description = "Step side of the step contract 1.1: argument parsing, validation, provenance, error reporting."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }

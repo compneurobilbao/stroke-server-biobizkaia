@@ -13,13 +13,13 @@ from .errors import ManifestError
 
 DEFAULT_MANIFEST_PATH = Path("/opt/step/step.yaml")
 
-# Codes the SDK itself raises with exit 10. A step must declare them in ``errors[]``
-# (contract 4.3: the SDK refuses to emit an undeclared code).
-SDK_REJECTION_CODES = {
-    "input_missing": "input_rejected",
-    "input_format_invalid": "input_rejected",
-    "invalid_parameters": "input_rejected",
-}
+# Reserved rejection codes the SDK itself raises with exit 10 (contract 4.4). Steps
+# declaring contract 1.1 declare them implicitly; 1.0 steps must list them in ``errors[]``.
+SDK_REJECTION_CODES = (
+    "input_missing",
+    "input_format_invalid",
+    "invalid_parameters",
+)
 
 
 @dataclass(frozen=True)
@@ -86,8 +86,12 @@ class Manifest:
                 return p
         raise KeyError(f"unknown output port '{name}'")
 
+    def declared_error_codes(self) -> dict[str, str]:
+        """Exit-10 codes the step may return, with their category (contract 4.3, 4.4)."""
+        return contracts.validator().declared_error_codes(self.data)
+
     def missing_sdk_codes(self) -> list[str]:
-        declared = self.errors
+        declared = self.declared_error_codes()
         return [c for c in SDK_REJECTION_CODES if c not in declared]
 
 

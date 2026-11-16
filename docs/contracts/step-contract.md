@@ -1,6 +1,6 @@
-# Step contract 1.0
+# Step contract 1.1
 
-Status: normative. Contract version `1.0`. Decision record: [ADR-0001](../adr/0001-step-contract.md).
+Status: normative. Contract version `1.1`. Decision records: [ADR-0001](../adr/0001-step-contract.md), [ADR-0017](../adr/0017-contract-1-1-sdk-gaps.md) (changes in 1.1).
 Schemas: [`contracts/schemas/v1/step.schema.json`](../../contracts/schemas/v1/step.schema.json), [`error.schema.json`](../../contracts/schemas/v1/error.schema.json), [`provenance.schema.json`](../../contracts/schemas/v1/provenance.schema.json).
 Conventions (RFC 2119 keywords, identifiers, hashes, timestamps) are defined in [README.md](README.md#conventions).
 
@@ -26,7 +26,7 @@ Parties named in this document:
 
 | Field | Req. | Meaning | Consumers |
 |---|---|---|---|
-| `contract_version` | MUST | Contract version the step implements, `"1.0"`. | orchestrator (compatibility), SDK |
+| `contract_version` | MUST | Contract version the step implements, `"1.1"` (or `"1.0"` for a step written for 1.0, which keeps the 1.0 rules; rules marked *1.1* below apply only to steps declaring 1.1 or later). | orchestrator (compatibility), SDK |
 | `kind` | MUST | `Step`. | validator |
 | `name` | MUST | Step identifier, kebab-case, stable across versions. | registry, provenance, UI |
 | `version` | MUST | Semantic version of the step ([versioning.md](versioning.md#3-steps)). | registry, provenance |
@@ -54,7 +54,7 @@ Each entry of `inputs` and `outputs` is a port: `{name, type, required, descript
 1. `name` MUST be snake_case and unique within `inputs` (respectively `outputs`). The names `params`, `provenance`, `error` and `extra` are reserved.
 2. `type` MUST be an artefact type defined in the artefact type registry ([artefact-types.md](artefact-types.md)). The type fixes the file format, extension, voxel grid where relevant, and the BIDS-style naming used by the case store.
 3. `required` defaults to `true`. For inputs, `false` means the step works without it. For outputs, `true` means the step guarantees the file on success; `false` means it may or may not be produced.
-4. A port carries exactly one file in contract 1.0.
+4. A port carries exactly one file in contract 1.1.
 
 *Rationale for one file per port:* every consumer (wiring, provenance, case store naming, viewer) becomes simpler; multi-file ports can be added later as a minor change.
 
@@ -101,6 +101,14 @@ The manifest does not say which executor runs a step: that is deployment configu
    - `json` with `rtol`/`atol`: same JSON structure as `file`, numbers compared with the tolerances;
    - `exists`: produced and of the right format.
 4. A threshold or tolerance, once frozen, is part of the step's interface: loosening it is a minor version change and is recorded in the step's changelog.
+5. *1.1.* Fixture files (inputs and `expected` files) MAY be generated instead of committed. `generator` then names a Python 3 script (relative path inside the step directory, ending in `.py`) and:
+   - the reference-test runner (the SDK's `stroke-step-reftest`, the step CI, the nightly CI) MUST run it before staging, with the runner's own interpreter, no arguments and the step directory as working directory, and MUST fail the test if it exits non-zero or if a fixture path named in `reference_test` still does not exist;
+   - the script MUST write every uncommitted fixture path named in `reference_test`, MUST NOT write outside the step directory and MUST NOT access the network; it MAY import only the SDK, its dependencies (`steps/sdk/requirements-image.txt`) and the Python standard library, and MAY read files in the repository (such as `contracts/artefact-types.yaml`);
+   - it MUST be deterministic: every run on any host writes byte-identical files (fixed seeds, no time stamps; gzip headers without modification time), so the input hashes in the reference run's provenance are reproducible;
+   - the generated data MUST be synthetic (plan section 6), and `expected` files MUST be computed independently of the step's code (closed-form values or an independent implementation), never by running the step;
+   - generated files SHOULD be ignored by version control. A change to the generator that changes the bytes it writes is a change of the reference dataset: the step's next version follows [versioning.md](versioning.md#3-steps) as if the fixtures had been edited.
+
+   *Rationale:* NIfTI fixtures on the working grid are large and binary; a small deterministic generator is reviewable, and byte-identity keeps "same inputs" checkable by hash.
 
 ## 2. Invocation
 
@@ -129,7 +137,7 @@ The shape is deliberately close to the BIDS Apps CLI; the paths are fixed so tha
 | `/tmp/` | read-write, empty at start | Scratch space, discarded after the run. `HOME` points here. |
 
 1. A step MUST NOT write anywhere except `/out` and `/tmp`, and MUST NOT rely on any other path being writable.
-2. `/out` contains only: one file `/out/<port><ext>` per produced output port; `/out/provenance.json`; `/out/error.json` (only on failure); and an optional directory `/out/extra/` for undeclared diagnostic files (kept with the step run, never wired to other steps, never shown as an analysis result). Any other file in `/out` is a contract violation.
+2. `/out` contains only: one file `/out/<port><ext>` per produced output port (*1.1:* only on exit 0); `/out/provenance.json`; `/out/error.json` (only on failure); and an optional directory `/out/extra/` for undeclared diagnostic files (kept with the step run, never wired to other steps, never shown as an analysis result). Any other file in `/out` is a contract violation.
 3. Steps never receive subject identifiers, file names chosen by users or case metadata other than through declared parameters. Naming outputs per subject is the case store's job ([artefact-types.md](artefact-types.md#4-naming-in-the-case-store)).
 
 *Rationale for fixed port-based file names:* steps can be written and tested without any knowledge of BIDS naming or of the case, and no identifier ever enters a container.
@@ -157,8 +165,8 @@ A step:
 2. MUST run as an arbitrary non-root UID and GID that has no entry in `/etc/passwd`, and MUST NOT need privilege escalation, capabilities or `setuid` binaries.
 3. MUST NOT start containers (no Docker-in-Docker, no nested Apptainer).
 4. MUST be deterministic: given the same image digest, inputs, effective parameters (including `seed`), bundles and `STEP_CPUS`, outputs MUST be identical or within the tolerances of the step's reference test. Results MUST NOT depend on wall-clock time, host name, locale or directory listing order.
-5. MUST validate its inputs (format, type constraints from the registry such as binary values and voxel grid) before doing work, and reject invalid input with exit code 10.
-6. SHOULD handle `SIGTERM` by stopping promptly. Executors send `SIGTERM` on cancellation or timeout and `SIGKILL` 30 seconds later; `/out` of an interrupted step is discarded.
+5. MUST validate its inputs (format, type constraints from the registry such as binary values and voxel grid) before doing work, and reject invalid input with exit code 10. *1.1:* a missing required input, an input that fails its artefact-type checks and parameters that fail the parameter schema are reported with the reserved codes of [4.4](#44-reserved-error-codes).
+6. SHOULD handle `SIGTERM` by stopping promptly. Executors send `SIGTERM` on cancellation or timeout and `SIGKILL` 30 seconds later; `/out` of an interrupted step is discarded. *1.1:* after `SIGTERM` a step that still exits by itself SHOULD write, within the 30 seconds and if it can, `error.json` with category `internal` and the reserved code `terminated` and `provenance.json` with `status: failed`, and SHOULD exit with code `143` (128 + 15, the code a shell reports for death by `SIGTERM`); it SHOULD NOT exit with `0` or `10` once it has received `SIGTERM`. The executor records the outcome from its own action (`canceled` or `timed_out`, [provenance.md](provenance.md#32-step-records)), whatever the exit code and files; the reports are kept for diagnosis only.
 7. Is always started with an empty `/out`. A retry is a new start with a new empty `/out`; steps need no resume logic.
 
 ## 3. Logging
@@ -175,8 +183,8 @@ A step:
 | Code | Meaning | Required files in `/out` | Platform action |
 |---|---|---|---|
 | `0` | Success | every `required: true` output; `provenance.json` with `status: succeeded` | Collect outputs; continue the run. |
-| `10` | Input rejected or QC failure: the input is unsuitable, retrying will not help | `error.json` with category `input_rejected` or `qc_failed`; `provenance.json` with `status: rejected` | Stop the run; show `error.json.message` to the user; no automatic retry. |
-| any other, or killed by a signal | Internal failure | `error.json` with category `internal` MAY be written; `provenance.json` SHOULD be written with `status: failed` | Stop the run; mark the step failed; automatic retry per orchestrator policy. |
+| `10` | Input rejected or QC failure: the input is unsuitable, retrying will not help | `error.json` with category `input_rejected` or `qc_failed`; `provenance.json` with `status: rejected`; *1.1:* no output port files, `provenance.outputs` empty | Stop the run; show `error.json.message` to the user; no automatic retry. |
+| any other, or killed by a signal | Internal failure (`143` after `SIGTERM`, 2.4 item 6) | `error.json` with category `internal` MAY be written; `provenance.json` SHOULD be written with `status: failed` (*1.1:* with `outputs` empty); output port files SHOULD be removed and are never collected | Stop the run; mark the step failed; automatic retry per orchestrator policy. |
 
 The orchestrator MUST treat the following as an internal failure with outcome `contract_violation`: exit 0 with a missing required output, a missing or schema-invalid `provenance.json`, a file in `/out` that is not allowed by 2.2, or an output whose format does not match its artefact type; exit 10 without a valid `error.json`.
 
@@ -187,17 +195,35 @@ The orchestrator MUST treat the following as an internal failure with outcome `c
 Fields: `contract_version`, `kind: StepError`, `step {name, version}`, `category` (`input_rejected`, `qc_failed`, `internal`), `code`, `message`, optional `port`, optional `details`.
 
 1. `message` is shown to users. It MUST be one or two plain English sentences, at most 500 characters, and MUST NOT contain file system paths or identifiers. Translation is done by the UI keyed on `code`.
-2. `code` is snake_case. With exit code 10 it MUST be one of the step's declared `errors[].code`.
+2. `code` is snake_case. With exit code 10 it MUST be one of the step's declared `errors[].code` or (*1.1*) a reserved rejection code ([4.4](#44-reserved-error-codes)), with the declared category.
 3. `port` names the input port concerned, if any.
 4. `details` is a flat object of scalar values for administrators and logs (e.g. measured volume, threshold).
 
 ### 4.3 Error codes
 
-`errors[]` in the manifest declares every code a step can return with exit 10: `{code, category, description}`. The UI uses them to build translation catalogues; the SDK refuses to emit an undeclared code. Codes are part of the step's interface ([versioning.md](versioning.md#3-steps)).
+`errors[]` in the manifest declares every code a step can return with exit 10: `{code, category, description}`, apart from the reserved codes of 4.4, which every step declaring contract 1.1 or later declares implicitly. The UI uses them to build translation catalogues; the SDK refuses to emit an undeclared code. Codes are part of the step's interface ([versioning.md](versioning.md#3-steps)). Codes of category `internal` are not declared.
+
+### 4.4 Reserved error codes
+
+*1.1.* These codes are defined by the contract, have the same meaning in every step and are translated once by the UI:
+
+| Code | Category | Exit | Meaning | `port` |
+|---|---|---|---|---|
+| `input_missing` | `input_rejected` | 10 | A required input port has no file in `/in`. | the port |
+| `input_format_invalid` | `input_rejected` | 10 | An input file fails the checks of its artefact type (format, extension, voxel grid, binary values, JSON schema, TSV columns). | the port |
+| `invalid_parameters` | `input_rejected` | 10 | The parameter file does not satisfy the step's parameter schema. | absent |
+| `terminated` | `internal` | 143 | The step stopped after `SIGTERM` (2.4 item 6). | absent |
+
+1. A step declaring contract 1.1 or later MUST use these codes for these conditions, MAY return the three rejection codes without listing them in `errors[]`, and MAY list them (for instance with a step-specific description); a listed reserved code MUST have the category above. A reserved code MUST NOT be used with another category or meaning.
+2. Content checks beyond the artefact type (an empty mask, a CT without skull) use the step's own declared codes.
+3. A step declaring contract 1.0 MUST declare any of these codes it returns with exit 10, as in 1.0.
+4. `contracts/validate.py` applies these rules to manifests and `error.json` files, and, when an `error.json` is given together with its manifest, checks that an exit-10 code is declared or reserved and has the declared category.
+
+*Rationale:* these three rejections are detected by the SDK before step code runs, identically for every step; one shared code each keeps the UI catalogue small and spares every manifest three boilerplate entries.
 
 ## 5. `provenance.json`
 
-Every step MUST write `/out/provenance.json` (kind `StepProvenance`) on exit 0 and exit 10, and SHOULD write it on internal failure. It records what the step itself knows: step identity, status, timings, effective parameters, SHA-256 and size of every input and output file, the bundles read from `/ref/*/bundle.yaml`, key software versions and warnings. Facts the step cannot know (image digest, executor, granted resources, slot and implementation, accounting) are added by the platform in the run-level record. Full definition: [provenance.md](provenance.md).
+Every step MUST write `/out/provenance.json` (kind `StepProvenance`) on exit 0 and exit 10, and SHOULD write it on internal failure. It records what the step itself knows: step identity, status, timings, effective parameters (on rejection or failure, the parameters as far as they were read), SHA-256 and size of every input and output file (*1.1:* no outputs unless `status: succeeded`), the bundles read from `/ref/*/bundle.yaml`, key software versions and warnings. Facts the step cannot know (image digest, executor, granted resources, slot and implementation, accounting) are added by the platform in the run-level record. Full definition: [provenance.md](provenance.md).
 
 Non-fatal findings (for example, a small lesion volume) are reported as `warnings[]` `{code, message, port}` in `provenance.json`; they do not change the exit code.
 

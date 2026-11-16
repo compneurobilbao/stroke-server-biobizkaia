@@ -1,0 +1,9 @@
+{
+  "contract_version": "1.1",
+  "kind": "StepError",
+  "step": { "name": "ct-lesion-to-mni152", "version": "1.0.0" },
+  "category": "qc_failed",
+  "code": "input_missing",
+  "message": "The required input 'ct' was not provided.",
+  "port": "ct"
+}

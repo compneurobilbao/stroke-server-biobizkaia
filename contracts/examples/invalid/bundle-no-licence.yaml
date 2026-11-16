@@ -1,5 +1,5 @@
 # Invalid (schema): no licence, and a file path escapes the bundle directory.
-contract_version: "1.0"
+contract_version: "1.1"
 kind: Bundle
 id: no-licence
 version: 1.0.0

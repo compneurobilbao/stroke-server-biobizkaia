@@ -1,6 +1,6 @@
 # Invalid (schema): implementations must be pinned by digest, not by tag, and
 # the reserved name "run" cannot be a slot name.
-contract_version: "1.0"
+contract_version: "1.1"
 kind: Pipeline
 id: tagged
 version: 0.1.0

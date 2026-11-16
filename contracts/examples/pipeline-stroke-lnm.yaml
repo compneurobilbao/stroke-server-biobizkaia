@@ -1,7 +1,7 @@
 # Worked example: stroke-lnm v0 (plan section 2.3) written with slots (D15).
 # Image digests are illustrative. Card F0-33 owns the real file under
 # pipelines/stroke-lnm/ and fills in the digests of published images.
-contract_version: "1.0"
+contract_version: "1.1"
 kind: Pipeline
 id: stroke-lnm
 version: 0.1.0

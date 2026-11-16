@@ -1,6 +1,6 @@
 # Versioning and compatibility
 
-Status: normative. Contract version `1.0`.
+Status: normative. Contract version `1.1`.
 
 Five things carry versions: the contract itself (all schemas together), steps, pipelines, bundles and the artefact type registry. Every version except the contract version is a [Semantic Versioning 2.0](https://semver.org/) string `MAJOR.MINOR.PATCH` with an optional pre-release suffix and no build metadata.
 
@@ -17,14 +17,24 @@ Non-breaking (**additive**) changes add optional fields, enum values or types, w
 
 ## 2. The contract version
 
-1. `contract_version` is `"MAJOR.MINOR"` and is the same for all six schemas (`step`, `pipeline`, `bundle`, `provenance`, `error`, `artefact-types`). Every document carries it. This specification is `1.0`.
+1. `contract_version` is `"MAJOR.MINOR"` and is the same for all six schemas (`step`, `pipeline`, `bundle`, `provenance`, `error`, `artefact-types`). Every document carries it. This specification is `1.1`.
 2. Schemas live in `contracts/schemas/v<MAJOR>/`. A minor release edits them in place with additive changes only; a major release creates a new directory.
 3. A minor contract change MUST only relax the schemas, so that every document valid under `1.N` is valid under `1.M` for M > N.
 4. **Compatibility rule.** A component that implements contract `X.Y` (orchestrator, SDK, validator) MUST accept a document whose `contract_version` is `X.Z` with Z ≤ Y, and MUST reject, with a message naming both versions, a document with another major version or with Z > Y. (`contracts/validate.py` declares the version it implements in `CONTRACT_MAJOR`/`CONTRACT_MINOR`.)
 5. A step's `StepProvenance` and `StepError` carry the same `contract_version` as its manifest.
 6. A contract change after F0-10 requires a new ADR (plan section 7). A major change requires a migration note listing the steps and pipelines to update; the platform SHOULD support the previous major version for at least one platform release.
 
+7. There is no patch level: a correction that changes what any component accepts, emits or must do is a minor (or major) version; a text-only correction that changes nothing of that is not versioned.
+8. A document keeps the rules of the minor version it declares. Rules added in a minor version that would reject documents valid under an earlier one apply only to documents declaring that minor version or later (in 1.1: reserved-code categories and empty outputs on failure, [step-contract.md](step-contract.md#44-reserved-error-codes)).
+
 *Rationale for one version for all schemas:* the documents reference each other (a pipeline embeds step identities, provenance embeds errors and bundle records); a single number makes "which contract does this step implement" one answer.
+
+### 2.1 History
+
+| Version | Changes | Decision record |
+|---|---|---|
+| `1.0` | First release. | [ADR-0001](../adr/0001-step-contract.md) |
+| `1.1` | Reserved error codes `input_missing`, `input_format_invalid`, `invalid_parameters`, `terminated`; parameters of rejected and failed records not checked against the schema; empty `outputs` and no output files on exit 10; `SIGTERM` exit code and report; optional `reference_test.generator` for generated fixtures; `software[]` stated to be free-form. | [ADR-0017](../adr/0017-contract-1-1-sdk-gaps.md) |
 
 ## 3. Steps
 

@@ -1,7 +1,7 @@
 # Worked example: the toy normative connectome bundle produced by the fixture
 # generator (card F0-20). File layout is a placeholder until the flnm-fast
 # input format is known; checksums here are illustrative but consistent.
-contract_version: "1.0"
+contract_version: "1.1"
 kind: Bundle
 id: toy-normative-connectome
 version: 1.0.0

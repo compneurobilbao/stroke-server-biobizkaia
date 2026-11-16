@@ -1,6 +1,6 @@
-# Artefact types 1.0
+# Artefact types 1.1
 
-Status: normative. Contract version `1.0`. Registry: [`contracts/artefact-types.yaml`](../../contracts/artefact-types.yaml); schema: [`contracts/schemas/v1/artefact-types.schema.json`](../../contracts/schemas/v1/artefact-types.schema.json).
+Status: normative. Contract version `1.1` (this document is unchanged since 1.0). Registry: [`contracts/artefact-types.yaml`](../../contracts/artefact-types.yaml); schema: [`contracts/schemas/v1/artefact-types.schema.json`](../../contracts/schemas/v1/artefact-types.schema.json).
 
 Artefact types are the vocabulary that makes step inputs, step outputs, pipeline inputs and slot ports comparable. Every port in a manifest or pipeline names one type. Consumers: validator and orchestrator (matching and wiring), SDK and orchestrator (format checks on input and output), case store (file naming, card F0-17), viewer and report (what a file is).
 

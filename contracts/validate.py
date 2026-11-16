@@ -29,7 +29,7 @@ from jsonschema.exceptions import SchemaError
 from referencing import Registry, Resource
 
 CONTRACT_MAJOR = 1
-CONTRACT_MINOR = 0
+CONTRACT_MINOR = 1
 CONTRACT_VERSION = f"{CONTRACT_MAJOR}.{CONTRACT_MINOR}"
 
 CONTRACTS_DIR = Path(__file__).resolve().parent
@@ -64,6 +64,41 @@ FILENAME_TO_SCHEMA = {
 # Values a pipeline may bind to step parameters (docs/contracts/pipeline.md).
 BINDING_SAMPLES = {"case.sex": ["female", "male"], "case.age_band": ["65-69"]}
 RESERVED_SEED = "seed"
+# Contract-level error codes (docs/contracts/step-contract.md section 4.4, contract 1.1).
+# Every step whose manifest declares contract 1.1 or later declares them implicitly.
+RESERVED_ERROR_CODES = {
+    "input_missing": "input_rejected",
+    "input_format_invalid": "input_rejected",
+    "invalid_parameters": "input_rejected",
+    "terminated": "internal",
+}
+REJECTION_CATEGORIES = ("input_rejected", "qc_failed")
+# First minor version of contract major 1 with the 1.1 rules.
+RULES_1_1 = 1
+
+
+def contract_minor(value: Any) -> int:
+    """Minor part of a ``contract_version`` string (-1 if it cannot be read)."""
+    if isinstance(value, str) and re.fullmatch(r"\d+\.\d+", value):
+        return int(value.split(".")[1])
+    return -1
+
+
+def rules_1_1(doc: dict) -> bool:
+    """True if the document declares contract 1.1 or later. Documents declaring 1.0
+    keep the 1.0 rules (no reserved codes, outputs not checked on failure)."""
+    return contract_minor(doc.get("contract_version")) >= RULES_1_1
+
+
+def declared_error_codes(step: dict) -> dict[str, str]:
+    """Exit-10 codes a step may return, with their category: its own ``errors[]`` plus,
+    from contract 1.1, the reserved rejection codes."""
+    codes = {e["code"]: e["category"] for e in step.get("errors", [])}
+    if rules_1_1(step):
+        for code, category in RESERVED_ERROR_CODES.items():
+            if category in REJECTION_CATEGORIES:
+                codes.setdefault(code, category)
+    return codes
 
 
 @dataclass(frozen=True)
@@ -270,12 +305,21 @@ def check_step(data: dict, types: dict) -> list[str]:
 
     for d in _duplicates(e["code"] for e in data.get("errors", [])):
         errs.append(f"duplicate error code '{d}'")
+    if rules_1_1(data):
+        for e in data.get("errors", []):
+            reserved = RESERVED_ERROR_CODES.get(e["code"])
+            if reserved is not None and e["category"] != reserved:
+                errs.append(
+                    f"error code '{e['code']}' is reserved with category '{reserved}'"
+                )
     bundle_names = [b["name"] for b in data.get("bundles", [])]
     for d in _duplicates(bundle_names):
         errs.append(f"duplicate bundle requirement '{d}'")
 
     rt = data.get("reference_test")
     if rt:
+        if "generator" in rt and not rules_1_1(data):
+            errs.append("reference_test: 'generator' requires contract_version 1.1")
         in_names = {p["name"] for p in inputs}
         out_names = {p["name"] for p in outputs}
         for name in rt.get("inputs", {}):
@@ -544,6 +588,10 @@ def check_provenance(data: dict) -> list[str]:
             key = "name" if label == "bundles" else "port"
             for d in _duplicates(r[key] for r in data[label]):
                 errs.append(f"{label}: duplicate '{d}'")
+        if data["status"] != "succeeded" and data["outputs"] and rules_1_1(data):
+            errs.append(
+                f"outputs must be empty when status is '{data['status']}' (contract 1.1)"
+            )
         return errs
     slot_records = {s["slot"]: s for s in data["slots"]}
     for d in _duplicates(s["slot"] for s in data["slots"]):
@@ -575,6 +623,9 @@ def check_error(data: dict) -> list[str]:
     # A token starting with "/" or a drive letter looks like a file system path.
     if re.search(r"(?:^|[\s'\"(])(?:/|[A-Za-z]:\\)\S", data["message"]):
         return ["message must not contain file system paths"]
+    reserved = RESERVED_ERROR_CODES.get(data["code"])
+    if reserved is not None and data["category"] != reserved and rules_1_1(data):
+        return [f"error code '{data['code']}' is reserved with category '{reserved}'"]
     return []
 
 
@@ -752,6 +803,11 @@ def cross_check(docs: list[Document], strict: bool) -> list[Issue]:
                         )
 
     for d in docs:
+        if d.kind == "StepError":
+            sdoc = steps.get((d.data["step"]["name"], d.data["step"]["version"]))
+            if sdoc is not None:
+                for e in _error_vs_step(d.data, sdoc.data):
+                    issues.append(Issue(str(d.path), "cross", e))
         if d.kind == "StepProvenance":
             sdoc = steps.get((d.data["step"]["name"], d.data["step"]["version"]))
             if sdoc is not None:
@@ -797,16 +853,39 @@ def _provenance_vs_step(prov: dict, step: dict) -> list[str]:
                 errs.append(
                     f"outputs: required output '{o['name']}' missing from a succeeded run"
                 )
-    errs.extend(
-        f"parameters: {e}"
-        for e in parameter_errors(step["parameters"], prov["parameters"])
-    )
+    # Only a succeeded record holds validated effective parameters; a rejected or failed
+    # record may hold the raw supplied values (provenance.md section 2).
+    if prov["status"] == "succeeded":
+        errs.extend(
+            f"parameters: {e}"
+            for e in parameter_errors(step["parameters"], prov["parameters"])
+        )
     names = {b["name"] for b in step.get("bundles", [])}
     errs.extend(
         f"bundles: '{b['name']}' is not required by the step"
         for b in prov["bundles"]
         if b["name"] not in names
     )
+    return errs
+
+
+def _error_vs_step(error: dict, step: dict) -> list[str]:
+    """step-contract.md 4.2-4.4: an exit-10 code must be declared or reserved."""
+    errs = []
+    if error["contract_version"] != step["contract_version"]:
+        errs.append("error contract_version differs from the step manifest")
+    if error["category"] in REJECTION_CATEGORIES:
+        category = declared_error_codes(step).get(error["code"])
+        if category is None:
+            errs.append(f"error code '{error['code']}' is not declared by the step")
+        elif category != error["category"]:
+            errs.append(
+                f"error code '{error['code']}' is declared with category '{category}', "
+                f"not '{error['category']}'"
+            )
+    port = error.get("port")
+    if port is not None and port not in {p["name"] for p in step.get("inputs", [])}:
+        errs.append(f"port '{port}' is not an input port of the step")
     return errs
 
 
