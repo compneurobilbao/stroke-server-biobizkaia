@@ -53,9 +53,11 @@ def main(argv: list[str] | None = None) -> int:
     engine = create_engine(settings.database_url)
     try:
         with engine.connect() as conn:
-            revision = conn.execute(text("SELECT version_num FROM alembic_version")).scalar()
             transaction = conn.begin()
             try:
+                revision = conn.execute(
+                    text("SELECT version_num FROM alembic_version")
+                ).scalar()
                 report = module.reconcile(conn, Path(args.storage_root), dry_run=True)
             except RuntimeError as exc:
                 print(str(exc), file=sys.stderr)

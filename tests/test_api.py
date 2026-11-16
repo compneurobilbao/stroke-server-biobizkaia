@@ -937,7 +937,15 @@ def test_admin_dashboard_returns_operational_summary(client, monkeypatch):
     assert payload["queue"]["processing_available"] == 2
     assert payload["studies_by_status"]["queued"] == 1
     assert payload["studies_by_status"]["failed"] == 1
-    assert payload["users"]["admins"] == 1
+    # The migrated schema (PostgreSQL run) also holds the system user of migration 0004.
+    db = client.app.state.testing_session_local()
+    expected_admins = (
+        db.query(User)
+        .filter(User.role == UserRole.admin.value, User.deleted_at.is_(None))
+        .count()
+    )
+    db.close()
+    assert payload["users"]["admins"] == expected_admins
     assert payload["users"]["researchers"] == 1
     assert payload["storage"]["exists"] is True
     assert payload["storage"]["studies_bytes"] > 0
