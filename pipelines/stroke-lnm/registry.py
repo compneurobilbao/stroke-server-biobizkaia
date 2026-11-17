@@ -4,14 +4,18 @@
     registry.py check [--dir DIR]
         pipeline.yaml and registry.yaml agree (slots, implementation ids, steps, images);
         profiles only enable existing, non-planned implementations; stubs are enabled only
-        in the ci profile; defaults are enabled.
+        in the ci profile; defaults are enabled. The presets in DIR/presets validate against
+        this pipeline version (contract rules P1 and P3-P8, contracts/validate.py), are named
+        after their file, and `profiles.<p>.presets` enables only presets that exist (with the
+        default among the enabled ones).
 
     registry.py materialize --digests FILE --out DIR [--dir DIR]
         Write DIR/stroke-lnm/pipeline.yaml and DIR/stroke-lnm/registry.yaml with the image
         of every implementation replaced by the reference in FILE (a JSON object
         {"<step name>@<version>": "<repository>@sha256:<digest>"}). Planned
         implementations keep their placeholder. CI builds the steps and writes the digests
-        of the local images; a deployment uses the digests of the published images.
+        of the local images; a deployment uses the digests of the published images. The preset
+        files are copied byte for byte (runs record their SHA-256).
 
     registry.py fetch --dest DIR
         Fetch the external step sources at the commits pinned in registry.yaml (CI).
@@ -23,7 +27,9 @@
         step-contract.md 1.1) to DIR/<name>-<version>/step.yaml.
 
 ``enabled_settings(registry, profile)`` gives the rows for ``slot_implementation_settings``
-of a profile (the admin endpoints of F0-30 edit the same table in a running deployment).
+of a profile (the admin endpoints of F0-30 edit the same table in a running deployment) and
+``enabled_preset_settings(registry, profile, preset_ids)`` those for ``preset_settings``
+(card F1-20; admin endpoints of F1-21).
 """
 
 from __future__ import annotations
@@ -32,13 +38,16 @@ import argparse
 import copy
 import json
 import re
+import shutil
 import subprocess
 import sys
+from collections.abc import Iterable
 from pathlib import Path
 
 import yaml
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parents[1]))  # contracts/validate.py (the preset rules)
 DIGEST_REF = re.compile(
     r"^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]+)?(/[a-z0-9]+([._-][a-z0-9]+)*)+@sha256:[a-f0-9]{64}$"
 )
@@ -51,7 +60,75 @@ def load(directory: Path = HERE) -> tuple[dict, dict]:
     return pipeline, registry
 
 
-def check(pipeline: dict, registry: dict) -> list[str]:
+def load_presets(directory: Path = HERE) -> dict[str, tuple[dict, bytes]]:
+    """``{file stem: (document, raw bytes)}`` of ``DIR/presets/*.yaml`` (an unparsable file
+    gives an empty document, which ``check`` reports)."""
+    out: dict[str, tuple[dict, bytes]] = {}
+    for path in sorted((directory / "presets").glob("*.yaml")):
+        raw = path.read_bytes()
+        try:
+            data = yaml.safe_load(raw.decode("utf-8"))
+        except (UnicodeDecodeError, yaml.YAMLError):
+            data = None
+        out[path.stem] = (data if isinstance(data, dict) else {}, raw)
+    return out
+
+
+def preset_check(
+    pipeline: dict, registry: dict, presets: dict[str, tuple[dict, bytes]]
+) -> list[str]:
+    """Presets against this pipeline version (contract rules P1, P3-P7; P8 by file name)
+    and the profiles' ``presets`` entries."""
+    from contracts import validate as contract
+
+    errors: list[str] = []
+    for stem, (data, raw) in presets.items():
+        where = f"preset {stem}"
+        if not data:
+            errors.append(f"{where}: not a YAML mapping")
+            continue
+        found = contract.schema_errors(data, "preset")
+        if found:
+            errors += [f"{where}: {e}" for e in found]
+            continue
+        doc = contract.Document(Path(f"{stem}.yaml"), data, "preset", raw)
+        found = contract.check_contract_version(doc) + contract.check_preset(data)
+        errors += [f"{where}: {e}" for e in found]
+        if data["id"] != stem:
+            errors.append(f"{where}: the id {data['id']!r} must equal the file name (P8)")
+        if data["pipeline"]["id"] != pipeline["id"]:
+            errors.append(f"{where}: written for the pipeline {data['pipeline']['id']!r}")
+            continue
+        if not contract.satisfies(pipeline["version"], data["pipeline"]["versions"]):
+            errors.append(
+                f"{where}: range {data['pipeline']['versions']!r} does not include "
+                f"pipeline version {pipeline['version']} (P2), so it would not be offered"
+            )
+            continue
+        errors += [f"{where}: {e}" for e in contract.preset_errors(data, pipeline)]
+    for pname, profile in registry["profiles"].items():
+        spec = profile.get("presets")
+        if spec is None:
+            continue
+        enabled = spec.get("enabled", [])
+        for preset_id in enabled:
+            if preset_id not in presets:
+                errors.append(f"profile {pname}: enabled preset {preset_id!r} has no file")
+        if len(set(enabled)) != len(enabled):
+            errors.append(f"profile {pname}: a preset is listed twice")
+        default = spec.get("default")
+        if default is not None and default not in enabled:
+            errors.append(f"profile {pname}: default preset {default!r} is not enabled")
+    return errors
+
+
+def check(
+    pipeline: dict,
+    registry: dict,
+    presets: dict[str, tuple[dict, bytes]] | None = None,
+) -> list[str]:
+    """Problems of the two documents; with ``presets`` (``load_presets``) also those of
+    the presets and of the profiles' ``presets`` entries."""
     errors: list[str] = []
     ident = {"id": pipeline["id"], "version": pipeline["version"]}
     if registry.get("pipeline") != ident:
@@ -91,6 +168,8 @@ def check(pipeline: dict, registry: dict) -> list[str]:
         for name, impl_id in profile["default"].items():
             if impl_id not in profile["enabled"].get(name, []):
                 errors.append(f"profile {pname}: default {name}/{impl_id} is not enabled")
+    if presets is not None:
+        errors += preset_check(pipeline, registry, presets)
     return errors
 
 
@@ -106,6 +185,24 @@ def enabled_settings(registry: dict, profile: str) -> list[dict]:
         }
         for slot, impls in registry["implementations"].items()
         for impl_id in impls
+    ]
+
+
+def enabled_preset_settings(
+    registry: dict, profile: str, preset_ids: Iterable[str] | None = None
+) -> list[dict]:
+    """One row per preset: preset_id, enabled, is_default, for ``preset_settings``.
+    ``preset_ids`` are the presets of the pipeline (default: those the profile enables)."""
+    spec = registry["profiles"][profile].get("presets", {})
+    enabled = spec.get("enabled", [])
+    ids = list(enabled) if preset_ids is None else list(preset_ids)
+    return [
+        {
+            "preset_id": preset_id,
+            "enabled": preset_id in enabled,
+            "is_default": spec.get("default") == preset_id,
+        }
+        for preset_id in ids
     ]
 
 
@@ -209,12 +306,12 @@ def main(argv: list[str] | None = None) -> int:
     sub.choices["materialize"].add_argument("--out", type=Path, required=True)
     args = ap.parse_args(argv)
     pipeline, registry = load(args.dir)
-    errors = check(pipeline, registry)
+    errors = check(pipeline, registry, load_presets(args.dir))
     if errors:
         print("\n".join(f"ERROR {e}" for e in errors), file=sys.stderr)
         return 1
     if args.cmd == "check":
-        print("OK registry and pipeline agree")
+        print("OK registry, presets and pipeline agree")
         return 0
     if args.cmd == "fetch":
         fetch(registry, args.dest)
@@ -227,6 +324,10 @@ def main(argv: list[str] | None = None) -> int:
     pipeline, registry = materialize(pipeline, registry, digests)
     _dump(pipeline, args.out / "stroke-lnm" / "pipeline.yaml")
     _dump(registry, args.out / "stroke-lnm" / "registry.yaml")
+    presets_out = args.out / "stroke-lnm" / "presets"
+    presets_out.mkdir(parents=True, exist_ok=True)
+    for path in sorted((args.dir / "presets").glob("*.yaml")):
+        shutil.copyfile(path, presets_out / path.name)  # bytes unchanged: runs record their SHA-256
     print(f"written to {args.out / 'stroke-lnm'}")
     return 0
 

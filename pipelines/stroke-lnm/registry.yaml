@@ -94,6 +94,12 @@ profiles:
       tract-disconnection: lnm-tracts
       cognet-profile: cognet-stroke
       report: research-report
+    # Presets (presets/<id>.yaml) offered to users: `enabled` ids seed `preset_settings`, `default`
+    # is the preselected one (at most one). `ct-normalisation` is listed as unavailable by the
+    # plan when a deployment leaves the normalisation slot unmounted.
+    presets:
+      enabled: [full, mni-mask-analysis, ct-normalisation, lesion-qc-report]
+      default: full
 
   # The CI configuration: every slot that can run on fixtures is filled with the real step
   # where a light one exists. Functional disconnection enables both: the real flnm-fast step
@@ -119,3 +125,6 @@ profiles:
     # The implementation the end-to-end test picks in one slot to show that a
     # non-default choice runs.
     alternate: {slot: report, implementation: research-report-es}
+    presets:
+      enabled: [full, mni-mask-analysis, ct-normalisation, lesion-qc-report]
+      default: full
