@@ -18,6 +18,7 @@ workflow sets them after building the steps):
 from __future__ import annotations
 
 import csv
+import hashlib
 import importlib.util
 import json
 import os
@@ -40,6 +41,8 @@ sys.modules[_spec.name] = registry_tool
 _spec.loader.exec_module(registry_tool)
 
 from contracts import validate as contract  # noqa: E402
+from orchestrator.catalog import DirectoryPresetRegistry  # noqa: E402
+from orchestrator.planning import PresetRef  # noqa: E402
 
 PROXY = os.environ.get("STROKE_TEST_DOCKER_PROXY_URL")
 PIPELINES_DIR = os.environ.get("STROKE_LNM_PIPELINES_DIR")
@@ -51,6 +54,7 @@ E2E = all((PROXY, PIPELINES_DIR, MANIFESTS_DIR, BUNDLES_DIR, CT_DIR))
 needs_e2e = pytest.mark.skipif(not E2E, reason="needs the e2e-stroke-lnm environment")
 
 FIXTURES = REPO / "fixtures" / "data"
+PRESET_IDS = ["full", "mni-mask-analysis", "ct-normalisation", "lesion-qc-report"]
 SLOTS = [
     "lesion-intake",
     "normalisation",
@@ -162,7 +166,7 @@ class Stack:
 
     def __init__(self, tmp: Path) -> None:
         from app.db.base import Base
-        from app.models import SlotImplementationSetting, User
+        from app.models import PresetSetting, SlotImplementationSetting, User
         from orchestrator import bundles as reg
         from orchestrator.config import build_orchestrator
 
@@ -182,6 +186,8 @@ class Stack:
             self.registry = reg_doc
             for row in registry_tool.enabled_settings(reg_doc, "ci"):
                 db.add(SlotImplementationSetting(pipeline_id="stroke-lnm", **row))
+            for row in registry_tool.enabled_preset_settings(reg_doc, "ci", PRESET_IDS):
+                db.add(PresetSetting(pipeline_id="stroke-lnm", **row))
             db.commit()
             self.user_id = user.id
         env = {
@@ -198,6 +204,8 @@ class Stack:
         )
         self.pipeline = self.orch.pipelines.get("stroke-lnm", "0.2.0")
         assert self.pipeline is not None
+        # the presets of the materialized tree (registry.py materialize copies them unchanged)
+        self.presets = DirectoryPresetRegistry(PIPELINES_DIR, self.orch.pipelines, self.orch.steps)
 
     def case(self, files: dict[str, Path]):
         from app.models import Case, InputFile
@@ -237,6 +245,7 @@ class Stack:
         from orchestrator.executors.base import Accounting
         from orchestrator.resolution import create_run
 
+        kwargs.setdefault("presets", self.presets)
         with self.Session() as db:
             inputs = {
                 f.role: f
@@ -626,3 +635,145 @@ def test_qc_only_run_when_tract_disconnection_has_no_enabled_implementation(
     assert artifact_path(stack, run_id, "report", "report_pdf").stat().st_size > 0
     step = next(s for s in record["steps"] if s["slot"] == "report")
     assert not [a for a in step["provenance"]["inputs"] if a["port"] == "tract_disconnection"]
+
+
+# --------------------------------------------------------------------------- presets (F1-20)
+
+
+def _runs_of(stack, case_id) -> int:
+    from app.models import PipelineRun
+
+    with stack.Session() as db:
+        return len(db.scalars(select(PipelineRun).where(PipelineRun.case_id == case_id)).all())
+
+
+@needs_e2e
+def test_the_presets_are_attached_to_the_materialized_pipeline(stack):
+    attached = stack.presets.presets("stroke-lnm", "0.2.0")
+    assert [p.id for p in attached] == sorted(PRESET_IDS)
+    for preset in attached:
+        raw = (Path(PIPELINES_DIR) / "stroke-lnm" / "presets" / f"{preset.id}.yaml").read_bytes()
+        assert preset.sha256 == hashlib.sha256(raw).hexdigest()
+
+
+@needs_e2e
+def test_ct_normalisation_preset_runs_intake_and_normalisation_only(stack, tmp_path):
+    """The preset that plans no step reading `run.provenance` is a finished run today: the
+    two slots of its plan succeed, every other slot is `not_requested` and never attempted."""
+    import nibabel as nib
+    import numpy as np
+
+    ref = Path(CT_DIR)
+    case_id = _ct_case(stack)
+    run_id = stack.create(case_id, preset=PresetRef("ct-normalisation"))
+    stack.drive(run_id)
+    record = run_record(stack, run_id)
+    validate_record(record, tmp_path)
+
+    preset_file = Path(PIPELINES_DIR) / "stroke-lnm" / "presets" / "ct-normalisation.yaml"
+    assert record["contract_version"] == "1.2"
+    assert record["plan"] == {
+        "mode": "preset",
+        "preset": {
+            "id": "ct-normalisation",
+            "version": "1.0.0",
+            "sha256": hashlib.sha256(preset_file.read_bytes()).hexdigest(),
+        },
+        "targets": {"required": ["lesion-intake.lesion_qc", "normalisation.lesion_mask_mni"]},
+    }
+    slots = {s["slot"]: s for s in record["slots"]}
+    assert list(slots) == SLOTS
+    for name in ("lesion-intake", "normalisation"):
+        assert slots[name]["status"] == "selected", name
+        assert slots[name]["plan_role"] == "target"
+        assert slots[name]["implementation"]["chosen_by"] == "deployment_default"
+    for name in ("functional-disconnection", "tract-disconnection", "cognet-profile", "report"):
+        assert (slots[name]["status"], slots[name]["reason"]) == ("skipped", "not_requested"), name
+        assert "plan_role" not in slots[name] and "implementation" not in slots[name]
+    assert {s["slot"] for s in record["steps"]} == {"lesion-intake", "normalisation"}
+
+    # The normalisation output is the one of the full plan: same floor on the reference case.
+    mask = nib.load(str(artifact_path(stack, run_id, "normalisation", "lesion_mask_mni")))
+    truth = nib.load(str(ref / "lesion_mask_mni.nii.gz"))
+    assert mask.shape == truth.shape
+    assert _dice(mask.dataobj, truth.dataobj) >= CT_REFERENCE_DICE_FLOOR
+    assert np.isfinite(np.asarray(mask.dataobj)).all()
+    assert artifact_path(stack, run_id, "lesion-intake", "lesion_qc").stat().st_size > 0
+
+    from app.models import PipelineRun, RunSlot
+
+    with stack.Session() as db:
+        run = db.get(PipelineRun, run_id)
+        assert (run.plan_mode, run.preset_id, run.preset_version) == (
+            "preset",
+            "ct-normalisation",
+            "1.0.0",
+        )
+        rows = {
+            r.slot: r for r in db.scalars(select(RunSlot).where(RunSlot.pipeline_run_id == run_id))
+        }
+        assert {n for n, r in rows.items() if r.reason == "not_requested"} == {
+            "functional-disconnection",
+            "tract-disconnection",
+            "cognet-profile",
+            "report",
+        }
+
+
+@needs_e2e
+def test_ct_normalisation_preset_is_refused_when_normalisation_is_unmounted(stack):
+    from app.models import SlotImplementationSetting
+    from orchestrator.resolution import RunRefused
+
+    case_id = _ct_case(stack)
+
+    def set_enabled(value: bool) -> None:
+        with stack.Session() as db:
+            for row in db.scalars(
+                select(SlotImplementationSetting).where(
+                    SlotImplementationSetting.pipeline_id == "stroke-lnm",
+                    SlotImplementationSetting.slot == "normalisation",
+                )
+            ):
+                row.enabled = value
+                row.is_default = value and row.implementation_id == "ct-lesion-to-mni152"
+            db.commit()
+
+    set_enabled(False)
+    try:
+        with pytest.raises(RunRefused) as refused:
+            stack.create(case_id, preset=PresetRef("ct-normalisation"))
+    finally:
+        set_enabled(True)
+    assert [(r.code, r.slot) for r in refused.value.reasons] == [
+        ("no_implementation", "normalisation")
+    ]
+
+
+@needs_e2e
+def test_presets_that_plan_the_report_are_refused_until_the_report_declares_contract_1_2(
+    stack, mni_case
+):
+    """`full`, `mni-mask-analysis` and `lesion-qc-report` all plan the report, whose merged
+    version (research-report 0.2.0) declares contract 1.0 and reads `run.provenance`, so they
+    are refused with `step_contract_too_old` and no run is written. Card F1-25 turns them into
+    finished runs: this test then has to assert the runs instead (mni-mask-analysis: tract,
+    functional disconnection and the report succeed, as in the default run above)."""
+    from orchestrator.resolution import RunRefused
+
+    ct_case = _ct_case(stack)
+    cases = [
+        ("mni-mask-analysis", mni_case),
+        ("full", mni_case),
+        ("full", ct_case),
+        ("lesion-qc-report", mni_case),
+        ("lesion-qc-report", ct_case),
+    ]
+    for preset_id, case_id in cases:
+        before = _runs_of(stack, case_id)
+        with pytest.raises(RunRefused) as refused:
+            stack.create(case_id, preset=PresetRef(preset_id))
+        assert [(r.code, r.slot) for r in refused.value.reasons] == [
+            ("step_contract_too_old", "report")
+        ], preset_id
+        assert _runs_of(stack, case_id) == before

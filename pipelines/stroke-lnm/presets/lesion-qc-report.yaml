@@ -1,0 +1,17 @@
+# Lesion QC and the report, without disconnection analyses. Needs stroke-lnm 0.2.0: from that
+# version the report does not require the tract table (F1-26), so the closure adds only
+# `normalisation` in CT mode (the report needs `lesion_mask_mni`).
+contract_version: "1.2"
+kind: Preset
+id: lesion-qc-report
+version: 1.0.0
+title: Lesion QC and report
+description: >-
+  Lesion intake and QC and a research report whose analysis sections state that the
+  disconnection analyses were not part of the run.
+pipeline:
+  id: stroke-lnm
+  versions: ">=0.2.0, <0.3.0"
+input_sets: [ct-and-native-mask, mni-mask]
+targets:
+  required: [lesion-intake, report]

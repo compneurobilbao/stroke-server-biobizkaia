@@ -1,0 +1,19 @@
+# Disconnection analysis of a lesion mask already in MNI space, with the research report
+# (owner decision 4 of ADR-0018: the report is part of this preset). Unlike `full`, functional
+# disconnection is required: a deployment without an enabled implementation refuses the run
+# instead of silently running without it.
+contract_version: "1.2"
+kind: Preset
+id: mni-mask-analysis
+version: 1.0.0
+title: Disconnection analysis of an MNI lesion mask
+description: >-
+  Functional and tract-wise disconnection and the research report for a lesion mask already
+  in MNI space; the COGNET-STROKE cognitive profile is added when it is enabled.
+pipeline:
+  id: stroke-lnm
+  versions: ">=0.2.0, <0.3.0"
+input_sets: [mni-mask]
+targets:
+  required: [tract-disconnection, functional-disconnection, report]
+  if_available: [cognet-profile]

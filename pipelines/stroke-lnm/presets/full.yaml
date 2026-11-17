@@ -1,0 +1,21 @@
+# The complete analysis: what a run without a preset does (rule R0, presets.md 4), written as a
+# preset so that it can be chosen by name. Same slots and statuses as the full plan for every
+# input set (tests/test_presets.py asserts it); only plan_role differs, because the slots
+# reached from the targets are `upstream`. `tract-disconnection` is named explicitly: since
+# stroke-lnm 0.2.0 the report's tract table is optional, so `report` alone would not pull it in.
+contract_version: "1.2"
+kind: Preset
+id: full
+version: 1.0.0
+title: Full lesion network analysis
+description: >-
+  Lesion intake and QC, normalisation of a CT lesion to MNI152 when needed, tract-wise
+  disconnection and the research report; functional disconnection and the COGNET-STROKE
+  cognitive profile are added when an implementation is enabled in the deployment.
+pipeline:
+  id: stroke-lnm
+  versions: ">=0.2.0, <0.3.0"
+input_sets: [ct-and-native-mask, mni-mask]
+targets:
+  required: [tract-disconnection, report]
+  if_available: [functional-disconnection, cognet-profile]
