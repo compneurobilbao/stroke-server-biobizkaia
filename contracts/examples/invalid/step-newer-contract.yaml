@@ -1,6 +1,6 @@
-# Schema-valid but rejected by validate.py: it declares contract 1.2, newer
-# than the 1.1 this validator (and an orchestrator built with it) supports.
-contract_version: "1.2"
+# Schema-valid but rejected by validate.py: it declares contract 1.3, newer
+# than the 1.2 this validator (and an orchestrator built with it) supports.
+contract_version: "1.3"
 kind: Step
 name: from-the-future
 version: 1.0.0

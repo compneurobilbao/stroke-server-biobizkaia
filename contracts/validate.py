@@ -7,7 +7,11 @@ Usage:
 Each file is validated against its JSON Schema (draft 2020-12), then against the
 single-document rules that a schema cannot express, and finally all files given
 on one command line are checked against each other (pipeline <-> step manifests
-<-> bundles <-> provenance). The normative text is docs/contracts/.
+<-> bundles <-> provenance <-> presets). The normative text is docs/contracts/.
+
+The static plan closure of contract 1.2 (``plan_closure``, docs/contracts/presets.md
+section 4) is a pure function over a pipeline document, so that the orchestrator can
+import it instead of reimplementing it.
 
 Exit status: 0 if every file is valid, 1 if any error was found, 2 on usage errors.
 """
@@ -19,9 +23,9 @@ import hashlib
 import json
 import re
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 import yaml
 from jsonschema import Draft202012Validator
@@ -29,7 +33,7 @@ from jsonschema.exceptions import SchemaError
 from referencing import Registry, Resource
 
 CONTRACT_MAJOR = 1
-CONTRACT_MINOR = 1
+CONTRACT_MINOR = 2
 CONTRACT_VERSION = f"{CONTRACT_MAJOR}.{CONTRACT_MINOR}"
 
 CONTRACTS_DIR = Path(__file__).resolve().parent
@@ -43,6 +47,7 @@ SCHEMA_FILES = {
     "provenance": "provenance.schema.json",
     "error": "error.schema.json",
     "artefact-types": "artefact-types.schema.json",
+    "preset": "preset.schema.json",
 }
 KIND_TO_SCHEMA = {
     "Step": "step",
@@ -52,6 +57,7 @@ KIND_TO_SCHEMA = {
     "RunProvenance": "provenance",
     "StepError": "error",
     "ArtefactTypeRegistry": "artefact-types",
+    "Preset": "preset",
 }
 FILENAME_TO_SCHEMA = {
     "step.yaml": "step",
@@ -75,6 +81,8 @@ RESERVED_ERROR_CODES = {
 REJECTION_CATEGORIES = ("input_rejected", "qc_failed")
 # First minor version of contract major 1 with the 1.1 rules.
 RULES_1_1 = 1
+# First minor version with presets, run plans, upstream blocks and input origins (ADR-0018).
+RULES_1_2 = 2
 
 
 def contract_minor(value: Any) -> int:
@@ -88,6 +96,12 @@ def rules_1_1(doc: dict) -> bool:
     """True if the document declares contract 1.1 or later. Documents declaring 1.0
     keep the 1.0 rules (no reserved codes, outputs not checked on failure)."""
     return contract_minor(doc.get("contract_version")) >= RULES_1_1
+
+
+def rules_1_2(doc: dict) -> bool:
+    """True if the document declares contract 1.2 or later (fields and values added by
+    ADR-0018 are accepted only then)."""
+    return contract_minor(doc.get("contract_version")) >= RULES_1_2
 
 
 def declared_error_codes(step: dict) -> dict[str, str]:
@@ -117,6 +131,9 @@ class Document:
     path: Path
     data: Any
     schema: str
+    raw: bytes | None = (
+        None  # exact file bytes, when loaded from a file (preset SHA-256)
+    )
 
     @property
     def kind(self) -> str:
@@ -312,6 +329,18 @@ def check_step(data: dict, types: dict) -> list[str]:
                 errs.append(
                     f"error code '{e['code']}' is reserved with category '{reserved}'"
                 )
+    upstream = data.get("upstream")
+    if upstream is not None:
+        if not rules_1_2(data):
+            errs.append("upstream: requires contract_version 1.2")
+        elif not any(
+            t["name"] == upstream["name"] and t["spdx"] == upstream["licence"]
+            for t in data["licence"].get("third_party", [])
+        ):
+            errs.append(
+                f"upstream: '{upstream['name']}' must also be listed in licence.third_party "
+                f"with spdx '{upstream['licence']}'"
+            )
     bundle_names = [b["name"] for b in data.get("bundles", [])]
     for d in _duplicates(bundle_names):
         errs.append(f"duplicate bundle requirement '{d}'")
@@ -616,6 +645,83 @@ def check_provenance(data: dict) -> list[str]:
             errs.append(f"steps/{i}: outcome 'rejected' requires an error record")
     if data["status"] != "running" and "finished_at" not in data:
         errs.append("finished_at is required once the run is no longer running")
+    errs.extend(_run_plan_errors(data))
+    return errs
+
+
+def _run_1_2_fields(data: dict) -> list[str]:
+    """Fields and values of a RunProvenance record that contract 1.2 introduced."""
+    used = []
+    if "plan" in data:
+        used.append("plan")
+    if any("origin" in i for i in data["inputs"]):
+        used.append("inputs[].origin")
+    for s in data["slots"]:
+        impl = s.get("implementation", {})
+        if "plan_role" in s:
+            used.append(f"slot '{s['slot']}': plan_role")
+        if s.get("reason") == "not_requested":
+            used.append(f"slot '{s['slot']}': reason 'not_requested'")
+        if impl.get("chosen_by") == "preset":
+            used.append(f"slot '{s['slot']}': chosen_by 'preset'")
+        if "upstream" in impl:
+            used.append(f"slot '{s['slot']}': implementation.upstream")
+    return used
+
+
+def _run_plan_errors(data: dict) -> list[str]:
+    """Rules of the 1.2 plan record (provenance.md 3, 3.1)."""
+    if not rules_1_2(data):
+        return [f"{f} requires contract_version 1.2" for f in _run_1_2_fields(data)]
+    errs: list[str] = []
+    plan = data.get("plan")
+    mode = plan["mode"] if plan else None
+    for s in data["slots"]:
+        where = f"slot '{s['slot']}'"
+        reason, role = s.get("reason"), s.get("plan_role")
+        chosen_by = s.get("implementation", {}).get("chosen_by")
+        if reason == "not_requested" and s["status"] != "skipped":
+            errs.append(f"{where}: reason 'not_requested' requires status 'skipped'")
+        if reason == "not_requested" and mode not in ("preset", "free"):
+            errs.append(
+                f"{where}: reason 'not_requested' requires a plan with mode 'preset' or 'free'"
+            )
+        if chosen_by == "preset" and mode != "preset":
+            errs.append(
+                f"{where}: chosen_by 'preset' requires a plan with mode 'preset'"
+            )
+        if role is not None and plan is None:
+            errs.append(f"{where}: plan_role requires 'plan'")
+        if plan is None:
+            continue
+        if reason in ("condition_false", "not_requested"):
+            if role is not None:
+                errs.append(f"{where}: a slot with reason '{reason}' has no plan_role")
+        elif s["status"] == "selected":
+            if role is None:
+                errs.append(
+                    f"{where}: a selected slot of a planned run needs plan_role"
+                )
+        elif role != "if_available":
+            errs.append(
+                f"{where}: only an 'if_available' slot may be '{s['status']}' "
+                f"({reason}); a target or upstream slot without it refuses the run"
+            )
+    if plan is None:
+        return errs
+    targets = plan["targets"]
+    required = targets.get("required", [])
+    optional = targets.get("if_available", [])
+    if (mode == "preset") != (plan["preset"] is not None):
+        errs.append("plan: 'preset' is set exactly when mode is 'preset'")
+    if mode == "full" and (required or optional):
+        errs.append("plan: a full plan has no targets (it is defined by rule R0)")
+    if mode == "preset" and not required:
+        errs.append("plan: a preset plan has at least one required target")
+    if mode == "free" and not (required or optional):
+        errs.append("plan: a free plan has at least one target")
+    for d in sorted(set(required) & set(optional)):
+        errs.append(f"plan: target '{d}' is both required and if_available")
     return errs
 
 
@@ -649,6 +755,481 @@ def check_artefact_types(data: dict) -> list[str]:
         if schema and not (CONTRACTS_DIR / schema).is_file():
             errs.append(f"type '{name}': json_schema '{schema}' does not exist")
     return errs
+
+
+# --------------------------------------------------------------------------- run plans (contract 1.2)
+
+# Plan roles and refusal codes of docs/contracts/presets.md (ADR-0018).
+PLAN_ROLES = ("target", "upstream", "if_available")
+RESOLUTION_CODES = (
+    "unknown_target",
+    "ambiguous_target",
+    "target_not_applicable",
+    "target_not_guaranteed",
+)
+CLOSURE_CODES = ("target_unreachable", "no_implementation")
+
+
+@dataclass(frozen=True)
+class PlanReason:
+    """One reason why a plan request is refused (presets.md 4.3)."""
+
+    code: str
+    message: str
+    target: str | None = None
+    slot: str | None = None
+    port: str | None = None
+    required_by: str | None = None
+
+
+@dataclass(frozen=True)
+class SlotPlan:
+    """The static plan of one slot. ``status`` is ``planned`` (an implementation is
+    chosen at run creation and the slot becomes ``selected``), ``skipped`` or
+    ``unavailable``; ``reason`` is the provenance reason of the last two."""
+
+    slot: str
+    status: str
+    reason: str | None = None
+    plan_role: str | None = None
+
+
+@dataclass(frozen=True)
+class StaticPlan:
+    """Result of ``plan_closure``: feasible when ``reasons`` is empty."""
+
+    input_set: str
+    slots: tuple[SlotPlan, ...]  # one per pipeline slot, in pipeline order
+    targets: (
+        dict  # resolved request {required: [slot.port], if_available: [...]}; {} for R0
+    )
+    reasons: tuple[PlanReason, ...] = field(default=())
+
+    @property
+    def feasible(self) -> bool:
+        return not self.reasons
+
+    def slot(self, name: str) -> SlotPlan:
+        return next(s for s in self.slots if s.slot == name)
+
+    def planned(self) -> dict[str, str | None]:
+        """Planned slots and their roles."""
+        return {s.slot: s.plan_role for s in self.slots if s.status == "planned"}
+
+
+def topological_order(pipeline: dict) -> list[str]:
+    """Slots of a valid pipeline in dependency order (ties in pipeline order)."""
+    names = [s["name"] for s in pipeline["slots"]]
+    deps = {
+        s["name"]: {
+            src.split(".")[0]
+            for c in s["consumes"]
+            for src in _sources(c)
+            if src.split(".")[0] not in ("inputs", "run")
+        }
+        for s in pipeline["slots"]
+    }
+    order: list[str] = []
+    while len(order) < len(names):
+        ready = [n for n in names if n not in order and deps[n] <= set(order)]
+        if not ready:
+            raise ValueError("slot wiring has a cycle")
+        order.extend(ready)
+    return order
+
+
+def _source_state(src: str, present: set[str], port_state: dict[str, int]) -> int:
+    if src == "run.provenance":
+        return DEFINITELY
+    if src.startswith("inputs."):
+        return DEFINITELY if src[len("inputs.") :] in present else NEVER
+    return port_state.get(src, NEVER)
+
+
+def static_availability(
+    pipeline: dict, present: set[str]
+) -> tuple[dict[str, int], dict[str, int]]:
+    """Per slot and per produced port (``slot.port``): NEVER, POSSIBLY or DEFINITELY
+    under the run inputs ``present`` (pipeline.md 3.3)."""
+    slots = {s["name"]: s for s in pipeline["slots"]}
+    slot_state: dict[str, int] = {}
+    port_state: dict[str, int] = {}
+    for name in topological_order(pipeline):
+        slot = slots[name]
+        if not _cond_holds(slot.get("when"), present):
+            state = NEVER
+        else:
+            worst = DEFINITELY
+            for c in slot["consumes"]:
+                if c.get("optional", False):
+                    continue
+                worst = min(
+                    worst,
+                    max(_source_state(s, present, port_state) for s in _sources(c)),
+                )
+            if worst == NEVER:
+                state = NEVER
+            elif slot.get("optional", False) or worst == POSSIBLY:
+                state = POSSIBLY
+            else:
+                state = DEFINITELY
+        slot_state[name] = state
+        for p in slot["produces"]:
+            key = f"{name}.{p['port']}"
+            if state == NEVER or not _cond_holds(p.get("when"), present):
+                port_state[key] = NEVER
+            elif p.get("optional", False):
+                port_state[key] = min(POSSIBLY, state)
+            else:
+                port_state[key] = state
+    return slot_state, port_state
+
+
+def _resolve_target(
+    target: str,
+    slots: dict[str, dict],
+    present: set[str],
+    slot_state: dict[str, int],
+    required: bool,
+    input_set: str,
+) -> tuple[str, list[str]] | PlanReason:
+    """Step 2 of the resolution: a target to its slot and ``slot.port`` list. An empty
+    list means an if-available target that does not apply under the input set."""
+    if "." in target:
+        name, port = target.split(".", 1)
+        produced = {p["port"]: p for p in slots.get(name, {}).get("produces", [])}
+        if port not in produced:
+            return PlanReason(
+                "unknown_target",
+                f"The target '{target}' is not a port produced by a slot of this pipeline.",
+                target=target,
+            )
+        ports = [produced[port]]
+    else:
+        candidates = [
+            f"{n}.{p['port']}"
+            for n, s in slots.items()
+            for p in s["produces"]
+            if p["type"] == target
+            and slot_state[n] != NEVER
+            and _cond_holds(p.get("when"), present)
+        ]
+        if target in slots and candidates:
+            return PlanReason(
+                "ambiguous_target",
+                f"The target '{target}' names both a slot and an artefact type produced "
+                f"by {', '.join(candidates)}.",
+                target=target,
+            )
+        if target in slots:
+            name = target
+            ports = [
+                p
+                for p in slots[name]["produces"]
+                if not p.get("optional", False) and _cond_holds(p.get("when"), present)
+            ]
+        elif len(candidates) > 1:
+            return PlanReason(
+                "ambiguous_target",
+                f"The artefact type '{target}' is produced by several ports under the "
+                f"input set '{input_set}': {', '.join(candidates)}.",
+                target=target,
+            )
+        elif candidates:
+            name, port = candidates[0].split(".", 1)
+            ports = [next(p for p in slots[name]["produces"] if p["port"] == port)]
+        else:
+            return PlanReason(
+                "unknown_target",
+                f"The target '{target}' is neither a slot nor an artefact type produced "
+                f"under the input set '{input_set}'.",
+                target=target,
+            )
+    slot = slots[name]
+    if not _cond_holds(slot.get("when"), present):
+        if not required:
+            return name, []
+        needs = ", ".join(slot["when"].get("inputs_present", []))
+        return PlanReason(
+            "target_not_applicable",
+            f"The target '{target}' does not run with the input set '{input_set}'"
+            + (f" (it needs the inputs {needs})." if needs else "."),
+            target=target,
+            slot=name,
+        )
+    if "." in target:
+        p = ports[0]
+        if not _cond_holds(p.get("when"), present):
+            if not required:
+                return name, []
+            return PlanReason(
+                "target_not_applicable",
+                f"The port '{target}' is not produced with the input set '{input_set}'.",
+                target=target,
+                slot=name,
+                port=p["port"],
+            )
+        if p.get("optional", False) and required:
+            return PlanReason(
+                "target_not_guaranteed",
+                f"The port '{target}' is not guaranteed to be produced; it can only be "
+                f"requested if available.",
+                target=target,
+                slot=name,
+                port=p["port"],
+            )
+    return name, [f"{name}.{p['port']}" for p in ports] or [name]
+
+
+def plan_closure(
+    pipeline: dict,
+    input_set: str,
+    required: Iterable[str] | None = None,
+    if_available: Iterable[str] | None = None,
+    enabled: Mapping[str, Iterable[str]] | None = None,
+) -> StaticPlan:
+    """The static plan of a plan request (presets.md 4; design run-plans.md 3.2).
+
+    ``pipeline`` is a valid pipeline document and ``input_set`` the name of one of its
+    input sets. ``required`` and ``if_available`` are the targets; when both are
+    ``None`` the request is the full plan (rule R0). ``enabled`` maps slot names to the
+    ids of the implementations enabled in the deployment; ``None`` assumes that every
+    allowed implementation is enabled (the static check of rule P5). Choosing the
+    implementation, parameters and bundles is left to the orchestrator. Pure function:
+    no I/O and no state. Every refusal reason found is returned, not only the first.
+    """
+    sets = {s["name"]: set(s["inputs"]) for s in pipeline["input_sets"]}
+    if input_set not in sets:
+        raise ValueError(f"unknown input set '{input_set}'")
+    present = sets[input_set]
+    slots = {s["name"]: s for s in pipeline["slots"]}
+    names = [s["name"] for s in pipeline["slots"]]
+    slot_state, port_state = static_availability(pipeline, present)
+    reasons: list[PlanReason] = []
+
+    req_slots: list[tuple[str, str]] = []  # (slot, target that names it)
+    opt_slots: list[tuple[str, str]] = []
+    targets: dict = {}
+    if required is None and if_available is None:  # R0: the full plan
+        for n in names:
+            if _cond_holds(slots[n].get("when"), present):
+                out = opt_slots if slots[n].get("optional", False) else req_slots
+                out.append((n, n))
+    else:
+        targets = {"required": [], "if_available": []}
+        for kind, values, out in (
+            ("required", list(required or []), req_slots),
+            ("if_available", list(if_available or []), opt_slots),
+        ):
+            for target in values:
+                res = _resolve_target(
+                    target, slots, present, slot_state, kind == "required", input_set
+                )
+                if isinstance(res, PlanReason):
+                    reasons.append(res)
+                    continue
+                name, ports = res
+                if not ports:
+                    continue  # if-available target that does not apply
+                out.append((name, target))
+                for p in ports:
+                    if "." in p and p not in targets[kind]:
+                        targets[kind].append(p)
+        if not targets["if_available"]:
+            del targets["if_available"]
+
+    roles: dict[str, str] = {}
+    root: dict[str, str] = {}  # slot -> the target that brought it into the plan
+    needed_by: dict[str, str] = {}  # slot -> the planned slot that pulled it in
+    no_source: set[str] = set()  # if-available slots with a required port unreachable
+    picked: dict[str, list[str]] = {}  # slot -> producer slots of its required ports
+
+    def qualifies(src: str) -> bool:
+        if src == "run.provenance" or src.startswith("inputs."):
+            return _source_state(src, present, port_state) != NEVER
+        head, _, port = src.partition(".")
+        produced = {p["port"]: p for p in slots[head]["produces"]}
+        return slot_state[head] != NEVER and _cond_holds(
+            produced[port].get("when"), present
+        )
+
+    def preferred(src: str, planned: set[str]) -> bool:
+        head = src.split(".")[0]
+        if head in ("inputs", "run"):
+            return True
+        return head in planned or (
+            not slots[head].get("optional", False) and slot_state[head] == DEFINITELY
+        )
+
+    def close(start: list[tuple[str, str]], role: str, prefer: tuple[str, ...]) -> None:
+        queue: list[str] = []
+        for name, target in start:
+            if name not in roles:
+                roles[name] = "target" if role == "upstream" else role
+                root[name] = target
+                queue.append(name)
+        while queue:
+            name = queue.pop(0)
+            picked.setdefault(name, [])
+            for c in slots[name]["consumes"]:
+                if c.get("optional", False):
+                    continue
+                planned = {n for n, r in roles.items() if r in prefer}
+                good = [s for s in _sources(c) if qualifies(s)]
+                choice = next((s for s in good if preferred(s, planned)), None)
+                if choice is None and good:
+                    choice = good[0]
+                if choice is None:
+                    if role == "if_available":
+                        no_source.add(name)
+                        continue
+                    chain = [name]
+                    while chain[-1] in needed_by:
+                        chain.append(needed_by[chain[-1]])
+                    reasons.append(
+                        PlanReason(
+                            "target_unreachable",
+                            f"The target '{root[name]}' cannot be reached with the input "
+                            f"set '{input_set}': the slot '{name}' needs '{c['port']}' and "
+                            f"none of its sources can be available (needed by: "
+                            f"{' <- '.join(chain)}).",
+                            target=root[name],
+                            slot=name,
+                            port=c["port"],
+                            required_by=needed_by.get(name),
+                        )
+                    )
+                    continue
+                head = choice.split(".")[0]
+                if head in ("inputs", "run"):
+                    continue
+                picked[name].append(head)
+                if head not in roles:
+                    roles[head] = role
+                    root[head] = root[name]
+                    needed_by[head] = name
+                    queue.append(head)
+
+    close(req_slots, "upstream", ("target", "upstream"))
+    close(opt_slots, "if_available", PLAN_ROLES)
+
+    def has_implementation(name: str) -> bool:
+        allowed = {a["id"] for a in slots[name]["implementations"]["allowed"]}
+        if enabled is None:
+            return bool(allowed)
+        return any(i in allowed for i in enabled.get(name, ()))
+
+    result: dict[str, SlotPlan] = {}
+    for name in topological_order(pipeline):
+        role = roles.get(name)
+        if not _cond_holds(slots[name].get("when"), present):
+            result[name] = SlotPlan(name, "skipped", "condition_false")
+        elif role is None:
+            result[name] = SlotPlan(name, "skipped", "not_requested")
+        elif role == "if_available" and (
+            name in no_source
+            or any(result[h].status != "planned" for h in picked.get(name, []))
+        ):
+            result[name] = SlotPlan(name, "skipped", "upstream_absent", role)
+        elif not has_implementation(name):
+            result[name] = SlotPlan(name, "unavailable", "no_implementation", role)
+            if role != "if_available":
+                by = needed_by.get(name)
+                reasons.append(
+                    PlanReason(
+                        "no_implementation",
+                        f"The slot '{name}' has no enabled implementation in this "
+                        f"deployment"
+                        + (f"; the slot '{by}' needs it" if by else "")
+                        + f" for the target '{root[name]}'.",
+                        target=root[name],
+                        slot=name,
+                        required_by=by or root[name],
+                    )
+                )
+        else:
+            result[name] = SlotPlan(name, "planned", None, role)
+    return StaticPlan(
+        input_set, tuple(result[n] for n in names), targets, tuple(reasons)
+    )
+
+
+def check_preset(data: dict) -> list[str]:
+    """Single-document rules of a Preset: P1 (contract version) and P7 on the targets
+    as written."""
+    errs: list[str] = []
+    if not rules_1_2(data):
+        errs.append("a Preset requires contract_version 1.2 or later (P1)")
+    targets = data["targets"]
+    for d in sorted(set(targets["required"]) & set(targets.get("if_available", []))):
+        errs.append(f"target '{d}' is both required and if_available (P7)")
+    return errs
+
+
+def preset_errors(
+    preset: dict,
+    pipeline: dict,
+    manifests: Mapping[tuple[str, str], dict] | None = None,
+) -> list[str]:
+    """Rules P3-P7 of a preset against one pipeline version (presets.md 3). A fixed
+    implementation is checked for ``stub`` when its manifest is in ``manifests`` (keyed
+    by step name and version)."""
+    errs: list[str] = []
+    sets = {s["name"]: set(s["inputs"]) for s in pipeline["input_sets"]}
+    slots = {s["name"]: s for s in pipeline["slots"]}
+    required = preset["targets"]["required"]
+    optional = preset["targets"].get("if_available", [])
+    plans: dict[str, StaticPlan] = {}
+    for name in preset["input_sets"]:
+        if name not in sets:
+            errs.append(f"input set '{name}' is not an input set of the pipeline (P3)")
+            continue
+        plan = plan_closure(pipeline, name, required, optional)
+        plans[name] = plan
+        for r in plan.reasons:
+            rule = "P4" if r.code in RESOLUTION_CODES else "P5"
+            errs.append(f"input set '{name}': [{r.code}] {r.message} ({rule})")
+        slot_state, _ = static_availability(pipeline, sets[name])
+        for target in optional:
+            res = _resolve_target(target, slots, sets[name], slot_state, False, name)
+            if not isinstance(res, PlanReason) and not res[1]:
+                errs.append(
+                    f"input set '{name}': [target_not_applicable] the if-available "
+                    f"target '{target}' does not apply with this input set (P4)"
+                )
+        req_slots = {p.split(".")[0] for p in plan.targets.get("required", [])}
+        opt_slots = {p.split(".")[0] for p in plan.targets.get("if_available", [])}
+        for d in sorted(req_slots & opt_slots):
+            errs.append(
+                f"input set '{name}': slot '{d}' is both a required and an "
+                f"if-available target (P7)"
+            )
+    planned = {n for plan in plans.values() for n in plan.planned()}
+    for slot, choice in preset.get("implementations", {}).items():
+        where = f"implementations '{slot}'"
+        if slot not in slots:
+            errs.append(f"{where}: not a slot of the pipeline (P6)")
+            continue
+        if plans and slot not in planned:
+            errs.append(
+                f"{where}: the slot is not in the plan for any listed input set (P6)"
+            )
+        allowed = {a["id"]: a for a in slots[slot]["implementations"]["allowed"]}
+        impl_id = choice.get("fixed", choice.get("default"))
+        if impl_id not in allowed:
+            errs.append(f"{where}: '{impl_id}' is not an allowed implementation (P6)")
+            continue
+        if "fixed" in choice and manifests is not None:
+            step = allowed[impl_id]["step"]
+            manifest = manifests.get((step["name"], step["version"]))
+            if manifest is not None and manifest.get("stub", False):
+                errs.append(f"{where}: a stub cannot be a fixed choice (P6)")
+    return errs
+
+
+def preset_sha256(raw: bytes) -> str:
+    """SHA-256 of the exact bytes of a preset file, as recorded in runs (P8)."""
+    return hashlib.sha256(raw).hexdigest()
 
 
 # --------------------------------------------------------------------------- cross-document rules
@@ -827,6 +1408,108 @@ def cross_check(docs: list[Document], strict: bool) -> list[Issue]:
                 if sdoc is not None:
                     for e in _provenance_vs_step(prov, sdoc.data):
                         issues.append(Issue(str(d.path), "cross", f"steps/{i}: {e}"))
+            for e in _run_upstream_vs_steps(d.data, steps):
+                issues.append(Issue(str(d.path), "cross", e))
+    issues.extend(_cross_check_presets(docs, steps, strict))
+    return issues
+
+
+def _run_upstream_vs_steps(run: dict, steps: dict) -> list[str]:
+    """1.2: a slot record's implementation.upstream is the manifest's upstream block."""
+    errs = []
+    for rec in run["slots"]:
+        impl = rec.get("implementation")
+        if impl is None:
+            continue
+        sdoc = steps.get((impl["step"]["name"], impl["step"]["version"]))
+        if sdoc is None:
+            continue
+        expected = sdoc.data.get("upstream")
+        if "upstream" in impl and impl["upstream"] != expected:
+            errs.append(
+                f"slot '{rec['slot']}': implementation.upstream differs from the step manifest"
+            )
+        elif "upstream" not in impl and expected is not None and rules_1_2(run):
+            errs.append(
+                f"slot '{rec['slot']}': the step manifest has an upstream block, which the "
+                f"slot record must copy"
+            )
+    return errs
+
+
+def _cross_check_presets(
+    docs: list[Document], steps: dict, strict: bool
+) -> list[Issue]:
+    """P2 (attachment to every supplied pipeline version in range), P3-P7 per version,
+    and P8 (one document per pipeline id, preset id and version)."""
+    issues: list[Issue] = []
+    manifests = {key: d.data for key, d in steps.items()}
+    seen: dict[tuple[str, str, str], Document] = {}
+    for d in docs:
+        if d.kind != "Preset":
+            continue
+        f, preset = str(d.path), d.data
+        key = (preset["pipeline"]["id"], preset["id"], preset["version"])
+        first = seen.setdefault(key, d)
+        if first is not d and first.path != d.path:
+            same = (
+                first.raw is not None
+                and d.raw is not None
+                and preset_sha256(first.raw) == preset_sha256(d.raw)
+            )
+            issues.append(
+                Issue(
+                    f,
+                    "cross",
+                    f"preset {key[1]} {key[2]} of pipeline {key[0]} is also defined in "
+                    f"{first.path}"
+                    + ("" if same else " with different content")
+                    + "; a preset version identifies one file (P8)",
+                )
+            )
+        candidates = [
+            p for p in docs if p.kind == "Pipeline" and p.data["id"] == key[0]
+        ]
+        attached = [
+            p
+            for p in candidates
+            if satisfies(p.data["version"], preset["pipeline"]["versions"])
+        ]
+        if not attached:
+            issues.append(
+                Issue(
+                    f,
+                    "cross",
+                    f"no supplied version of pipeline {key[0]} is in "
+                    f"'{preset['pipeline']['versions']}'; P2-P7 not checked",
+                    "error" if strict else "note",
+                )
+            )
+        for p in attached:
+            where = f"pipeline {key[0]} {p.data['version']}"
+            for e in preset_errors(preset, p.data, manifests):
+                issues.append(Issue(f, "cross", f"{where}: {e}"))
+            slots = {s["name"]: s for s in p.data["slots"]}
+            for slot, choice in preset.get("implementations", {}).items():
+                if "fixed" not in choice or slot not in slots:
+                    continue
+                allowed = {
+                    a["id"]: a for a in slots[slot]["implementations"]["allowed"]
+                }
+                impl = allowed.get(choice["fixed"])
+                if impl is None:
+                    continue
+                skey = (impl["step"]["name"], impl["step"]["version"])
+                if skey not in manifests:
+                    issues.append(
+                        Issue(
+                            f,
+                            "cross",
+                            f"{where}: fixed implementation '{choice['fixed']}': manifest "
+                            f"{skey[0]} {skey[1]} not supplied; stub not checked (P6)",
+                            "error" if strict else "note",
+                        )
+                    )
     return issues
 
 
@@ -913,6 +1596,22 @@ def _run_vs_pipeline(run: dict, pipeline: dict) -> list[str]:
             errs.append(
                 f"slot '{rec['slot']}': implementation image or step differs from the pipeline"
             )
+    plan = run.get("plan")
+    if plan is not None:
+        roles = {rec["slot"]: rec.get("plan_role") for rec in run["slots"]}
+        for kind in ("required", "if_available"):
+            for target in plan["targets"].get(kind, []):
+                name, _, port = target.partition(".")
+                produced = {p["port"] for p in slots.get(name, {}).get("produces", [])}
+                if port not in produced:
+                    errs.append(
+                        f"plan: target '{target}' is not a port produced by the pipeline"
+                    )
+                elif kind == "required" and roles.get(name) != "target":
+                    errs.append(
+                        f"plan: the slot of the required target '{target}' must have "
+                        f"plan_role 'target'"
+                    )
     return errs
 
 
@@ -935,6 +1634,7 @@ SEMANTIC = {
     "provenance": lambda d, t: check_provenance(d),
     "error": lambda d, t: check_error(d),
     "artefact-types": lambda d, t: check_artefact_types(d),
+    "preset": lambda d, t: check_preset(d),
 }
 
 
@@ -949,6 +1649,7 @@ def validate_files(
     for path in paths:
         f = str(path)
         try:
+            raw = path.read_bytes()
             data = load_file(path)
         except Exception as exc:  # noqa: BLE001 - report any parse failure
             issues.append(Issue(f, "load", f"cannot parse: {exc}"))
@@ -959,7 +1660,7 @@ def validate_files(
                 Issue(f, "load", "cannot detect the document kind; use --kind")
             )
             continue
-        doc = Document(path, data, schema)
+        doc = Document(path, data, schema, raw)
         errs = schema_errors(data, schema)
         if errs:
             issues.extend(Issue(f, "schema", e) for e in errs)
@@ -975,7 +1676,7 @@ def validate_files(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Validate step-contract documents (contract 1.x)."
+        description=f"Validate step-contract documents (contract {CONTRACT_VERSION})."
     )
     parser.add_argument("files", nargs="+", type=Path, help="YAML or JSON documents")
     parser.add_argument(

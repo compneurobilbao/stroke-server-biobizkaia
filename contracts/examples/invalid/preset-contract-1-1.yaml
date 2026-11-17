@@ -1,0 +1,11 @@
+# Schema-valid but rejected by validate.py (rule P1): presets exist from
+# contract 1.2 on, so a preset declaring 1.1 is invalid.
+contract_version: "1.1"
+kind: Preset
+id: ct-normalisation
+version: 1.0.0
+title: CT normalisation only
+pipeline: {id: stroke-lnm, versions: ">=0.1.0, <1.0.0"}
+input_sets: [ct-and-native-mask]
+targets:
+  required: [lesion-intake, normalisation]
