@@ -20,6 +20,7 @@ Invalid files are logged and skipped, never half-loaded.
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -171,8 +172,11 @@ def load_preset(source: bytes | str | Path) -> PresetDefinition:
     """Parse a preset file and check the rules on the document alone (schema and
     contract version, P1; targets as written, P7). Raise ``PresetError`` listing every
     problem. ``source`` is a path or the file's bytes; the SHA-256 is computed over
-    the exact bytes."""
-    raw = Path(source).read_bytes() if isinstance(source, (str, Path)) else source
+    the exact bytes. When ``source`` is a path, the file stem must equal the preset
+    ``id``: seeding keys presets by file stem and the API by ``id``, so a mismatch is
+    a load error."""
+    from_path = isinstance(source, (str, Path))
+    raw = Path(source).read_bytes() if from_path else source
     try:
         data = yaml.safe_load(raw.decode("utf-8"))
     except (UnicodeDecodeError, yaml.YAMLError) as exc:
@@ -185,7 +189,41 @@ def load_preset(source: bytes | str | Path) -> PresetDefinition:
         errors = contract.check_contract_version(doc) + contract.check_preset(data)
     if errors:
         raise PresetError("invalid preset: " + "; ".join(errors))
+    if from_path and Path(source).stem != data["id"]:
+        raise PresetError(
+            f"preset file name {Path(source).name!r} does not match its id "
+            f"{data['id']!r}: rename the file to {data['id']}.yaml (or fix the id)"
+        )
     return PresetDefinition(data=data, sha256=contract.preset_sha256(raw))
+
+
+def resolve_presets_dir(
+    pipelines_dir: Path | str, environ: Mapping[str, str] | None = None
+) -> Path:
+    """The tree scanned for ``presets/<id>.yaml``: ``PRESETS_DIR`` when set and not
+    empty, else ``pipelines_dir``. Shared by the API and the seed command so that the
+    presets offered and the ``preset_settings`` rows seeded come from the same files."""
+    env = os.environ if environ is None else environ
+    return Path(env.get("PRESETS_DIR") or pipelines_dir)
+
+
+def scan_presets(
+    root: Path | str,
+) -> tuple[list[tuple[Path, PresetDefinition]], list[tuple[Path, str]]]:
+    """Every ``presets/*.yaml`` below ``root`` (sorted): the valid ones with their
+    path, and ``(path, message)`` for each file that cannot be loaded."""
+    loaded: list[tuple[Path, PresetDefinition]] = []
+    failed: list[tuple[Path, str]] = []
+    root = Path(root)
+    if root.is_dir():
+        for path in sorted(root.rglob("*.yaml")):
+            if path.parent.name != "presets":
+                continue
+            try:
+                loaded.append((path, load_preset(path)))
+            except (OSError, PresetError) as exc:
+                failed.append((path, str(exc)))
+    return loaded, failed
 
 
 @runtime_checkable
@@ -332,14 +370,8 @@ class DirectoryPresetRegistry(StaticPresetRegistry):
         steps: StepCatalog | None = None,
         recorded: Mapping[tuple[str, str, str], str] | None = None,
     ) -> None:
-        loaded = []
-        root = Path(root)
-        if root.is_dir():
-            for path in sorted(root.rglob("*.yaml")):
-                if path.parent.name != "presets":
-                    continue
-                try:
-                    loaded.append(load_preset(path))
-                except (OSError, PresetError) as exc:
-                    log.error("Ignoring invalid preset %s: %s", path, exc)
+        found, failed = scan_presets(root)
+        for path, message in failed:
+            log.error("Ignoring invalid preset %s: %s", path, message)
+        loaded = [preset for _path, preset in found]
         super().__init__(loaded, pipelines, steps, recorded)

@@ -1,5 +1,5 @@
 """Seed ``slot_implementation_settings`` and ``preset_settings`` from
-``<PIPELINES_DIR>/<id>/registry.yaml`` (cards F0-30a and F1-21).
+``<PIPELINES_DIR>/<id>/registry.yaml`` (cards F0-30a, F1-21 and F1-21a).
 
     python -m app.cli.seed_implementations --profile deployment|ci [--dry-run] [--reset]
 
@@ -13,11 +13,16 @@ chosen profile (enabled or not, default or not). Defaults:
 * A profile that enables a planned implementation is refused, and so is any profile other
   than ``ci`` that enables a stub (the same rules as ``pipelines/stroke-lnm/registry.py check``).
 * ``--dry-run`` reports what would change and rolls back.
-* Presets follow the same rules. One ``preset_settings`` row per preset file in
-  ``<id>/presets/`` is written from ``profiles.<profile>.presets`` (``enabled`` ids and
+* Presets follow the same rules. The preset files are found the way the API finds them
+  (``orchestrator.catalog.resolve_presets_dir``: ``PRESETS_DIR``, else the pipelines
+  directory; ``scan_presets``; file stem equal to the preset ``id``; a file that does not
+  load is reported and skipped), so the rows seeded and the presets offered cannot
+  diverge. One ``preset_settings`` row per valid preset file of the pipeline is written from ``profiles.<profile>.presets`` (``enabled`` ids and
   the ``default``); existing rows are left to the admin endpoints
   (``/api/v1/admin/presets``) unless ``--reset``. A profile that enables a preset
-  without a file, or defaults to one that is not enabled, is refused.
+  without a file, or defaults to one that is not enabled, is refused. With ``--reset``,
+  rows of presets whose file no longer exists are disabled (and lose the default flag)
+  and logged as ``update``.
 
 The row computation (``profile_settings``, ``preset_profile_settings``) generalises
 ``enabled_settings`` and ``enabled_preset_settings`` of
@@ -39,6 +44,7 @@ from sqlalchemy.orm import Session
 
 from app.models.preset_setting import PresetSetting
 from app.models.reference_bundle import SlotImplementationSetting
+from orchestrator.catalog import resolve_presets_dir, scan_presets
 
 PLACEHOLDER_DIGEST = "@sha256:" + "0" * 64
 STUB_PROFILES = frozenset({"ci"})
@@ -165,9 +171,16 @@ def find_registry_files(
     return found
 
 
-def preset_ids_of(registry_path: Path) -> list[str]:
-    """Ids (file stems) of the preset files next to a registry, sorted."""
-    return sorted(p.stem for p in (registry_path.parent / "presets").glob("*.yaml"))
+def preset_ids_by_pipeline(
+    presets_root: Path,
+) -> tuple[dict[str, list[str]], list[tuple[Path, str]]]:
+    """Ids of the valid preset files below ``presets_root`` per pipeline id (sorted), and
+    the files that do not load. Same scan as the API's ``DirectoryPresetRegistry``."""
+    found, failed = scan_presets(presets_root)
+    ids: dict[str, set[str]] = {}
+    for _path, preset in found:
+        ids.setdefault(preset.pipeline_id, set()).add(preset.id)
+    return {pid: sorted(v) for pid, v in ids.items()}, failed
 
 
 def seed_registry(
@@ -292,6 +305,23 @@ def _seed_presets(
         for row in rows.values():
             row.is_default = False
         db.flush()
+    if reset and preset_ids is not None:
+        # Settings of a preset whose file no longer exists cannot be offered: disable.
+        for key, row in sorted(rows.items()):
+            if key in preset_ids or not (row.enabled or row.is_default):
+                continue
+            row.enabled = False
+            row.is_default = False
+            changes.append(
+                Change(
+                    "update",
+                    pid,
+                    "preset",
+                    key,
+                    "preset file no longer exists: disabled "
+                    f"(was enabled={before[key][0]} default={before[key][1]})",
+                )
+            )
     taken = any(r.is_default for r in rows.values())
     for want in preset_profile_settings(registry, profile, preset_ids):
         key = want["preset_id"]
@@ -347,6 +377,12 @@ def main(argv: list[str] | None = None, session_factory=None) -> int:
     )
     parser.add_argument("--pipeline", help="only this pipeline id")
     parser.add_argument(
+        "--presets-dir",
+        default=None,
+        help="tree scanned for presets/<id>.yaml (default: $PRESETS_DIR, else the "
+        "pipelines directory), as the API does",
+    )
+    parser.add_argument(
         "--pipelines-dir",
         default=os.environ.get("PIPELINES_DIR", "/app/pipelines"),
         help="directory holding <id>/registry.yaml (default: $PIPELINES_DIR)",
@@ -363,16 +399,24 @@ def main(argv: list[str] | None = None, session_factory=None) -> int:
         )
         if not registries:
             raise SeedError(f"no registry.yaml found under {root}")
+        presets_root = (
+            Path(args.presets_dir)
+            if args.presets_dir
+            else resolve_presets_dir(root)
+        )
+        preset_ids, preset_failures = preset_ids_by_pipeline(presets_root)
+        for bad, message in preset_failures:
+            print(f"warning: preset {bad} ignored: {message}", file=sys.stderr)
         db = session_factory()
         try:
             changes: list[Change] = []
-            for path, registry in registries:
+            for _path, registry in registries:
                 changes += seed_registry(
                     db,
                     registry,
                     args.profile,
                     reset=args.reset,
-                    preset_ids=preset_ids_of(path),
+                    preset_ids=preset_ids.get(registry["pipeline"]["id"], []),
                 )
             if args.dry_run:
                 db.rollback()

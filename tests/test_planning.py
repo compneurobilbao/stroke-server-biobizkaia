@@ -29,6 +29,7 @@ from orchestrator.catalog import (
     StaticPresetRegistry,
     StaticStepCatalog,
     load_preset,
+    resolve_presets_dir,
 )
 from orchestrator.pipeline import PipelineDefinition, condition_holds
 from orchestrator.planning import (
@@ -620,7 +621,7 @@ targets:
 """
 
 
-def _write(root: Path, name: str, **fields) -> Path:
+def _write(root: Path, name: str, subdir: str = "stroke-lnm", **fields) -> Path:
     values = {
         "id": "analysis",
         "version": "1.0.0",
@@ -628,7 +629,7 @@ def _write(root: Path, name: str, **fields) -> Path:
         "target": "report",
     }
     values.update(fields)
-    path = root / "stroke-lnm" / "presets" / name
+    path = root / subdir / "presets" / name
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(PRESET_YAML.format(**values).encode())
     return path
@@ -649,11 +650,40 @@ def test_load_preset_checks_the_document(tmp_path):
         load_preset(b"kind: Pipeline\n")
 
 
+def test_load_preset_requires_file_stem_equal_to_id(tmp_path):
+    wrong = _write(tmp_path, "renamed.yaml")  # id is "analysis"
+    with pytest.raises(PresetError, match="does not match its id 'analysis'"):
+        load_preset(wrong)
+    with pytest.raises(PresetError, match="renamed.yaml"):
+        load_preset(str(wrong))
+    # Bytes carry no file name: nothing to compare.
+    assert load_preset(wrong.read_bytes()).id == "analysis"
+
+
+def test_directory_registry_ignores_a_preset_whose_stem_differs_from_its_id(
+    tmp_path, caplog
+):
+    _write(tmp_path, "renamed.yaml")
+    registry = DirectoryPresetRegistry(
+        tmp_path, StaticPipelineRegistry([_example()]), StaticStepCatalog()
+    )
+    assert registry.get("stroke-lnm", "0.1.0", "analysis") is None
+    assert registry.get("stroke-lnm", "0.1.0", "renamed") is None
+    assert "Ignoring invalid preset" in caplog.text
+    assert "does not match its id" in caplog.text
+
+
+def test_resolve_presets_dir():
+    assert resolve_presets_dir("/p", {}) == Path("/p")
+    assert resolve_presets_dir("/p", {"PRESETS_DIR": ""}) == Path("/p")
+    assert resolve_presets_dir("/p", {"PRESETS_DIR": "/q"}) == Path("/q")
+
+
 def test_directory_registry_attaches_presets_to_versions(tmp_path, caplog):
     v1, v2 = _example("0.1.0"), _example("0.2.0")
     pipelines = StaticPipelineRegistry([v1, v2])
     _write(tmp_path, "analysis.yaml")
-    _write(tmp_path, "analysis-2.yaml", version="2.0.0", range=">=0.2.0")
+    _write(tmp_path, "analysis.yaml", "zsecond", version="2.0.0", range=">=0.2.0")
     _write(
         tmp_path, "broken.yaml", id="broken", target="normalisation"
     )  # P4 on mni-mask
@@ -680,14 +710,14 @@ def test_directory_registry_attaches_presets_to_versions(tmp_path, caplog):
 
 def test_registry_rule_p8(tmp_path, caplog):
     pipelines = StaticPipelineRegistry([_example()])
-    first = _write(tmp_path, "a.yaml")
-    _write(tmp_path, "b.yaml", target="tract-disconnection")
+    first = _write(tmp_path, "analysis.yaml")
+    _write(tmp_path, "analysis.yaml", "copy", target="tract-disconnection")
     assert (
         DirectoryPresetRegistry(tmp_path, pipelines).presets("stroke-lnm", "0.1.0")
         == []
     )
     assert "defined in 2 files" in caplog.text
-    (tmp_path / "stroke-lnm" / "presets" / "b.yaml").unlink()
+    (tmp_path / "copy" / "presets" / "analysis.yaml").unlink()
     digest = hashlib.sha256(first.read_bytes()).hexdigest()
     key = ("stroke-lnm", "analysis", "1.0.0")
     assert DirectoryPresetRegistry(tmp_path, pipelines, recorded={key: digest}).get(

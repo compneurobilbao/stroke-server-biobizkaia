@@ -47,6 +47,7 @@ from orchestrator.catalog import (
     PresetRegistry,
     StaticPresetRegistry,
     StepCatalog,
+    resolve_presets_dir,
 )
 
 log = logging.getLogger(__name__)
@@ -217,7 +218,7 @@ def _default_orchestration() -> Orchestration:
     pipelines_dir = env.get("PIPELINES_DIR", "/app/pipelines")
     pipelines = DirectoryPipelineRegistry(pipelines_dir)
     steps = DirectoryStepCatalog(env.get("STEP_MANIFESTS_DIR", "/app/steps"))
-    presets_dir = env.get("PRESETS_DIR") or pipelines_dir
+    presets_dir = resolve_presets_dir(pipelines_dir, env)
     # Rule P8: a preset file that differs from the one earlier runs recorded for the
     # same version is not offered (a changed preset needs a new version). The database
     # is read only when there are preset files to check.
