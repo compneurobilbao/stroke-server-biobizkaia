@@ -131,9 +131,8 @@ class Document:
     path: Path
     data: Any
     schema: str
-    raw: bytes | None = (
-        None  # exact file bytes, when loaded from a file (preset SHA-256)
-    )
+    # Exact file bytes when loaded from a file (the SHA-256 of presets, rule P8).
+    raw: bytes | None = None
 
     @property
     def kind(self) -> str:
