@@ -40,7 +40,7 @@
 <tr><th>Section</th><th>Status</th></tr>
 <tr><td>Lesion</td><td>available</td></tr>
 <tr><td>Functional disconnection map</td><td>{{ "available" if r.sections.functional_disconnection == "available" else "absent (input not provided)" }}</td></tr>
-<tr><td>Tract disconnection</td><td>{{ "available" if r.sections.tract_disconnection == "available" else "absent (input not provided)" }}</td></tr>
+<tr><td>Tract disconnection</td><td>{{ "available" if r.sections.tract_disconnection == "available" else "not part of this analysis" }}</td></tr>
 <tr><td>Cognitive profile</td><td>{{ "available" if r.sections.cognitive_profile == "available" else "absent (input not provided)" }}</td></tr>
 </table>
 <ul>
@@ -112,7 +112,7 @@
 {% endfor %}
 </table>
 {% else %}
-<p class="absent">Not available: the tract disconnection table was not provided to this report, so this section is empty.</p>
+<p class="absent">Not part of this analysis: tract disconnection was not run for this report, so this section is empty.</p>
 {% endif %}
 
 <h2>4. Cognitive profile</h2>

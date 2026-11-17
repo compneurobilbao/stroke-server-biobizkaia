@@ -137,7 +137,7 @@ What the real-stack specs assert:
 
 - MNI-mask mode, default implementations: the slot selector shows the `ci` defaults (functional disconnection is the stub), the run reaches `succeeded`, normalisation is skipped, every other slot succeeded, the artefact list holds the tract table, the synthetic functional-disconnection map and the report, the PDF report downloads and starts with `%PDF-`, and a step log is readable.
 - MNI-mask mode with `report` set to `research-report-es`: only that choice is sent, the run records it as chosen by the user, and it succeeds.
-- CT mode: the normalisation slot is unavailable (the CT step is not merged, so no profile mounts it), the wizard explains it and Start is disabled. No completed run is expected; when the CT step is merged and mounted this spec changes into a second finished run.
+- CT mode: the CT reference case (built in the job from a public head CT template, never committed) runs through the real normalisation step (`ct-lesion-to-mni152`, mounted in the `ci` and `deployment` profiles) and the same steps as above to a finished run; the normalisation slot is `succeeded` and not a stub.
 
 On failure the job uploads the Playwright report and traces (they contain what the browser typed; the credentials exist only on that runner) and the Compose logs. A run of the real steps takes a few minutes on top of the image builds, which dominate the job time; the Docker layers are not cached between runs.
 

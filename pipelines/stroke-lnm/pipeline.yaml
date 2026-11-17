@@ -8,12 +8,14 @@
 contract_version: "1.0"
 kind: Pipeline
 id: stroke-lnm
-version: 0.1.0
+version: 0.2.0
 title: Lesion network mapping v0
 description: >-
   Lesion intake and QC, normalisation of CT lesions to MNI152 (skipped when an MNI mask is
   supplied), functional and tract-wise disconnection, the COGNET-STROKE cognitive profile,
-  and a research report.
+  and a research report. Version 0.2.0: tract disconnection is optional and the report does not
+  need it, so a run without an enabled tract-disconnection implementation ends with a QC-only
+  report (research-report 0.2.0 says that tract disconnection is not part of the analysis).
 
 inputs:
   - name: ct
@@ -97,6 +99,7 @@ slots:
 
   - name: tract-disconnection
     title: Tract-wise structural disconnection
+    optional: true
     consumes:
       - port: lesion_mask
         type: lesion_mask_mni
@@ -137,7 +140,7 @@ slots:
         from: [normalisation.lesion_mask_mni, lesion-intake.lesion_mask_mni]
       - {port: ct_mni, type: ct_mni, from: normalisation.ct_mni, optional: true}
       - {port: fdisconnection_map, type: fdisconnection_map, from: functional-disconnection.fdisconnection_map, optional: true}
-      - {port: tract_disconnection, type: tract_disconnection, from: tract-disconnection.tract_disconnection}
+      - {port: tract_disconnection, type: tract_disconnection, from: tract-disconnection.tract_disconnection, optional: true}
       - {port: cognet_profile, type: cognet_profile, from: cognet-profile.profile, optional: true}
       - {port: run_provenance, type: run_provenance, from: run.provenance}
     produces:
@@ -147,11 +150,11 @@ slots:
       default: research-report
       allowed:
         - id: research-report
-          step: {name: research-report, version: 0.1.0}
+          step: {name: research-report, version: 0.2.0}
           image: docker.io/compneurobilbaolab/step-research-report@sha256:0000000000000000000000000000000000000000000000000000000000000000
         # Configured variant of the same image: the report text in Spanish.
         - id: research-report-es
-          step: {name: research-report, version: 0.1.0}
+          step: {name: research-report, version: 0.2.0}
           image: docker.io/compneurobilbaolab/step-research-report@sha256:0000000000000000000000000000000000000000000000000000000000000000
           parameters:
             language: es

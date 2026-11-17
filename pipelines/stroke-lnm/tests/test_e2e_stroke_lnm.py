@@ -83,6 +83,20 @@ def test_committed_pipeline_is_valid_and_lists_every_slot():
     definition = load_pipeline(HERE / "pipeline.yaml")
     assert [s["name"] for s in definition.slots] == SLOTS
     assert definition.match_input_set(["lesion_mni"]) == "mni-mask"
+    assert definition.version == "0.2.0"
+
+
+def test_report_does_not_need_tract_disconnection():
+    """F1-26: the report slot's tract port and the tract slot are optional (QC-only report)."""
+    pipeline, _registry = registry_tool.load(HERE)
+    slots = {s["name"]: s for s in pipeline["slots"]}
+    assert slots["tract-disconnection"]["optional"] is True
+    port = next(c for c in slots["report"]["consumes"] if c["port"] == "tract_disconnection")
+    assert port["optional"] is True
+    assert port["from"] == "tract-disconnection.tract_disconnection"
+    # the report step version that states the absence in its section
+    for impl in slots["report"]["implementations"]["allowed"]:
+        assert impl["step"] == {"name": "research-report", "version": "0.2.0"}
 
 
 def test_committed_digests_are_placeholders():
@@ -182,7 +196,7 @@ class Stack:
         self.orch = build_orchestrator(
             self.Session, self.store_root, settings=_Settings(), env=env
         )
-        self.pipeline = self.orch.pipelines.get("stroke-lnm", "0.1.0")
+        self.pipeline = self.orch.pipelines.get("stroke-lnm", "0.2.0")
         assert self.pipeline is not None
 
     def case(self, files: dict[str, Path]):
@@ -390,6 +404,10 @@ def test_default_run_on_the_mni_mask(stack, mni_case, tmp_path):
     )
     for slot, port in (("report", "report_pdf"), ("report", "report_json")):
         assert artifact_path(stack, run_id, slot, port).stat().st_size > 0
+    # the full plan still gives the full report: the tract section is filled in
+    report = json.loads(artifact_path(stack, run_id, "report", "report_json").read_text())
+    assert report["sections"]["tract_disconnection"] == "available"
+    assert report["generator"]["version"] == "0.2.0"
 
 
 @needs_e2e
@@ -554,3 +572,57 @@ def test_ct_mode_is_refused_when_a_deployment_leaves_normalisation_unmounted(sta
         set_enabled(True)
     assert refused.value.code == "no_implementation"
     assert refused.value.slot == "normalisation"
+
+
+@needs_e2e
+def test_qc_only_run_when_tract_disconnection_has_no_enabled_implementation(
+    stack, mni_case, tmp_path
+):
+    """F1-26: without an enabled tract implementation the run succeeds with a QC-only report."""
+    from app.models import SlotImplementationSetting
+
+    def set_enabled(value: bool) -> None:
+        with stack.Session() as db:
+            for row in db.scalars(
+                select(SlotImplementationSetting).where(
+                    SlotImplementationSetting.pipeline_id == "stroke-lnm",
+                    SlotImplementationSetting.slot == "tract-disconnection",
+                )
+            ):
+                row.enabled = value
+                row.is_default = value and row.implementation_id == "lnm-tracts"
+            db.commit()
+
+    set_enabled(False)
+    try:
+        run_id = stack.create(mni_case)
+        stack.drive(run_id)
+        record = run_record(stack, run_id)
+    finally:
+        set_enabled(True)
+    validate_record(record, tmp_path)
+    slots = {s["slot"]: s for s in record["slots"]}
+    assert list(slots) == SLOTS
+    assert (slots["tract-disconnection"]["status"], slots["tract-disconnection"]["reason"]) == (
+        "unavailable",
+        "no_implementation",
+    )
+    assert "implementation" not in slots["tract-disconnection"]
+    for name in ("lesion-intake", "functional-disconnection", "cognet-profile", "report"):
+        assert slots[name]["status"] == "selected", name
+    ran = {s["slot"] for s in record["steps"]}
+    assert ran == {"lesion-intake", "functional-disconnection", "cognet-profile", "report"}
+
+    report = json.loads(artifact_path(stack, run_id, "report", "report_json").read_text())
+    assert report["sections"] == {
+        "lesion": "available",
+        "functional_disconnection": "available",
+        "tract_disconnection": "absent",
+        "cognitive_profile": "available",
+    }
+    assert report["tract_disconnection"] == {"status": "absent"}
+    tract_slot = next(s for s in report["provenance"]["slots"] if s["slot"] == "tract-disconnection")
+    assert tract_slot["status"] == "unavailable"
+    assert artifact_path(stack, run_id, "report", "report_pdf").stat().st_size > 0
+    step = next(s for s in record["steps"] if s["slot"] == "report")
+    assert not [a for a in step["provenance"]["inputs"] if a["port"] == "tract_disconnection"]

@@ -1,7 +1,7 @@
 contract_version: "1.0"
 kind: Step
 name: research-report
-version: 0.1.0
+version: 0.2.0
 title: Research report
 description: >-
   Builds the research report of a run from the artefacts and JSON outputs of the previous
@@ -12,7 +12,9 @@ description: >-
   fixed-notation numbers, no timestamps or software versions; the basis for later sealing).
   Every PDF page carries the research-use-only banner, and the PDF ends with a provenance
   table with the image digest of every step of the run. An absent optional input is not an
-  error: the section says so. The figures use nilearn on its bundled MNI152 template (or on
+  error: the section says so. A run without the tract disconnection table (for example a
+  QC-only report) is valid: its tract section says that tract disconnection is not part of
+  this analysis. The figures use nilearn on its bundled MNI152 template (or on
   the optional ct_mni image when it is provided).
 provides: report
 image:
@@ -52,7 +54,7 @@ inputs:
   - name: tract_disconnection
     type: tract_disconnection
     required: false
-    description: Tract disconnection table (tract, disconnection); section reports absence when missing.
+    description: Tract disconnection table (tract, disconnection); the section says it is not part of the analysis when missing.
   - name: cognet_profile
     type: cognet_profile
     required: false
