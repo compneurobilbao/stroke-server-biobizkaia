@@ -136,16 +136,31 @@ if executor.poll(handle).finished:
 | Module | Role |
 |---|---|
 | `pipeline.py` | Loads and validates `pipeline.yaml` with `contracts/validate.py` (schema, wiring, static availability check); SHA-256 of the exact bytes; dependency order; input-set matching; M1-M5 slot matching of a step manifest. |
-| `catalog.py` | `PipelineRegistry` and `StepCatalog` protocols, with interim directory implementations (`PIPELINES_DIR`, `STEP_MANIFESTS_DIR`) until the registry of F0-33 reads manifests from images. |
-| `resolution.py` | `create_run`: matches the input set, evaluates slot conditions, marks `skipped` (`condition_false`, `upstream_absent`) and `unavailable` (`no_implementation`) slots, chooses implementations (user choice, deployment default, pipeline default; enablement from `slot_implementation_settings`), freezes effective parameters (defaults, literals, `case.sex`/`case.age_band` bindings, run seed) and resolves bundles. Refusals raise `RunRefused(code, message, slot)`. |
+| `catalog.py` | `PipelineRegistry`, `StepCatalog` and `PresetRegistry` protocols, with interim directory implementations (`PIPELINES_DIR`, `STEP_MANIFESTS_DIR`) until the registry of F0-33 reads manifests from images. `DirectoryPresetRegistry` loads `presets/<id>.yaml` next to each pipeline and attaches a preset to every loaded version of its pipeline that its range accepts and against which rules P3-P7 hold (P8: duplicate identities and changed files with an unchanged version are refused). |
+| `planning.py` | Run plans (pure, no database): `plan(pipeline, input_set, request, enablement) -> Plan \| PlanRefused` over `contracts.validate.plan_closure`, the implementation choice per slot (preset `fixed`, user, preset `default`, deployment default, pipeline default) and every refusal reason. See [Run plans](#run-plans). |
+| `resolution.py` | `create_run`: matches the input set, resolves the plan request (none, a preset or free targets) with `planning.plan` against `slot_implementation_settings` and `preset_settings`, writes `plan_mode`, `preset_*` and `targets` on the run and `status`, `reason` (`condition_false`, `upstream_absent`, `no_implementation`, `not_requested`), `plan_role`, the chosen implementation and the manifest's `upstream` block on each slot, freezes effective parameters (defaults, literals, `case.sex`/`case.age_band` bindings, run seed) and resolves bundles. Refusals raise `RunRefused(code, message, slot, reasons)`. |
 | `bundle_resolver.py` | The `BundleResolver` protocol (`resolve(requirements, selection) -> {name: ResolvedBundle}`) and `RegistryBundleResolver`, its implementation over the F0-18 registry (`orchestrator/bundles.py`, `reference_bundles` table). |
 | `engine.py` | `Orchestrator.tick` / `drive`: the run state machine (below). `ExecutorRegistry` chooses the executor per step (deployment configuration). |
 | `collection.py` | Checks a finished attempt against the contract (step-contract.md 4.1, provenance.md 2) and the registry's NIfTI constraints (grid, binary) and decides its final `outcome`. |
 | `store.py` | Work directories and access to the F0-17 case store (`app.services.bids`): derivatives, step and run provenance, checksums. |
-| `provenance.py` | `RunProvenance` built from the database (data-model.md section 8); staged as the `run.provenance` source and used to initialise the run's provenance file. |
+| `provenance.py` | `RunProvenance` built from the database (data-model.md section 8); used to initialise the run's provenance file and staged as the `run.provenance` source, in the form of the contract the consuming step declares (`run_provenance_for_step`). |
 | `actions.py` | `cancel_run` and `resume_run` for the run API (data-model.md 7.3): compare-and-set transitions, idempotent repeats, refusal codes. |
 | `events.py` | Audit events (`run_succeeded`, `run_failed`, `run_canceled`, `run_cancel_requested`, `run_resumed`) and notifications through the existing notification service. |
 | `config.py` | Builds the worker's orchestrator from environment variables. |
+
+### Run plans
+
+A run is created from a pipeline plus a plan request ([ADR-0018](adr/0018-presets-free-mode-external-tools.md), [design](design/run-plans.md), [presets.md](contracts/presets.md)):
+
+| Request | `plan_mode` | Plan |
+|---|---|---|
+| Neither a preset nor targets | `full` | Rule R0: every applicable slot, exactly as before plans existed (same statuses, implementations, `chosen_by`, and the same refusal code and slot; property-tested against the previous resolution in `tests/test_planning.py`). `targets` is `{}`. |
+| A preset (`PresetRef(id, version=None)`, the highest attached version by default) | `preset` | The preset's targets; `preset_id`, `preset_version` and the SHA-256 of the preset file are recorded. The preset must be enabled in `preset_settings` and accept the run's input set. |
+| Free targets (`TargetRequest(required, if_available)`) | `free` | The user's targets. Who may use free mode is the API's decision (`RUN_PLAN_POLICY`, card F1-21). |
+
+The closure (`contracts.validate.plan_closure`) receives, per slot, exactly the implementation the choice rule selects (a preset's `fixed` choice, then the user's, then a preset's `default`, the deployment default, the pipeline default); slots outside the closure are `skipped` with reason `not_requested` and never get attempts; resume and retry act on the frozen `run_slots` only, so disabling a preset never blocks resume. A refusal lists every reason (`RunRefused.reasons`): `preset_and_targets`, `preset_not_found`, `preset_not_enabled`, `preset_input_set_mismatch`, `implementation_fixed_by_preset`, `implementation_not_enabled`, `unknown_target`, `ambiguous_target`, `target_not_applicable`, `target_not_guaranteed`, `conflicting_targets`, `empty_request`, `target_unreachable`, `no_implementation` (with `required_by`), `slot_unsatisfiable` (full plan only) and `step_contract_too_old` (below).
+
+Run provenance: the record carries `plan` and the slots' `plan_role` (and declares contract 1.2) when every applicable slot row has a role, which is the case for every run created since F1-19; runs created earlier without roles are regenerated without a plan as contract 1.1 (data-model.md 8). A step that reads `run.provenance` gets the record of the contract its manifest declares: steps declaring 1.0 or 1.1 (the report step today) get it without `plan`, `plan_role`, `implementation.upstream` and `inputs[].origin`, because their images validate it against the schemas of their build. Slots outside the plan and preset choices cannot be expressed in 1.0 or 1.1, so a plan that has them and a selected step declaring an older contract that reads `run.provenance` is refused with `step_contract_too_old` until that step has a version declaring contract 1.2.
 
 ### Driving a run
 
