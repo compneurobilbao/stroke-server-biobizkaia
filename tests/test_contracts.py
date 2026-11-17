@@ -1342,7 +1342,7 @@ STROKE_LNM_PRESETS = {
         "input_sets": ["ct-and-native-mask", "mni-mask"],
         "versions": ">=0.1.0, <1.0.0",
         "targets": {
-            "required": ["report"],
+            "required": ["tract-disconnection", "report"],
             "if_available": ["functional-disconnection", "cognitive-profile"],
         },
     },
@@ -1389,8 +1389,10 @@ def _row(*cells):
 
 
 EXPECTED_PLANS = {
-    ("full", "0.1.0", "mni-mask"): _row(U, CF, OPT, U, OPT, T),
-    ("full", "0.1.0", "ct-and-native-mask"): _row(U, U, OPT, U, OPT, T),
+    ("full", "0.1.0", "mni-mask"): _row(U, CF, OPT, T, OPT, T),
+    ("full", "0.1.0", "ct-and-native-mask"): _row(U, U, OPT, T, OPT, T),
+    ("full", "0.2.0", "mni-mask"): _row(U, CF, OPT, T, OPT, T),
+    ("full", "0.2.0", "ct-and-native-mask"): _row(U, U, OPT, T, OPT, T),
     ("mni-mask-analysis", "0.1.0", "mni-mask"): _row(U, CF, T, T, OPT, T),
     ("ct-normalisation", "0.1.0", "ct-and-native-mask"): _row(T, T, NR, NR, NR, NR),
     # In 0.1.0 the report still needs the tract table (no preset attaches there; the
@@ -1464,13 +1466,12 @@ def _same_statuses(pipeline, required, optional):
 def test_full_preset_equals_the_full_plan_except_roles():
     targets = STROKE_LNM_PRESETS["full"]["targets"]
     required, optional = targets["required"], targets["if_available"]
-    assert _same_statuses(_pipeline("0.1.0"), required, optional)
+    for version in ("0.1.0", "0.2.0"):
+        assert _same_statuses(_pipeline(version), required, optional)
     # Once the report's tract table is optional (0.2.0), "report" alone no longer pulls
-    # tract disconnection in: a full preset for 0.2.0 must name it (card F1-20).
-    assert not _same_statuses(_pipeline("0.2.0"), required, optional)
-    assert _same_statuses(
-        _pipeline("0.2.0"), required + ["tract-disconnection"], optional
-    )
+    # tract disconnection in, which is why `full` names it (run-plans.md 2.5).
+    assert _same_statuses(_pipeline("0.1.0"), ["report"], optional)
+    assert not _same_statuses(_pipeline("0.2.0"), ["report"], optional)
 
 
 def test_presets_refused_or_unavailable_in_a_deployment():
@@ -1533,9 +1534,332 @@ def test_normative_text_lists_every_rule_and_code():
     text = (ROOT / "docs/contracts/presets.md").read_text(encoding="utf-8")
     for rule in ("P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8"):
         assert f"| {rule} |" in text, rule
-    for code in v.RESOLUTION_CODES + v.CLOSURE_CODES:
+    for code in v.RESOLUTION_CODES + v.REQUEST_CODES + v.CLOSURE_CODES:
         assert f"`{code}`" in text, code
     history = (ROOT / "docs/contracts/versioning.md").read_text(encoding="utf-8")
     assert (
         "| `1.2` |" in history and "0018-presets-free-mode-external-tools.md" in history
     )
+
+
+# Review fixes: R0 equals the orchestrator's run resolution; every feasible plan gives
+# a plan record that the 1.2 rules accept.
+
+
+def _synthetic(order=("o1", "o2"), fallback_input=False):
+    """Two optional producers of one port, feeding an optional slot y and a
+    non-optional slot z through ``from: [<first>.m, <second>.m]``. Without the input
+    fallback the pipeline fails the static check (z needs a port that may be absent);
+    the run resolution and the closure are still defined on it."""
+
+    def slot(name, consumes, produces, optional=False):
+        return {
+            "name": name,
+            "optional": optional,
+            "consumes": consumes,
+            "produces": produces,
+            "implementations": {
+                "allowed": [
+                    {
+                        "id": f"{name}-impl",
+                        "step": {"name": f"{name}-step", "version": "1.0.0"},
+                        "image": f"docker.io/compneurobilbaolab/{name}@sha256:"
+                        + "a" * 64,
+                    }
+                ]
+            },
+        }
+
+    mask = {
+        "port": "lesion_mni",
+        "type": "lesion_mask_mni_any",
+        "from": "inputs.lesion_mni",
+    }
+    sources = [f"{order[0]}.m", f"{order[1]}.m"] + (
+        ["inputs.mask"] if fallback_input else []
+    )
+    m = {"port": "m", "type": "lesion_mask_mni", "from": sources}
+    inputs = [{"name": "lesion_mni", "type": "lesion_mask_mni_any"}]
+    if fallback_input:
+        inputs.append({"name": "mask", "type": "lesion_mask_mni"})
+    return {
+        "contract_version": "1.2",
+        "kind": "Pipeline",
+        "id": "synthetic",
+        "version": "1.0.0",
+        "title": "Synthetic multi-source pipeline",
+        "inputs": inputs,
+        "input_sets": [{"name": "mni", "inputs": [i["name"] for i in inputs]}],
+        "slots": [
+            slot("o1", [mask], [{"port": "m", "type": "lesion_mask_mni"}], True),
+            slot("o2", [mask], [{"port": "m", "type": "lesion_mask_mni"}], True),
+            slot("y", [m], [{"port": "fd", "type": "fdisconnection_map"}], True),
+            slot("z", [m], [{"port": "td", "type": "tract_disconnection"}]),
+        ],
+    }
+
+
+def _current_resolution(pipeline, present, usable):
+    """Statuses of orchestrator.resolution.create_run (pipeline.md 6) for the slots
+    whose implementation choice succeeds (``usable``), or None if it refuses."""
+    from orchestrator.pipeline import condition_holds
+    from orchestrator.resolution import _required_ports_available
+
+    slots = {s["name"]: s for s in pipeline["slots"]}
+    selected, out = {}, {}
+    for name in v.topological_order(pipeline):
+        slot, optional = slots[name], slots[name].get("optional", False)
+        if not condition_holds(slot.get("when"), present):
+            out[name] = ("skipped", "condition_false")
+        elif not _required_ports_available(slot, present, selected):
+            if not optional:
+                return None
+            out[name] = ("skipped", "upstream_absent")
+        elif name not in usable:
+            if not optional:
+                return None
+            out[name] = ("unavailable", "no_implementation")
+        else:
+            out[name] = ("selected", None)
+            selected[name] = slot
+    return out
+
+
+def _repository_pipelines():
+    found = [_pipeline("0.1.0"), _pipeline("0.2.0")]
+    for path in sorted((ROOT / "pipelines").glob("*/pipeline.yaml")):
+        found.append(v.load_file(path))
+    for order in (("o1", "o2"), ("o2", "o1")):
+        for fallback in (False, True):
+            found.append(_synthetic(order, fallback))
+    return found
+
+
+def _r0_matches_current(pipeline):
+    names = [s["name"] for s in pipeline["slots"]]
+    for input_set in pipeline["input_sets"]:
+        present = set(input_set["inputs"])
+        for mask in range(2 ** len(names)):
+            usable = {n for i, n in enumerate(names) if mask >> i & 1}
+            enabled = {
+                n: [s["implementations"]["allowed"][0]["id"]]
+                for s in pipeline["slots"]
+                for n in [s["name"]]
+                if n in usable
+            }
+            plan = v.plan_closure(pipeline, input_set["name"], enabled=enabled)
+            current = _current_resolution(pipeline, present, usable)
+            assert plan.feasible == (current is not None), (
+                pipeline["id"],
+                input_set["name"],
+                sorted(usable),
+                plan.reasons,
+            )
+            if current is None:
+                continue
+            got = {
+                s.slot: ("selected" if s.status == "planned" else s.status, s.reason)
+                for s in plan.slots
+            }
+            assert got == current, (pipeline["id"], input_set["name"], sorted(usable))
+
+
+@pytest.mark.parametrize("index", range(len(_repository_pipelines())))
+def test_r0_equals_the_current_run_resolution(index):
+    """Property: for every pipeline in the repository and the synthetic multi-source
+    pipelines, every input set and every set of usable implementations, the full plan
+    has the statuses of orchestrator.resolution and refuses exactly when it does."""
+    _r0_matches_current(_repository_pipelines()[index])
+
+
+def test_multi_source_falls_back_to_an_implemented_producer():
+    """o1 and o2 both feed y and z; o1 has no implementation: today o2, y and z are
+    selected, and so are they in the full plan."""
+    pipeline = _synthetic()
+    enabled = {"o2": ["o2-impl"], "y": ["y-impl"], "z": ["z-impl"]}
+    plan = v.plan_closure(pipeline, "mni", enabled=enabled)
+    assert plan.feasible, plan.reasons
+    assert _statuses(plan) == {
+        "o1": ("unavailable", "no_implementation", "if_available"),
+        "o2": ("planned", None, "upstream"),
+        "y": ("planned", None, "if_available"),
+        "z": ("planned", None, "target"),
+    }
+    assert _current_resolution(pipeline, {"lesion_mni"}, set(enabled)) == {
+        "o1": ("unavailable", "no_implementation"),
+        "o2": ("selected", None),
+        "y": ("selected", None),
+        "z": ("selected", None),
+    }
+    # A free plan for z alone pulls in the producer that can run.
+    plan = v.plan_closure(pipeline, "mni", ["z"], None, enabled)
+    assert plan.planned() == {"o2": "upstream", "z": "target"}
+    # With neither producer implemented the run is refused, naming z.
+    plan = v.plan_closure(pipeline, "mni", ["z"], None, {"z": ["z-impl"]})
+    assert [(r.code, r.slot, r.required_by) for r in plan.reasons] == [
+        ("no_implementation", "o1", "z")
+    ]
+
+
+def test_multi_source_skips_a_producer_that_cannot_run():
+    """With ``from: [o2.m, o1.m]`` and o2 implemented but blocked (it reads o0,
+    which has no implementation), z falls back to o1, as the run resolution does."""
+    pipeline = _synthetic(("o2", "o1"))
+    o0 = copy.deepcopy(pipeline["slots"][0])
+    o0["name"] = "o0"
+    o0["implementations"]["allowed"][0]["id"] = "o0-impl"
+    pipeline["slots"].insert(0, o0)
+    o2 = next(s for s in pipeline["slots"] if s["name"] == "o2")
+    o2["consumes"] = [{"port": "m0", "type": "lesion_mask_mni", "from": "o0.m"}]
+    enabled = {"o1": ["o1-impl"], "o2": ["o2-impl"], "z": ["z-impl"]}
+    plan = v.plan_closure(pipeline, "mni", ["z"], None, enabled)
+    assert plan.feasible and plan.planned() == {"o1": "upstream", "z": "target"}
+    plan = v.plan_closure(pipeline, "mni", enabled=enabled)
+    assert plan.feasible
+    assert _current_resolution(pipeline, {"lesion_mni"}, set(enabled)) == {
+        s.slot: ("selected" if s.status == "planned" else s.status, s.reason)
+        for s in plan.slots
+    }
+    enabled.pop("o1")
+    plan = v.plan_closure(pipeline, "mni", ["z"], None, enabled)
+    assert not plan.feasible
+    assert _current_resolution(pipeline, {"lesion_mni"}, set(enabled)) is None
+
+
+@pytest.mark.parametrize(
+    ("required", "if_available"),
+    [([], None), ([], []), (None, []), (None, ["normalisation"])],
+)
+def test_empty_request_is_refused(required, if_available):
+    plan = v.plan_closure(_pipeline(), "mni-mask", required, if_available)
+    assert _codes(plan) == ["empty_request"]
+    # No preset and no targets at all is the full plan, not an empty request.
+    assert v.plan_closure(_pipeline(), "mni-mask").feasible
+
+
+@pytest.mark.parametrize(
+    ("required", "if_available"),
+    [
+        (["report.report_pdf"], ["report"]),
+        (["report"], ["report.report_json"]),
+        (["tract_disconnection"], ["tract-disconnection"]),
+        (["tract-disconnection.tract_disconnection"], ["tract_disconnection"]),
+    ],
+)
+def test_same_slot_required_and_if_available_is_refused(required, if_available):
+    plan = v.plan_closure(_pipeline(), "mni-mask", required, if_available)
+    assert _codes(plan) == ["conflicting_targets"]
+
+
+def _no_guaranteed_cognet():
+    pipeline = _pipeline()
+    cp = next(s for s in pipeline["slots"] if s["name"] == "cognitive-profile")
+    cp["produces"][0]["optional"] = True
+    assert v.check_pipeline(pipeline, _types()) == []
+    return pipeline
+
+
+def test_slot_target_without_a_guaranteed_port():
+    pipeline = _no_guaranteed_cognet()
+    plan = v.plan_closure(pipeline, "mni-mask", ["cognitive-profile"])
+    assert _codes(plan) == ["target_not_guaranteed"]
+    plan = v.plan_closure(pipeline, "mni-mask", ["report"], ["cognitive-profile"])
+    assert plan.feasible
+    assert plan.targets["if_available"] == [
+        "cognitive-profile.cognet_profile",
+        "cognitive-profile.qc_figure",
+    ]
+
+
+def _record_from(plan, pipeline, mode):
+    record = _plan_record()
+    record["input_set"] = plan.input_set
+    record["plan"] = {"mode": mode, "preset": None, "targets": plan.targets}
+    if mode == "preset":
+        record["plan"]["preset"] = {"id": "p", "version": "1.0.0", "sha256": "0" * 64}
+    slots = {s["name"]: s for s in pipeline["slots"]}
+    record["slots"] = []
+    for s in plan.slots:
+        rec = {"slot": s.slot}
+        if s.status == "planned":
+            impl = slots[s.slot]["implementations"]["allowed"][0]
+            rec.update(
+                status="selected",
+                implementation={
+                    "id": impl["id"],
+                    "step": impl["step"],
+                    "image": impl["image"],
+                    "stub": False,
+                    "chosen_by": "pipeline_default",
+                },
+                bundles=[],
+            )
+        else:
+            rec.update(status=s.status, reason=s.reason)
+        if s.plan_role:
+            rec["plan_role"] = s.plan_role
+        record["slots"].append(rec)
+    record["steps"] = []
+    return record
+
+
+def _target_candidates(pipeline):
+    out = []
+    for s in pipeline["slots"]:
+        out.append(s["name"])
+        out.extend(f"{s['name']}.{p['port']}" for p in s["produces"])
+    types = sorted({p["type"] for s in pipeline["slots"] for p in s["produces"]})
+    return out + types + ["unknown-slot"]
+
+
+@pytest.mark.parametrize(
+    "pipeline",
+    [_pipeline("0.1.0"), _pipeline("0.2.0"), _no_guaranteed_cognet(), _synthetic()],
+    ids=["0.1.0", "0.2.0", "optional-cognet", "synthetic"],
+)
+def test_every_feasible_plan_gives_an_accepted_plan_record(pipeline):
+    import itertools
+
+    candidates = _target_candidates(pipeline)
+    requests = [(None, None)]
+    sample = candidates[:: max(1, len(candidates) // 6)]
+    pairs = [[a] for a in candidates] + [
+        list(c) for c in itertools.combinations(candidates[::2], 2)
+    ]
+    for req in pairs:
+        requests.append((req, None))
+        for opt in sample:
+            requests.append((req, [opt]))
+    requests += [([], [opt]) for opt in candidates]
+    feasible = 0
+    for input_set in pipeline["input_sets"]:
+        for required, optional in requests:
+            for enabled in (None, {}):
+                plan = v.plan_closure(
+                    pipeline, input_set["name"], required, optional, enabled
+                )
+                if not plan.feasible:
+                    continue
+                feasible += 1
+                mode = "full" if required is None and optional is None else "free"
+                record = _record_from(plan, pipeline, mode)
+                assert v.schema_errors(record, "provenance") == [], (required, optional)
+                assert v.check_provenance(record) == [], (required, optional)
+                assert v._run_vs_pipeline(record, pipeline) == [], (required, optional)
+                if mode == "free" and plan.targets.get("required"):
+                    record["plan"]["mode"] = "preset"
+                    record["plan"]["preset"] = {
+                        "id": "p",
+                        "version": "1.0.0",
+                        "sha256": "0" * 64,
+                    }
+                    assert v.check_provenance(record) == []
+                # A required target is never lost from the record.
+                kept = {p.split(".")[0] for p in plan.targets.get("required", [])}
+                for target in required or []:
+                    slot = target.split(".")[0] if "." in target else None
+                    if slot is not None or target in {
+                        s["name"] for s in pipeline["slots"]
+                    }:
+                        assert (slot or target) in kept, (target, plan.targets)
+    assert feasible > 20

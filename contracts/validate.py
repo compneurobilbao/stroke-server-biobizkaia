@@ -766,6 +766,7 @@ RESOLUTION_CODES = (
     "target_not_applicable",
     "target_not_guaranteed",
 )
+REQUEST_CODES = ("conflicting_targets", "empty_request")
 CLOSURE_CODES = ("target_unreachable", "no_implementation")
 
 
@@ -922,11 +923,16 @@ def _resolve_target(
             )
         if target in slots:
             name = target
-            ports = [
+            # The guaranteed ports; for an if-available slot without any, the ports
+            # that may be produced (so that the plan record never loses a target).
+            applicable = [
                 p
                 for p in slots[name]["produces"]
-                if not p.get("optional", False) and _cond_holds(p.get("when"), present)
+                if _cond_holds(p.get("when"), present)
             ]
+            ports = [p for p in applicable if not p.get("optional", False)]
+            if not ports and not required:
+                ports = applicable
         elif len(candidates) > 1:
             return PlanReason(
                 "ambiguous_target",
@@ -977,7 +983,30 @@ def _resolve_target(
                 slot=name,
                 port=p["port"],
             )
-    return name, [f"{name}.{p['port']}" for p in ports] or [name]
+    elif not ports and required:
+        return PlanReason(
+            "target_not_guaranteed",
+            f"The slot '{target}' produces no port that is guaranteed with the input set "
+            f"'{input_set}'; it can only be requested if available.",
+            target=target,
+            slot=name,
+        )
+    return name, [f"{name}.{p['port']}" for p in ports]
+
+
+def _no_implementation(
+    name: str, needed_by: Mapping[str, str], root: Mapping[str, str]
+) -> PlanReason:
+    by = needed_by.get(name)
+    return PlanReason(
+        "no_implementation",
+        f"The slot '{name}' has no enabled implementation in this deployment"
+        + (f"; the slot '{by}' needs it" if by else "")
+        + f" for the target '{root[name]}'.",
+        target=root[name],
+        slot=name,
+        required_by=by or root[name],
+    )
 
 
 def plan_closure(
@@ -991,11 +1020,12 @@ def plan_closure(
 
     ``pipeline`` is a valid pipeline document and ``input_set`` the name of one of its
     input sets. ``required`` and ``if_available`` are the targets; when both are
-    ``None`` the request is the full plan (rule R0). ``enabled`` maps slot names to the
-    ids of the implementations enabled in the deployment; ``None`` assumes that every
-    allowed implementation is enabled (the static check of rule P5). Choosing the
-    implementation, parameters and bundles is left to the orchestrator. Pure function:
-    no I/O and no state. Every refusal reason found is returned, not only the first.
+    ``None`` no plan is requested and the result is the full plan (rule R0); a request
+    with targets that leaves no target to plan is refused (``empty_request``).
+    ``enabled`` maps slot names to the ids of the implementations the run can use;
+    ``None`` assumes that every allowed implementation is usable (the static check of
+    rule P5). Choosing among them, parameters and bundles is left to the orchestrator.
+    Pure function: no I/O and no state. Every refusal reason found is returned.
     """
     sets = {s["name"]: set(s["inputs"]) for s in pipeline["input_sets"]}
     if input_set not in sets:
@@ -1003,6 +1033,7 @@ def plan_closure(
     present = sets[input_set]
     slots = {s["name"]: s for s in pipeline["slots"]}
     names = [s["name"] for s in pipeline["slots"]]
+    order = topological_order(pipeline)
     slot_state, port_state = static_availability(pipeline, present)
     reasons: list[PlanReason] = []
 
@@ -1032,16 +1063,34 @@ def plan_closure(
                     continue  # if-available target that does not apply
                 out.append((name, target))
                 for p in ports:
-                    if "." in p and p not in targets[kind]:
+                    if p not in targets[kind]:
                         targets[kind].append(p)
+        both = {n for n, _ in req_slots} & {n for n, _ in opt_slots}
+        for name in [n for n in names if n in both]:
+            reasons.append(
+                PlanReason(
+                    "conflicting_targets",
+                    f"The slot '{name}' is both a required and an if-available target.",
+                    target=next(t for n, t in opt_slots if n == name),
+                    slot=name,
+                )
+            )
+        if not req_slots and not opt_slots and not reasons:
+            reasons.append(
+                PlanReason(
+                    "empty_request",
+                    f"The request has no target that applies with the input set "
+                    f"'{input_set}'.",
+                )
+            )
         if not targets["if_available"]:
             del targets["if_available"]
 
-    roles: dict[str, str] = {}
-    root: dict[str, str] = {}  # slot -> the target that brought it into the plan
-    needed_by: dict[str, str] = {}  # slot -> the planned slot that pulled it in
-    no_source: set[str] = set()  # if-available slots with a required port unreachable
-    picked: dict[str, list[str]] = {}  # slot -> producer slots of its required ports
+    def has_implementation(name: str) -> bool:
+        allowed = {a["id"] for a in slots[name]["implementations"]["allowed"]}
+        if enabled is None:
+            return bool(allowed)
+        return any(i in allowed for i in enabled.get(name, ()))
 
     def qualifies(src: str) -> bool:
         if src == "run.provenance" or src.startswith("inputs."):
@@ -1052,13 +1101,62 @@ def plan_closure(
             produced[port].get("when"), present
         )
 
-    def preferred(src: str, planned: set[str]) -> bool:
-        head = src.split(".")[0]
-        if head in ("inputs", "run"):
-            return True
-        return head in planned or (
-            not slots[head].get("optional", False) and slot_state[head] == DEFINITELY
+    def runnable(name: str, ok: Mapping[str, bool]) -> bool:
+        """Every required port has a qualifying source that is an input, the run
+        record, or a port of a slot for which ``ok`` holds (pipeline.md 6 item 2)."""
+        for c in slots[name]["consumes"]:
+            if c.get("optional", False):
+                continue
+            if not any(
+                qualifies(s)
+                and (s.split(".")[0] in ("inputs", "run") or ok.get(s.split(".")[0]))
+                for s in _sources(c)
+            ):
+                return False
+        return True
+
+    # Slots that can run in this deployment if planned (the selected slots of R0).
+    viable: dict[str, bool] = {}
+    for name in order:
+        viable[name] = (
+            _cond_holds(slots[name].get("when"), present)
+            and has_implementation(name)
+            and runnable(name, viable)
         )
+
+    roles: dict[str, str] = {}
+    root: dict[str, str] = {}  # slot -> the target that brought it into the plan
+    needed_by: dict[str, str] = {}  # slot -> the planned slot that pulled it in
+
+    def pick(sources: list[str], planned: set[str]) -> str | None:
+        """Steps 3-4: among the qualifying sources, in list order, the first that is
+        usable and preferred, else usable, else preferred, else any."""
+
+        def head(s: str) -> str:
+            return s.split(".")[0]
+
+        def usable(s: str) -> bool:
+            return head(s) in ("inputs", "run") or viable[head(s)]
+
+        def preferred(s: str) -> bool:
+            h = head(s)
+            return (
+                h in ("inputs", "run")
+                or h in planned
+                or (not slots[h].get("optional", False) and slot_state[h] == DEFINITELY)
+            )
+
+        good = [s for s in sources if qualifies(s)]
+        for test in (
+            lambda s: usable(s) and preferred(s),
+            usable,
+            preferred,
+            lambda s: True,
+        ):
+            found = next((s for s in good if test(s)), None)
+            if found is not None:
+                return found
+        return None
 
     def close(start: list[tuple[str, str]], role: str, prefer: tuple[str, ...]) -> None:
         queue: list[str] = []
@@ -1069,19 +1167,13 @@ def plan_closure(
                 queue.append(name)
         while queue:
             name = queue.pop(0)
-            picked.setdefault(name, [])
             for c in slots[name]["consumes"]:
                 if c.get("optional", False):
                     continue
-                planned = {n for n, r in roles.items() if r in prefer}
-                good = [s for s in _sources(c) if qualifies(s)]
-                choice = next((s for s in good if preferred(s, planned)), None)
-                if choice is None and good:
-                    choice = good[0]
+                choice = pick(_sources(c), {n for n, r in roles.items() if r in prefer})
                 if choice is None:
                     if role == "if_available":
-                        no_source.add(name)
-                        continue
+                        continue  # skipped as upstream_absent below
                     chain = [name]
                     while chain[-1] in needed_by:
                         chain.append(needed_by[chain[-1]])
@@ -1100,52 +1192,35 @@ def plan_closure(
                     )
                     continue
                 head = choice.split(".")[0]
-                if head in ("inputs", "run"):
+                if head in ("inputs", "run") or head in roles:
                     continue
-                picked[name].append(head)
-                if head not in roles:
-                    roles[head] = role
-                    root[head] = root[name]
-                    needed_by[head] = name
-                    queue.append(head)
+                roles[head] = role
+                root[head] = root[name]
+                needed_by[head] = name
+                queue.append(head)
 
     close(req_slots, "upstream", ("target", "upstream"))
     close(opt_slots, "if_available", PLAN_ROLES)
 
-    def has_implementation(name: str) -> bool:
-        allowed = {a["id"] for a in slots[name]["implementations"]["allowed"]}
-        if enabled is None:
-            return bool(allowed)
-        return any(i in allowed for i in enabled.get(name, ()))
-
+    # Step 5, in dependency order, as the run resolution of pipeline.md 6: a planned
+    # slot runs if every required port has a qualifying source that is planned.
     result: dict[str, SlotPlan] = {}
-    for name in topological_order(pipeline):
+    for name in order:
         role = roles.get(name)
         if not _cond_holds(slots[name].get("when"), present):
             result[name] = SlotPlan(name, "skipped", "condition_false")
         elif role is None:
             result[name] = SlotPlan(name, "skipped", "not_requested")
-        elif role == "if_available" and (
-            name in no_source
-            or any(result[h].status != "planned" for h in picked.get(name, []))
-        ):
+        elif not runnable(name, {n: r.status == "planned" for n, r in result.items()}):
+            # For a target or upstream slot, a reason is already recorded: a source
+            # it needs is unreachable or has no implementation (directly or upstream).
             result[name] = SlotPlan(name, "skipped", "upstream_absent", role)
+            if role != "if_available" and not has_implementation(name):
+                reasons.append(_no_implementation(name, needed_by, root))
         elif not has_implementation(name):
             result[name] = SlotPlan(name, "unavailable", "no_implementation", role)
             if role != "if_available":
-                by = needed_by.get(name)
-                reasons.append(
-                    PlanReason(
-                        "no_implementation",
-                        f"The slot '{name}' has no enabled implementation in this "
-                        f"deployment"
-                        + (f"; the slot '{by}' needs it" if by else "")
-                        + f" for the target '{root[name]}'.",
-                        target=root[name],
-                        slot=name,
-                        required_by=by or root[name],
-                    )
-                )
+                reasons.append(_no_implementation(name, needed_by, root))
         else:
             result[name] = SlotPlan(name, "planned", None, role)
     return StaticPlan(
@@ -1186,7 +1261,13 @@ def preset_errors(
         plan = plan_closure(pipeline, name, required, optional)
         plans[name] = plan
         for r in plan.reasons:
-            rule = "P4" if r.code in RESOLUTION_CODES else "P5"
+            rule = (
+                "P4"
+                if r.code in RESOLUTION_CODES + ("empty_request",)
+                else "P7"
+                if r.code == "conflicting_targets"
+                else "P5"
+            )
             errs.append(f"input set '{name}': [{r.code}] {r.message} ({rule})")
         slot_state, _ = static_availability(pipeline, sets[name])
         for target in optional:
@@ -1196,13 +1277,6 @@ def preset_errors(
                     f"input set '{name}': [target_not_applicable] the if-available "
                     f"target '{target}' does not apply with this input set (P4)"
                 )
-        req_slots = {p.split(".")[0] for p in plan.targets.get("required", [])}
-        opt_slots = {p.split(".")[0] for p in plan.targets.get("if_available", [])}
-        for d in sorted(req_slots & opt_slots):
-            errs.append(
-                f"input set '{name}': slot '{d}' is both a required and an "
-                f"if-available target (P7)"
-            )
     planned = {n for plan in plans.values() for n in plan.planned()}
     for slot, choice in preset.get("implementations", {}).items():
         where = f"implementations '{slot}'"
