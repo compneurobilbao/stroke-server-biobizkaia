@@ -11,7 +11,7 @@ example-fc-tool 1.0.0; see section 5.4. Input lesion_mni: origin declared by the
 segmenter 2.1.0); the platform cannot verify it. Analysis plan Full analysis: the run had no preset and no
 custom targets, so every slot of the pipeline that could run was planned. Slot In the plan as Outcome lesion-
 intake added (needed by a requested output)selected normalisation not applicable to the input set skipped
-(condition_false) functional-disconnectionrequested selected tract-disconnection requested selected cognitive-
+(condition_false) functional-disconnectionrequested selected tract-disconnection requested selected cognet-
 profile if available unavailable (no_implementation) report requested selected • • • • 2. Lesion Figure 1.
 Orthogonal views through the lesion centroid (MNI152 space, L and R marked). Background: an MNI152 T1 template
 bundled with the figure library (not the NLin6Asym version), shown for orientation only; small offsets to the
@@ -34,8 +34,8 @@ eee7deac206d4f413f799fd2fd4800 85def3b581aa344 nibabel 5.2.1, compneuro- step-sd
 tool 2.1.0) docker.io/compneurobilbaolab/ step-example-fc- tool@sha256:3c9e5a7b1d2f4e6a8
 b0c2d4e6f8a0b1c3d5e7f9a1b3c5d7 e9f1a3b5c7d9e1f3a tract- disconnection selected lnm-tracts
 1.0.0docker.io/compneurobilbaolab/ step-lnm- tracts@sha256:416b7a381284de83 b86f811b915af688143d974508d623
-b0d79d2b6b4d56a9b5 MRtrix3 3.0.4, compneuro- step-sdk 1.0.0 cognitive- profile unavailable (no_implementation)
-- - - report selected research-report 0.3.0 docker.io/compneurobilbaolab/ step-research-
+b0d79d2b6b4d56a9b5 MRtrix3 3.0.4, compneuro- step-sdk 1.0.0 cognet-profileunavailable (no_implementation) - -
+- report selected research-report 0.3.0 docker.io/compneurobilbaolab/ step-research-
 report@sha256:43199ac0a3fd5c92 e41b6db66eb06d2015c87231c08c3 f2877102dddabfbc9ad 5.2 Reference bundles Bundle
 VersionContent digest connectome (toy-normative- connectome) 1.0.0
 sha256:dd625c79ae75f2bf5f6f94aa3edf4f6fb4d874a7e65c0c92c6e4d019 cc9d3a70 tracts (hcp1065-tracts) 1.0.0
@@ -44,7 +44,7 @@ Input Type SHA-256 Bytes cognet_profile cognet_profile not provided - ct_mni ct_
 fdisconnection_mapfdisconnection_map48475b5288fb9038b9e86b1262e7381bdca95f98439afcc17de67065789 ec143 3611171
 lesion_mask lesion_mask_mni7120e719b6659b5a9a900a90794494a6f21c69a065e4576941123752020 9eade 1210 lesion_qc
 lesion_qc c537306779f57d9fd5dc718f4e721849df2d06fd7a1c45c1062340b56a7 f6160 1261 run_provenance run_provenance
-2820ad037ab8ea09555def07f9a396dc0dd439d0ef929eaf476cc7ef598 47417 8694
+4be4ec9a68acf6b5a65e8c454bc30f180f12ba9e83ddfdbe123b0d31d9 e80079 8691
 tract_disconnectiontract_disconnectionb44c733c05e3ff6f5b3545c4e5d987cee6d5867293582fc91c50b36fd39 e3fb6 101
 5.4 External tools The results of these slots come from third-party software wrapped by a step of this
 platform. The run record does not state a validation level for them, and this report does not infer one. Slot

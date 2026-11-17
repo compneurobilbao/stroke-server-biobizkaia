@@ -8,23 +8,23 @@ absent (input not provided) Lesion volume 12.128 mL, hemisphere: Left, 1 connect
 disconnected tract: toy_cst_left (0.812); 1 of 4 tracts above 0.5. Analysis plan Preset mni-mask-analysis
 version 1.1.0, definition digest sha256:8459de0e342a20033358dd3827bffd5893163fff2b64415f69d3 ae5262edda56.
 Required outputs tract-disconnection.tract_disconnection, functional- disconnection.fdisconnection_map,
-report.report_pdf, report.report_json Outputs if available cognitive-profile.cognet_profile Slot In the plan
-as Outcome lesion-intake added (needed by a requested output)selected normalisation not applicable to the
-input set skipped (condition_false) functional-disconnectionrequested selected tract-disconnection requested
-selected cognitive-profile if available unavailable (no_implementation) report requested selected • • 2.
-Lesion Figure 1. Orthogonal views through the lesion centroid (MNI152 space, L and R marked). Background: an
-MNI152 T1 template bundled with the figure library (not the NLin6Asym version), shown for orientation only;
-small offsets to the lesion grid are expected. Volume 12.128 mL (1516 voxels) Hemisphere Left (left 1516,
-right 0, midline 0 voxels) Connected components 1, largest holds 100.0 % of the volume Centroid (mm) -38.0,
--15.0, 15.0 Grid MNI152NLin6Asym-res2, shape 91 x 109 x 91, voxel 2.0 x 2.0 x 2.0 mm Mask on the working grid
-12.128 mL, 1516 voxels (consistent with the QC) The lesion QC recorded no warnings. 3. Disconnection 3.1
-Functional disconnection map Figure 2. Functional disconnection map on the lesion centroid cuts; larger values
-mean more disconnection. Maximum 0.9495 Voxels above zero 11512 Mean of positive voxels 0.2496 3.2 Tract
-disconnection Disconnection is the fraction of the streamlines of a tract that intersect the lesion (0 to 1).
-4 tracts; mean 0.328. Figure 3. Disconnection of the most disconnected tracts (up to 20), horizontal axis from
-0 to 1. Tract Disconnection toy_cst_left 0.812 toy_arcuate_left 0.438 toy_cc_body 0.062 toy_cst_right 0.000 4.
-Cognitive profile Not available: the cognitive profile was not provided to this report, so this section is
-empty. 5. Provenance Pipeline stroke-lnm 0.3.0, definition digest
+report.report_pdf, report.report_json Outputs if available cognet-profile.profile Slot In the plan as Outcome
+lesion-intake added (needed by a requested output)selected normalisation not applicable to the input set
+skipped (condition_false) functional-disconnectionrequested selected tract-disconnection requested selected
+cognet-profile if available unavailable (no_implementation) report requested selected • • 2. Lesion Figure 1.
+Orthogonal views through the lesion centroid (MNI152 space, L and R marked). Background: an MNI152 T1 template
+bundled with the figure library (not the NLin6Asym version), shown for orientation only; small offsets to the
+lesion grid are expected. Volume 12.128 mL (1516 voxels) Hemisphere Left (left 1516, right 0, midline 0
+voxels) Connected components 1, largest holds 100.0 % of the volume Centroid (mm) -38.0, -15.0, 15.0 Grid
+MNI152NLin6Asym-res2, shape 91 x 109 x 91, voxel 2.0 x 2.0 x 2.0 mm Mask on the working grid 12.128 mL, 1516
+voxels (consistent with the QC) The lesion QC recorded no warnings. 3. Disconnection 3.1 Functional
+disconnection map Figure 2. Functional disconnection map on the lesion centroid cuts; larger values mean more
+disconnection. Maximum 0.9495 Voxels above zero 11512 Mean of positive voxels 0.2496 3.2 Tract disconnection
+Disconnection is the fraction of the streamlines of a tract that intersect the lesion (0 to 1). 4 tracts; mean
+0.328. Figure 3. Disconnection of the most disconnected tracts (up to 20), horizontal axis from 0 to 1. Tract
+Disconnection toy_cst_left 0.812 toy_arcuate_left 0.438 toy_cc_body 0.062 toy_cst_right 0.000 4. Cognitive
+profile Not available: the cognitive profile was not provided to this report, so this section is empty. 5.
+Provenance Pipeline stroke-lnm 0.3.0, definition digest
 sha256:9d1f0c7b52e84a63b1c0f7d2a4e65b8890c3d1e7f2a4b6c8d0e2f4a6b8c0d1e2. Run status when the report was built:
 running. 5.1 Steps and container images Slot Status Step Container image (with digest) Software lesion-intake
 selected lesion-qc 1.0.0docker.io/compneurobilbaolab/ step-lesion- qc@sha256:cdaa743124272cc44e7
@@ -33,7 +33,7 @@ eee7deac206d4f413f799fd2fd480 085def3b581aa344 nibabel 5.2.1, compneuro- step-sd
 docker.io/compneurobilbaolab/ step-fdisconnection- stub@sha256:799f2131b0cde5b04 20e131d817b20e02b224b5c33e428
 4048ff7e9408c8cde3 tract- disconnection selected lnm-tracts 1.0.0docker.io/compneurobilbaolab/ step-lnm-
 tracts@sha256:416b7a381284de8 3b86f811b915af688143d974508d6 23b0d79d2b6b4d56a9b5 MRtrix3 3.0.4, compneuro-
-step-sdk 1.0.0 cognitive- profile unavailable (no_implementation) - - - report selected research-report 0.3.0
+step-sdk 1.0.0 cognet-profileunavailable (no_implementation) - - - report selected research-report 0.3.0
 docker.io/compneurobilbaolab/ step-research- report@sha256:43199ac0a3fd5c9 2e41b6db66eb06d2015c87231c08
 c3f2877102dddabfbc9ad 5.2 Reference bundles Bundle VersionContent digest tracts (hcp1065-tracts)1.0.0
 sha256:c7e0e0a7664ec23a3958c9c76e4352460b31e017c232f90baa43354bed68d75a 5.3 Artefacts read by this report
@@ -41,7 +41,7 @@ Input Type SHA-256 Bytes cognet_profile cognet_profile not provided - ct_mni ct_
 fdisconnection_mapfdisconnection_map48475b5288fb9038b9e86b1262e7381bdca95f98439afcc17de67065789 ec143 3611171
 lesion_mask lesion_mask_mni7120e719b6659b5a9a900a90794494a6f21c69a065e4576941123752020 9eade 1210 lesion_qc
 lesion_qc c537306779f57d9fd5dc718f4e721849df2d06fd7a1c45c1062340b56a7 f6160 1261 run_provenance run_provenance
-73ba9bd78f36917cbf93ee163b039a17126f64fbbec75ab8559e7242f6 ded250 8305
+c2f6ab178200d8937200876490982bd7a94168d916534136c481f9528f c79bce 8292
 tract_disconnectiontract_disconnectionb44c733c05e3ff6f5b3545c4e5d987cee6d5867293582fc91c50b36fd39 e3fb6 101 6.
 Notes This document is for research use only, not for clinical decisions. The machine-readable content of this
 report is in report.json; its bytes are the basis for sealing. • •

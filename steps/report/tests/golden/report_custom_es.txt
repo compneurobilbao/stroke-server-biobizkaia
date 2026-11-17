@@ -9,34 +9,34 @@ este plan Perfil cognitivo no solicitado en este plan Volumen de la lesión 12.1
 componente(s) conexo(s). Plan de análisis Plan personalizado: el usuario eligió los resultados indicados
 abajo; la plataforma añadió los pasos que necesitan. Resultados requeridos lesion-intake.lesion_qc,
 report.report_pdf, report.report_json Resultados si están disponibles- Ranura En el plan como Resultado
-lesion-intake añadida (necesaria para un resultado solicitado)selected normalisation no aplicable al conjunto
-de entradas skipped (condition_false) functional-disconnectionno solicitada no solicitada tract-disconnection
-no solicitada no solicitada cognitive-profile no solicitada no solicitada report solicitada selected • 2.
-Lesión Figura 1. Vistas ortogonales por el centroide de la lesión (espacio MNI152, L y R indican izquierda y
-derecha). Fondo: una plantilla T1 MNI152 incluida en la biblioteca de figuras (no la versión NLin6Asym), solo
-como orientación; son esperables pequeños desplazamientos respecto a la rejilla de la lesión. Volumen 12.128
-mL (1516 vóxeles) Hemisferio Izquierdo (izquierdo 1516, derecho 0, línea media 0 vóxeles) Componentes conexos
-1, el mayor contiene el 100.0 % del volumen Centroide (mm) -38.0, -15.0, 15.0 Rejilla MNI152NLin6Asym-res2,
-forma 91 x 109 x 91, vóxel 2.0 x 2.0 x 2.0 mm Máscara en la rejilla de trabajo12.128 mL, 1516 vóxeles
-(coherente con el control de calidad) El control de calidad de la lesión no registró avisos. 3. Desconexión
-3.1 Mapa de desconexión funcional No solicitado: el análisis de desconexión funcional queda fuera del plan de
-esta ejecución, por lo que esta sección está vacía. 3.2 Desconexión de tractos No solicitado: el análisis de
-desconexión de tractos queda fuera del plan de esta ejecución, por lo que esta sección está vacía. 4. Perfil
-cognitivo No solicitado: el perfil cognitivo queda fuera del plan de esta ejecución, por lo que esta sección
-está vacía. 5. Procedencia Flujo stroke-lnm 0.3.0, huella de la definición
+lesion-intake solicitada selected normalisation no aplicable al conjunto de entradasskipped (condition_false)
+functional-disconnectionno solicitada no solicitada tract-disconnection no solicitada no solicitada cognet-
+profile no solicitada no solicitada report solicitada selected • 2. Lesión Figura 1. Vistas ortogonales por el
+centroide de la lesión (espacio MNI152, L y R indican izquierda y derecha). Fondo: una plantilla T1 MNI152
+incluida en la biblioteca de figuras (no la versión NLin6Asym), solo como orientación; son esperables pequeños
+desplazamientos respecto a la rejilla de la lesión. Volumen 12.128 mL (1516 vóxeles) Hemisferio Izquierdo
+(izquierdo 1516, derecho 0, línea media 0 vóxeles) Componentes conexos 1, el mayor contiene el 100.0 % del
+volumen Centroide (mm) -38.0, -15.0, 15.0 Rejilla MNI152NLin6Asym-res2, forma 91 x 109 x 91, vóxel 2.0 x 2.0 x
+2.0 mm Máscara en la rejilla de trabajo12.128 mL, 1516 vóxeles (coherente con el control de calidad) El
+control de calidad de la lesión no registró avisos. 3. Desconexión 3.1 Mapa de desconexión funcional No
+solicitado: el análisis de desconexión funcional queda fuera del plan de esta ejecución, por lo que esta
+sección está vacía. 3.2 Desconexión de tractos No solicitado: el análisis de desconexión de tractos queda
+fuera del plan de esta ejecución, por lo que esta sección está vacía. 4. Perfil cognitivo No solicitado: el
+perfil cognitivo queda fuera del plan de esta ejecución, por lo que esta sección está vacía. 5. Procedencia
+Flujo stroke-lnm 0.3.0, huella de la definición
 sha256:9d1f0c7b52e84a63b1c0f7d2a4e65b8890c3d1e7f2a4b6c8d0e2f4a6b8c0d1e2. Estado de la ejecución al construir
 el informe: running. 5.1 Pasos e imágenes de contenedor Ranura Estado Paso Imagen de contenedor (con huella)
 Software lesion-intake selected lesion-qc 1.0.0 docker.io/compneurobilbaolab/step- lesion-
 qc@sha256:cdaa743124272cc44e7eee7deac2 06d4f413f799fd2fd480085def3b581aa344 nibabel 5.2.1, compneuro-step- sdk
 1.0.0 normalisationskipped (condition_false) - - - functional- disconnection skipped (not_requested) - - -
-tract- disconnection skipped (not_requested) - - - cognitive-profileskipped (not_requested) - - - report
-selected research- report 0.3.0 docker.io/compneurobilbaolab/step- research-
-report@sha256:43199ac0a3fd5c92e41b6db6 6eb06d2015c87231c08c3f2877102dddabfbc9 ad 5.3 Artefactos leídos por
-este informe Entrada Tipo SHA-256 Bytes cognet_profile cognet_profile no proporcionado - ct_mni ct_mni no
-proporcionado - fdisconnection_mapfdisconnection_mapno proporcionado - lesion_mask
+tract- disconnection skipped (not_requested) - - - cognet-profileskipped (not_requested) - - - report selected
+research- report 0.3.0 docker.io/compneurobilbaolab/step- research- report@sha256:43199ac0a3fd5c92e41b6db6
+6eb06d2015c87231c08c3f2877102dddabfbc9 ad 5.3 Artefactos leídos por este informe Entrada Tipo SHA-256 Bytes
+cognet_profile cognet_profile no proporcionado - ct_mni ct_mni no proporcionado -
+fdisconnection_mapfdisconnection_mapno proporcionado - lesion_mask
 lesion_mask_mni7120e719b6659b5a9a900a90794494a6f21c69a065e45769411237520209e ade 1210 lesion_qc lesion_qc
 c537306779f57d9fd5dc718f4e721849df2d06fd7a1c45c1062340b56a7f61 60 1261 run_provenance run_provenance
-2c56fb39f79fdfbaf5fdf2c86cc4b95e9335f8ed0b2c7d711625df5719444 ebc 4752
+90951475d552009437dd8a879d764b44efa079a8d03f32820042a83de242d3 ce 4747
 tract_disconnectiontract_disconnectionno proporcionado - 6. Notas Este documento es solo para uso en
 investigación, no para decisiones clínicas. El contenido legible por máquina de este informe está en
 report.json; sus bytes son la base del sellado. • •

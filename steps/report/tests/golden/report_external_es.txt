@@ -13,19 +13,19 @@ el usuario (herramienta externa example-segmenter 2.1.0); la plataforma no puede
 Análisis completo: la ejecución no tenía preajuste ni objetivos personalizados, por lo que se planificó toda
 ranura del flujo que pudiera ejecutarse. Ranura En el plan como Resultado lesion-intake añadida (necesaria
 para un resultado solicitado) selected normalisation no aplicable al conjunto de entradasskipped
-(condition_false) functional- disconnection solicitada selected tract-disconnectionsolicitada selected
-cognitive-profile si está disponible unavailable (no_implementation) report solicitada selected • • • • 2.
-Lesión Figura 1. Vistas ortogonales por el centroide de la lesión (espacio MNI152, L y R indican izquierda y
-derecha). Fondo: una plantilla T1 MNI152 incluida en la biblioteca de figuras (no la versión NLin6Asym), solo
-como orientación; son esperables pequeños desplazamientos respecto a la rejilla de la lesión. Volumen 12.128
-mL (1516 vóxeles) Hemisferio Izquierdo (izquierdo 1516, derecho 0, línea media 0 vóxeles) Componentes conexos
-1, el mayor contiene el 100.0 % del volumen Centroide (mm) -38.0, -15.0, 15.0 Rejilla MNI152NLin6Asym-res2,
-forma 91 x 109 x 91, vóxel 2.0 x 2.0 x 2.0 mm Máscara en la rejilla de trabajo12.128 mL, 1516 vóxeles
-(coherente con el control de calidad) El control de calidad de la lesión no registró avisos. 3. Desconexión
-3.1 Mapa de desconexión funcional Figura 2. Mapa de desconexión funcional en los cortes por el centroide de la
-lesión; valores mayores significan más desconexión. Máximo 0.9495 Vóxeles mayores que cero 11512 Media de los
-vóxeles positivos0.2496 3.2 Desconexión de tractos La desconexión es la fracción de las fibras de un tracto
-que intersectan la lesión (de 0 a 1). 4 tractos; media 0.328. Figura 3. Desconexión de los tractos más
+(condition_false) functional- disconnection solicitada selected tract-disconnectionsolicitada selected cognet-
+profile si está disponible unavailable (no_implementation) report solicitada selected • • • • 2. Lesión Figura
+1. Vistas ortogonales por el centroide de la lesión (espacio MNI152, L y R indican izquierda y derecha).
+Fondo: una plantilla T1 MNI152 incluida en la biblioteca de figuras (no la versión NLin6Asym), solo como
+orientación; son esperables pequeños desplazamientos respecto a la rejilla de la lesión. Volumen 12.128 mL
+(1516 vóxeles) Hemisferio Izquierdo (izquierdo 1516, derecho 0, línea media 0 vóxeles) Componentes conexos 1,
+el mayor contiene el 100.0 % del volumen Centroide (mm) -38.0, -15.0, 15.0 Rejilla MNI152NLin6Asym-res2, forma
+91 x 109 x 91, vóxel 2.0 x 2.0 x 2.0 mm Máscara en la rejilla de trabajo12.128 mL, 1516 vóxeles (coherente con
+el control de calidad) El control de calidad de la lesión no registró avisos. 3. Desconexión 3.1 Mapa de
+desconexión funcional Figura 2. Mapa de desconexión funcional en los cortes por el centroide de la lesión;
+valores mayores significan más desconexión. Máximo 0.9495 Vóxeles mayores que cero 11512 Media de los vóxeles
+positivos0.2496 3.2 Desconexión de tractos La desconexión es la fracción de las fibras de un tracto que
+intersectan la lesión (de 0 a 1). 4 tractos; media 0.328. Figura 3. Desconexión de los tractos más
 desconectados (hasta 20), eje horizontal de 0 a 1. Tracto Desconexión toy_cst_left 0.812 toy_arcuate_left
 0.438 toy_cc_body 0.062 toy_cst_right 0.000 4. Perfil cognitivo No disponible: el perfil cognitivo no se
 proporcionó a este informe, por lo que esta sección está vacía. 5. Procedencia Flujo stroke-lnm 0.3.0, huella
@@ -37,8 +37,8 @@ step-sdk 1.0.0 normalisationskipped (condition_false) - - - functional- disconne
 1.0.0 (herramienta externa: example- fc-tool 2.1.0) docker.io/ compneurobilbaolab/step- example-fc-
 tool@sha256:3c9e5a7b1d2f4e6 a8b0c2d4e6f8a0b1c3d5e7f9a1b3 c5d7e9f1a3b5c7d9e1f3a tract- disconnection selected
 lnm-tracts 1.0.0 docker.io/ compneurobilbaolab/step-lnm- tracts@sha256:416b7a381284d
-e83b86f811b915af688143d97450 8d623b0d79d2b6b4d56a9b5 MRtrix3 3.0.4, compneuro- step-sdk 1.0.0 cognitive-
-profile unavailable (no_implementation) - - - report selected research-report 0.3.0 docker.io/
+e83b86f811b915af688143d97450 8d623b0d79d2b6b4d56a9b5 MRtrix3 3.0.4, compneuro- step-sdk 1.0.0 cognet-
+profileunavailable (no_implementation) - - - report selected research-report 0.3.0 docker.io/
 compneurobilbaolab/step- research- report@sha256:43199ac0a3fd5 c92e41b6db66eb06d2015c87231
 c08c3f2877102dddabfbc9ad 5.2 Paquetes de referencia Paquete VersiónHuella del contenido connectome (toy-
 normative- connectome) 1.0.0 sha256:dd625c79ae75f2bf5f6f94aa3edf4f6fb4d874a7e65c0c92c6e4d019 cc9d3a70 tracts
@@ -48,7 +48,7 @@ ct_mni no proporcionado -
 fdisconnection_mapfdisconnection_map48475b5288fb9038b9e86b1262e7381bdca95f98439afcc17de67065789 ec143 3611171
 lesion_mask lesion_mask_mni7120e719b6659b5a9a900a90794494a6f21c69a065e4576941123752020 9eade 1210 lesion_qc
 lesion_qc c537306779f57d9fd5dc718f4e721849df2d06fd7a1c45c1062340b56a7 f6160 1261 run_provenance run_provenance
-2820ad037ab8ea09555def07f9a396dc0dd439d0ef929eaf476cc7ef598 47417 8694
+4be4ec9a68acf6b5a65e8c454bc30f180f12ba9e83ddfdbe123b0d31d9 e80079 8691
 tract_disconnectiontract_disconnectionb44c733c05e3ff6f5b3545c4e5d987cee6d5867293582fc91c50b36fd39 e3fb6 101
 5.4 Herramientas externas Los resultados de estas ranuras proceden de software de terceros encapsulado por un
 paso de esta plataforma. El registro de la ejecución no indica un nivel de validación para ellas y este
