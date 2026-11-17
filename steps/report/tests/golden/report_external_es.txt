@@ -1,0 +1,65 @@
+Informe de investigación Análisis de lesión y desconexión, flujo de cartografía de redes de lesión en ictus
+Solo para uso en investigación, no para decisiones clínicas. Los valores de este informe son resultados de
+investigación y no se han validado para diagnóstico, pronóstico ni tratamiento. Ejecución
+4e7a1b93-0c2d-4f68-a5b1-8d3c6e9f2a47 Caso c3a81f40-5e92-4b6d-8a17-2f9b0c6d4e85 Flujo de procesamiento stroke-
+lnm 0.3.0 Versión de la plataforma 0.3.0 (tipos de artefacto 1.0.0) Conjunto de entradas mni-mask Ejecución
+creada 2026-11-13T11:00:00Z Generador del informe research-report 0.3.0 1. Resumen Sección Estado Lesión
+disponible Mapa de desconexión funcional disponible Desconexión de tractos disponible Perfil cognitivo ausente
+(entrada no proporcionada) Volumen de la lesión 12.128 mL, hemisferio: Izquierdo, 1 componente(s) conexo(s).
+Tracto más desconectado: toy_cst_left (0.812); 1 de 4 tractos por encima de 0.5. Herramienta externa: los
+resultados de la ranura functional-disconnection los produjo example-fc-tool 2.1.0 (licencia Apache-2.0),
+encapsulada por el paso example-fc-tool 1.0.0; véase la sección 5.4. Entrada lesion_mni: origen declarado por
+el usuario (herramienta externa example-segmenter 2.1.0); la plataforma no puede verificarlo. Plan de análisis
+Análisis completo: la ejecución no tenía preajuste ni objetivos personalizados, por lo que se planificó toda
+ranura del flujo que pudiera ejecutarse. Ranura En el plan como Resultado lesion-intake añadida (necesaria
+para un resultado solicitado) selected normalisation no aplicable al conjunto de entradasskipped
+(condition_false) functional- disconnection solicitada selected tract-disconnectionsolicitada selected
+cognitive-profile si está disponible unavailable (no_implementation) report solicitada selected • • • • 2.
+Lesión Figura 1. Vistas ortogonales por el centroide de la lesión (espacio MNI152, L y R indican izquierda y
+derecha). Fondo: una plantilla T1 MNI152 incluida en la biblioteca de figuras (no la versión NLin6Asym), solo
+como orientación; son esperables pequeños desplazamientos respecto a la rejilla de la lesión. Volumen 12.128
+mL (1516 vóxeles) Hemisferio Izquierdo (izquierdo 1516, derecho 0, línea media 0 vóxeles) Componentes conexos
+1, el mayor contiene el 100.0 % del volumen Centroide (mm) -38.0, -15.0, 15.0 Rejilla MNI152NLin6Asym-res2,
+forma 91 x 109 x 91, vóxel 2.0 x 2.0 x 2.0 mm Máscara en la rejilla de trabajo12.128 mL, 1516 vóxeles
+(coherente con el control de calidad) El control de calidad de la lesión no registró avisos. 3. Desconexión
+3.1 Mapa de desconexión funcional Figura 2. Mapa de desconexión funcional en los cortes por el centroide de la
+lesión; valores mayores significan más desconexión. Máximo 0.9495 Vóxeles mayores que cero 11512 Media de los
+vóxeles positivos0.2496 3.2 Desconexión de tractos La desconexión es la fracción de las fibras de un tracto
+que intersectan la lesión (de 0 a 1). 4 tractos; media 0.328. Figura 3. Desconexión de los tractos más
+desconectados (hasta 20), eje horizontal de 0 a 1. Tracto Desconexión toy_cst_left 0.812 toy_arcuate_left
+0.438 toy_cc_body 0.062 toy_cst_right 0.000 4. Perfil cognitivo No disponible: el perfil cognitivo no se
+proporcionó a este informe, por lo que esta sección está vacía. 5. Procedencia Flujo stroke-lnm 0.3.0, huella
+de la definición sha256:9d1f0c7b52e84a63b1c0f7d2a4e65b8890c3d1e7f2a4b6c8d0e2f4a6b8c0d1e2. Estado de la
+ejecución al construir el informe: running. 5.1 Pasos e imágenes de contenedor Ranura Estado Paso Imagen de
+contenedor (con huella) Software lesion-intakeselected lesion-qc 1.0.0 docker.io/ compneurobilbaolab/step-
+lesion- qc@sha256:cdaa743124272cc44 e7eee7deac206d4f413f799fd2f d480085def3b581aa344 nibabel 5.2.1, compneuro-
+step-sdk 1.0.0 normalisationskipped (condition_false) - - - functional- disconnection selected example-fc-tool
+1.0.0 (herramienta externa: example- fc-tool 2.1.0) docker.io/ compneurobilbaolab/step- example-fc-
+tool@sha256:3c9e5a7b1d2f4e6 a8b0c2d4e6f8a0b1c3d5e7f9a1b3 c5d7e9f1a3b5c7d9e1f3a tract- disconnection selected
+lnm-tracts 1.0.0 docker.io/ compneurobilbaolab/step-lnm- tracts@sha256:416b7a381284d
+e83b86f811b915af688143d97450 8d623b0d79d2b6b4d56a9b5 MRtrix3 3.0.4, compneuro- step-sdk 1.0.0 cognitive-
+profile unavailable (no_implementation) - - - report selected research-report 0.3.0 docker.io/
+compneurobilbaolab/step- research- report@sha256:43199ac0a3fd5 c92e41b6db66eb06d2015c87231
+c08c3f2877102dddabfbc9ad 5.2 Paquetes de referencia Paquete VersiónHuella del contenido connectome (toy-
+normative- connectome) 1.0.0 sha256:dd625c79ae75f2bf5f6f94aa3edf4f6fb4d874a7e65c0c92c6e4d019 cc9d3a70 tracts
+(hcp1065-tracts) 1.0.0 sha256:c7e0e0a7664ec23a3958c9c76e4352460b31e017c232f90baa43354b ed68d75a 5.3 Artefactos
+leídos por este informe Entrada Tipo SHA-256 Bytes cognet_profile cognet_profile no proporcionado - ct_mni
+ct_mni no proporcionado -
+fdisconnection_mapfdisconnection_map48475b5288fb9038b9e86b1262e7381bdca95f98439afcc17de67065789 ec143 3611171
+lesion_mask lesion_mask_mni7120e719b6659b5a9a900a90794494a6f21c69a065e4576941123752020 9eade 1210 lesion_qc
+lesion_qc c537306779f57d9fd5dc718f4e721849df2d06fd7a1c45c1062340b56a7 f6160 1261 run_provenance run_provenance
+2820ad037ab8ea09555def07f9a396dc0dd439d0ef929eaf476cc7ef598 47417 8694
+tract_disconnectiontract_disconnectionb44c733c05e3ff6f5b3545c4e5d987cee6d5867293582fc91c50b36fd39 e3fb6 101
+5.4 Herramientas externas Los resultados de estas ranuras proceden de software de terceros encapsulado por un
+paso de esta plataforma. El registro de la ejecución no indica un nivel de validación para ellas y este
+informe no lo deduce. Ranura Paso envoltorio Herramienta externa Licencia Cita functional- disconnection
+example-fc- tool 1.0.0 example-fc-tool 2.1.0 https://example.org/ example-fc-tool Apache-2.0Example Authors
+(2025). An example method for functional disconnection. Journal of Examples 1, 1-10. 5.5 Origen declarado de
+las entradas aportadas Estos orígenes los declaró el usuario al subir los archivos; la plataforma no puede
+verificarlos. Entrada Tipo SHA-256 Origen declarado
+lesion_mnilesion_mask_mni_any7039a1152e72b0cc78c6ca4048eeb4b02 97714bca3b3a686d8bd27da68103356herramienta
+externa example- segmenter 2.1.0 (declarado por el usuario) 6. Notas Este documento es solo para uso en
+investigación, no para decisiones clínicas. El contenido legible por máquina de este informe está en
+report.json; sus bytes son la base del sellado. Al menos un resultado lo produjo una herramienta externa; su
+nombre, versión y licencia están en la sección 5.4. El origen de al menos una entrada aportada lo declaró el
+usuario y la plataforma no lo verifica (sección 5.5). • • • •
