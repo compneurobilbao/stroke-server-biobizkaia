@@ -4,7 +4,9 @@ Required inputs: ``lesion_qc``, ``lesion_mask`` and ``run_provenance``. The othe
 (``ct_mni``, ``fdisconnection_map``, ``tract_disconnection``, ``cognet_profile``) are
 optional: when one is absent its section says so and the run still succeeds. A run without
 ``tract_disconnection`` (QC-only report, version 0.2.0) states that tract disconnection is not
-part of the analysis.
+part of the analysis. The step reads run records of contract 1.2: it states the plan, marks
+slots outside the plan as not requested, lists external tools (the ``upstream`` block of the
+slot record) and shows declared input origins as declared by the user.
 """
 
 from __future__ import annotations
@@ -73,7 +75,9 @@ def run(ctx: StepContext) -> None:
     rows = None
     if ctx.has_input("tract_disconnection"):
         rows = _guard("tract_disconnection", model.read_tract_table, ctx.input_path("tract_disconnection"))
-    tracts = model.tract_section(rows)
+    tracts = model.mark_not_requested(
+        model.tract_section(rows), run_doc, "tract_disconnection"
+    )
 
     if ctx.has_input("fdisconnection_map"):
         functional = _guard(
@@ -82,10 +86,14 @@ def run(ctx: StepContext) -> None:
             ctx.input_path("fdisconnection_map"),
         )
     else:
-        functional = {"status": "absent"}
+        functional = model.mark_not_requested(
+            {"status": "absent"}, run_doc, "functional_disconnection"
+        )
 
     profile = _cognet(ctx)
-    cognet = _guard("cognet_profile", model.cognet_section, profile)
+    cognet = model.mark_not_requested(
+        _guard("cognet_profile", model.cognet_section, profile), run_doc, "cognitive_profile"
+    )
 
     # digests of the exact files this report was computed from
     inputs = []
@@ -108,6 +116,9 @@ def run(ctx: StepContext) -> None:
         functional=functional,
         tracts=tracts,
         cognet=cognet,
+        plan=_guard("run_provenance", model.plan_section, run_doc),
+        external_tools=_guard("run_provenance", model.external_tools_section, run_doc),
+        declared_origins=_guard("run_provenance", model.declared_origins_section, run_doc),
     )
 
     ct_mni = ctx.input_path("ct_mni") if ctx.has_input("ct_mni") else None

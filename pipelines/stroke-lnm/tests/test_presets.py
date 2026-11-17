@@ -47,7 +47,7 @@ from orchestrator.planning import (  # noqa: E402
 
 PRESETS = ["full", "mni-mask-analysis", "ct-normalisation", "lesion-qc-report"]
 CT, MNI = "ct-and-native-mask", "mni-mask"
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 ALL_SLOTS = [
     "lesion-intake",
     "normalisation",
@@ -104,17 +104,17 @@ def test_registry_check_validates_the_presets(documents):
 
 
 def test_presets_are_attached_to_the_pipeline_version(presets):
-    """P1-P8 through the orchestrator's own loader: all four are offered for 0.2.0."""
+    """P1-P8 through the orchestrator's own loader: all four are offered for 0.3.0."""
     assert [p.id for p in presets.presets("stroke-lnm", VERSION)] == sorted(PRESETS)
     for preset in presets.presets("stroke-lnm", VERSION):
-        assert preset.version == "1.0.0"
+        assert preset.version == "1.1.0"
         assert preset.sha256 == hashlib.sha256((HERE / "presets" / f"{preset.id}.yaml").read_bytes()).hexdigest()
 
 
 def test_the_presets_are_written_for_the_current_pipeline_range():
     for name in PRESETS:
         data = yaml.safe_load((HERE / "presets" / f"{name}.yaml").read_text(encoding="utf-8"))
-        assert data["pipeline"] == {"id": "stroke-lnm", "versions": ">=0.2.0, <0.3.0"}
+        assert data["pipeline"] == {"id": "stroke-lnm", "versions": ">=0.2.0, <0.4.0"}
 
 
 def test_the_profiles_enable_every_preset_with_one_default(documents):
@@ -422,16 +422,22 @@ def _too_old(pipeline, presets, documents, preset_id, input_set):
     ("preset_id", "input_set"),
     [("full", CT), ("full", MNI), ("mni-mask-analysis", MNI), ("lesion-qc-report", CT), ("lesion-qc-report", MNI)],
 )
-def test_presets_with_the_report_are_refused_until_the_report_declares_contract_1_2(
+def test_presets_with_the_report_are_accepted_by_the_report_step(
     documents, pipeline, presets, preset_id, input_set
 ):
-    """The merged report step declares an older contract and reads `run.provenance`: any
-    preset that plans it is refused with `step_contract_too_old` (card F1-25 lifts this).
-    When the report step declares 1.2 this test must change to expect no reasons."""
-    if str(REPORT_MANIFEST["contract_version"]) >= "1.2":
-        pytest.skip("the report step declares contract 1.2")
-    reasons = _too_old(pipeline, presets, documents, preset_id, input_set)
-    assert [(r.code, r.slot) for r in reasons] == [("step_contract_too_old", "report")]
+    """research-report 0.3.0 declares contract 1.2 and reads `run.provenance`: no preset is
+    refused with `step_contract_too_old` any more (card F1-25 lifted the refusal)."""
+    assert str(REPORT_MANIFEST["contract_version"]) == "1.2"
+    assert _too_old(pipeline, presets, documents, preset_id, input_set) == []
+
+
+def test_the_pipeline_pins_the_report_step_that_declares_contract_1_2(pipeline):
+    report = pipeline.slot("report")
+    for impl in report["implementations"]["allowed"]:
+        assert impl["step"] == {
+            "name": REPORT_MANIFEST["name"],
+            "version": REPORT_MANIFEST["version"],
+        }
 
 
 def test_ct_normalisation_reads_no_run_record(documents, pipeline, presets):

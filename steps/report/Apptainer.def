@@ -28,4 +28,4 @@ From: {{ IMAGE }}
 
 %labels
     org.opencontainers.image.title research-report
-    contract.version 1.0
+    contract.version 1.2

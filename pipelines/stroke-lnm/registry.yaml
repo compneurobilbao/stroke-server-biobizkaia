@@ -8,7 +8,7 @@
 # images; CI builds the steps and writes the local digests at run time
 # (`registry.py materialize`). Nothing here is ever pulled while a digest is a placeholder.
 registry_version: 1
-pipeline: {id: stroke-lnm, version: 0.2.0}
+pipeline: {id: stroke-lnm, version: 0.3.0}
 
 # kind: real     a merged step that runs on real data
 #       stub     synthetic output, only enabled in the ci profile (and demo deployments)
@@ -63,12 +63,12 @@ implementations:
         dockerfile: step/Dockerfile
   report:
     research-report:
-      step: {name: research-report, version: 0.2.0}
+      step: {name: research-report, version: 0.3.0}
       kind: real
       image: docker.io/compneurobilbaolab/step-research-report@sha256:0000000000000000000000000000000000000000000000000000000000000000
       source: {repository: this, dockerfile: steps/report/Dockerfile}
     research-report-es:
-      step: {name: research-report, version: 0.2.0}
+      step: {name: research-report, version: 0.3.0}
       kind: real
       image: docker.io/compneurobilbaolab/step-research-report@sha256:0000000000000000000000000000000000000000000000000000000000000000
       source: {repository: this, dockerfile: steps/report/Dockerfile}
