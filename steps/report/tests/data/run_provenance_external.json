@@ -117,7 +117,7 @@
     {
       "plan_role": "if_available",
       "reason": "no_implementation",
-      "slot": "cognitive-profile",
+      "slot": "cognet-profile",
       "status": "unavailable"
     },
     {

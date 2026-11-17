@@ -19,7 +19,7 @@ RESEARCH_USE_ONLY = "For research use only, not for clinical decisions."
 SECTION_SLOTS = {
     "functional_disconnection": "functional-disconnection",
     "tract_disconnection": "tract-disconnection",
-    "cognitive_profile": "cognitive-profile",
+    "cognitive_profile": "cognet-profile",
 }
 MEASURES = ("disconnection_positive", "disconnection_negative", "lesion_overlap")
 

@@ -53,7 +53,7 @@
         },
         "stub": false
       },
-      "plan_role": "upstream",
+      "plan_role": "target",
       "slot": "lesion-intake",
       "status": "selected"
     },
@@ -74,7 +74,7 @@
     },
     {
       "reason": "not_requested",
-      "slot": "cognitive-profile",
+      "slot": "cognet-profile",
       "status": "skipped"
     },
     {

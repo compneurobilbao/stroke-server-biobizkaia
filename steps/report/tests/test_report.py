@@ -270,14 +270,14 @@ def test_report_json_golden_preset_run_en(tmp_path, reference, no_pdf):
                 "report.report_pdf",
                 "report.report_json",
             ],
-            "if_available": ["cognitive-profile.cognet_profile"],
+            "if_available": ["cognet-profile.profile"],
         },
     }
     # the COGNET slot was planned "if available" but has no implementation: absent, not "not requested"
     assert doc["cognitive_profile"] == {"status": "absent"}
     roles = {s["slot"]: s.get("plan_role") for s in doc["provenance"]["slots"]}
     assert roles["lesion-intake"] == "upstream" and roles["report"] == "target"
-    assert roles["cognitive-profile"] == "if_available" and roles["normalisation"] is None
+    assert roles["cognet-profile"] == "if_available" and roles["normalisation"] is None
     assert "external_tools" not in doc and "declared_origins" not in doc
 
 
@@ -636,3 +636,14 @@ def test_reference_dataset_local_run(tmp_path):
     make_reference.generate(STEP_DIR / "tests" / "reference")
     code = reftest.run_reference_test(STEP_DIR, "local", workdir=tmp_path / "work")
     assert code == 0
+
+
+def test_section_slots_are_slots_of_the_stroke_lnm_pipeline():
+    """`not_requested` is read from the slot names of the run record: they must be real ones."""
+    import yaml
+
+    pipeline = yaml.safe_load(
+        (REPO / "pipelines" / "stroke-lnm" / "pipeline.yaml").read_text(encoding="utf-8")
+    )
+    names = {slot["name"] for slot in pipeline["slots"]}
+    assert set(model.SECTION_SLOTS.values()) <= names
