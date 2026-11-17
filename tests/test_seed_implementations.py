@@ -14,6 +14,7 @@ from sqlalchemy.orm import sessionmaker
 from tests import pgdb
 from app.api.v1 import deps
 from app.cli import seed_implementations as seed
+from app.models.preset_setting import PresetSetting
 from app.models.reference_bundle import SlotImplementationSetting
 from tests.test_api import auth_headers
 
@@ -257,3 +258,119 @@ def test_env_example_declares_api_pipeline_settings():
     text = (ROOT / ".env.example").read_text(encoding="utf-8")
     for key in ("API_PIPELINES_DIR", "API_STEP_MANIFESTS_DIR", "DEPLOYMENT_PROFILE"):
         assert key in text
+
+
+# --------------------------------------------------------------- preset settings
+
+
+def preset_rows(factory):
+    with factory() as db:
+        return {
+            r.preset_id: (r.enabled, r.is_default)
+            for r in db.scalars(select(PresetSetting))
+        }
+
+
+PRESET_IDS = sorted(
+    p.stem for p in (PIPELINES / "stroke-lnm" / "presets").glob("*.yaml")
+)
+
+
+def test_preset_profile_settings_match_the_registry_helper():
+    tool = _registry_tool()
+    reg = registry()
+    for profile in ("deployment", "ci"):
+        assert seed.preset_profile_settings(
+            reg, profile, PRESET_IDS
+        ) == tool.enabled_preset_settings(reg, profile, PRESET_IDS)
+        assert seed.preset_profile_settings(reg, profile) == tool.enabled_preset_settings(
+            reg, profile
+        )
+
+
+@pytest.mark.parametrize("profile", ["deployment", "ci"])
+def test_presets_are_seeded_from_the_profile(factory, capsys, profile):
+    assert run(factory, "--profile", profile) == 0
+    assert preset_rows(factory) == {
+        "full": (True, True),
+        "mni-mask-analysis": (True, False),
+        "ct-normalisation": (True, False),
+        "lesion-qc-report": (True, False),
+    }
+    assert "insert    stroke-lnm/preset/full" in capsys.readouterr().out
+
+
+def test_preset_seeding_is_idempotent_and_leaves_admin_changes(factory, capsys):
+    run(factory, "--profile", "deployment")
+    capsys.readouterr()
+    assert run(factory, "--profile", "deployment") == 0
+    assert "0 inserted, 0 updated" in capsys.readouterr().out
+    with factory() as db:
+        by_id = {r.preset_id: r for r in db.scalars(select(PresetSetting))}
+        by_id["full"].is_default = False
+        db.flush()
+        by_id["lesion-qc-report"].is_default = True
+        by_id["ct-normalisation"].enabled = False
+        db.commit()
+    admin_state = preset_rows(factory)
+    capsys.readouterr()
+    assert run(factory, "--profile", "deployment") == 0
+    assert preset_rows(factory) == admin_state
+    assert run(factory, "--profile", "deployment", "--reset") == 0
+    assert preset_rows(factory)["full"] == (True, True)
+    assert preset_rows(factory)["ct-normalisation"] == (True, False)
+    assert preset_rows(factory)["lesion-qc-report"] == (True, False)
+    capsys.readouterr()
+    run(factory, "--profile", "deployment", "--reset")
+    assert "0 updated" in capsys.readouterr().out
+
+
+def test_missing_preset_rows_do_not_steal_an_admin_default(factory):
+    with factory() as db:
+        db.add(
+            PresetSetting(
+                pipeline_id="stroke-lnm",
+                preset_id="lesion-qc-report",
+                enabled=True,
+                is_default=True,
+            )
+        )
+        db.commit()
+    assert run(factory, "--profile", "deployment") == 0
+    got = preset_rows(factory)
+    assert got["lesion-qc-report"] == (True, True)
+    assert got["full"] == (True, False)
+
+
+def test_dry_run_writes_no_preset_rows(factory):
+    assert run(factory, "--profile", "deployment", "--dry-run") == 0
+    assert preset_rows(factory) == {}
+
+
+def test_preset_profile_errors_are_refused(factory, pipelines_copy, capsys):
+    path = pipelines_copy / "stroke-lnm" / "registry.yaml"
+    doc = yaml.safe_load(path.read_text())
+    doc["profiles"]["deployment"]["presets"]["enabled"].append("no-such-preset")
+    path.write_text(yaml.safe_dump(doc, sort_keys=False))
+    assert run(factory, "--profile", "deployment", pipelines=pipelines_copy) == 1
+    assert "no-such-preset" in capsys.readouterr().err
+    assert preset_rows(factory) == {} and rows(factory) == {}
+    doc["profiles"]["deployment"]["presets"]["enabled"].pop()
+    doc["profiles"]["deployment"]["presets"]["default"] = "ct-normalisation"
+    doc["profiles"]["deployment"]["presets"]["enabled"].remove("ct-normalisation")
+    path.write_text(yaml.safe_dump(doc, sort_keys=False))
+    assert run(factory, "--profile", "deployment", pipelines=pipelines_copy) == 1
+    assert "is not enabled" in capsys.readouterr().err
+    assert preset_rows(factory) == {}
+
+
+def test_a_registry_without_presets_seeds_none(factory, pipelines_copy):
+    shutil.rmtree(pipelines_copy / "stroke-lnm" / "presets")
+    path = pipelines_copy / "stroke-lnm" / "registry.yaml"
+    doc = yaml.safe_load(path.read_text())
+    for profile in doc["profiles"].values():
+        profile.pop("presets", None)
+    path.write_text(yaml.safe_dump(doc, sort_keys=False))
+    assert run(factory, "--profile", "deployment", pipelines=pipelines_copy) == 0
+    assert preset_rows(factory) == {}
+    assert rows(factory)

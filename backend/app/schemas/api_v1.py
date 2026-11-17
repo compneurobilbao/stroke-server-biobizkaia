@@ -8,10 +8,17 @@ an exact age, a free-text identifier or an uploaded file name.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    model_serializer,
+    model_validator,
+)
 
 from app.models import formats
 from app.schemas.case import CaseRead, CaseUpdate, InputFileRead
@@ -27,6 +34,10 @@ from app.schemas.run import (
 Kebab = Annotated[str, StringConstraints(pattern=formats.KEBAB, max_length=64)]
 Snake = Annotated[str, StringConstraints(pattern=formats.SNAKE, max_length=64)]
 Semver = Annotated[str, StringConstraints(pattern=formats.SEMVER, max_length=64)]
+Sha256Hex = Annotated[str, StringConstraints(pattern=formats.SHA256_HEX)]
+# A slot, ``slot.port`` or an artefact type name. Not matched against a pattern here:
+# an unknown name is refused with the code ``unknown_target`` (run-plans.md 3.3).
+TargetName = Annotated[str, StringConstraints(min_length=1, max_length=128)]
 
 
 # ------------------------------------------------------------------ pipelines
@@ -104,6 +115,171 @@ class CaseDetailRead(CaseRead):
     inputs: list[InputFileRead] = []
 
 
+# ----------------------------------------------------------------------- plans
+
+
+class PresetRefIn(BaseModel):
+    """A preset named in a request; without ``version``, the highest enabled one."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: Kebab
+    version: Semver | None = None
+
+
+class TargetsIn(BaseModel):
+    """Free-mode targets (run-plans.md 3.2): slots, ``slot.port`` or artefact types."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    required: list[TargetName] = Field(default_factory=list, max_length=64)
+    if_available: list[TargetName] = Field(default_factory=list, max_length=64)
+
+
+class PlanRequestIn(BaseModel):
+    """Dry run of a run request: the plan it would get, nothing written."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    input_roles: list[Snake] = Field(
+        min_length=1,
+        max_length=32,
+        description="Input roles the run would have; they decide the input set.",
+    )
+    preset: PresetRefIn | None = None
+    targets: TargetsIn | None = None
+    implementations: dict[Kebab, Kebab] = Field(default_factory=dict)
+
+
+class PlanReasonRead(BaseModel):
+    """One reason a plan request is refused (run-plans.md 3.3); fields only when relevant."""
+
+    code: str
+    message: str
+    target: str | None = None
+    slot: str | None = None
+    port: str | None = None
+    required_by: str | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_empty(self, handler):
+        # Fields only when relevant, as in the error body of a refused run request.
+        return {k: v for k, v in handler(self).items() if v is not None}
+
+
+class PlanSlotRead(BaseModel):
+    name: str
+    status: Literal["selected", "skipped", "unavailable"]
+    reason: (
+        Literal[
+            "condition_false", "upstream_absent", "no_implementation", "not_requested"
+        ]
+        | None
+    ) = None
+    plan_role: Literal["target", "upstream", "if_available"] | None = None
+    # The planned slot that needs this one (for ``upstream`` and ``if_available``
+    # slots), from the pipeline wiring.
+    required_by: str | None = None
+    implementation: str | None = None
+    chosen_by: (
+        Literal["user", "deployment_default", "pipeline_default", "preset"] | None
+    ) = None
+
+
+class PlanPresetRead(BaseModel):
+    id: Kebab
+    version: Semver
+    sha256: Sha256Hex
+
+
+class PlanTargetsRead(BaseModel):
+    """The request as resolved: ``slot.port`` lists; both empty for the full plan."""
+
+    required: list[str] = []
+    if_available: list[str] = []
+
+
+class PlanPreviewRead(BaseModel):
+    feasible: bool
+    mode: Literal["full", "preset", "free"]
+    input_set: str
+    preset: PlanPresetRead | None = None
+    targets: PlanTargetsRead = PlanTargetsRead()
+    # One entry per pipeline slot in pipeline order; empty when the request is refused
+    # before a plan can be computed (for example an unknown preset).
+    slots: list[PlanSlotRead] = []
+    reasons: list[PlanReasonRead] = []
+
+
+class RunPlanRead(BaseModel):
+    """The plan request of a run as recorded (``pipeline_runs.plan_mode`` and siblings)."""
+
+    mode: Literal["full", "preset", "free"]
+    preset: PlanPresetRead | None = None
+    targets: PlanTargetsRead = PlanTargetsRead()
+
+
+class PresetChoiceRead(BaseModel):
+    fixed: str | None = None
+    default: str | None = None
+
+
+class PresetPlanRead(BaseModel):
+    """The plan of a preset for one input set, with the deployment's current enablement."""
+
+    input_set: str
+    available: bool
+    slots: list[PlanSlotRead]
+    reasons: list[PlanReasonRead] = []
+
+
+class PresetRead(BaseModel):
+    id: Kebab
+    version: Semver
+    sha256: Sha256Hex
+    title: str
+    description: str | None = None
+    input_sets: list[str]
+    targets: PlanTargetsRead
+    implementations: dict[str, PresetChoiceRead] = {}
+    is_default: bool
+    # True when the plan of at least one accepted input set can run now.
+    available: bool
+    plans: list[PresetPlanRead]
+
+
+class PresetSettingUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
+    is_default: bool = False
+
+    @model_validator(mode="after")
+    def _default_must_be_enabled(self) -> PresetSettingUpdate:
+        if self.is_default and not self.enabled:
+            raise ValueError("a default preset must be enabled")
+        return self
+
+
+class PresetAdminRead(BaseModel):
+    pipeline_id: str
+    preset_id: str
+    title: str
+    versions: list[str]  # versions of the preset in the loaded files
+    pipeline_versions: list[str]  # loaded pipeline versions that offer it
+    enabled: bool
+    is_default: bool
+    updated_at: datetime | None = None
+    updated_by_user_id: UUID | None = None
+
+
+class ConfigRead(BaseModel):
+    deployment_profile: str
+    run_plan_policy: Literal["presets_only", "free_for_admins", "free_for_researchers"]
+    # Whether the caller may start runs with targets; the UI offers free mode only then.
+    free_mode_allowed: bool
+
+
 # ----------------------------------------------------------------------- runs
 
 
@@ -123,6 +299,14 @@ class RunCreate(BaseModel):
         description="Subset of the case's input roles; default: all of them.",
     )
     seed: int | None = Field(default=None, ge=0, le=4294967295)
+    preset: PresetRefIn | None = Field(
+        default=None, description="Run a reviewed preset (exclusive with targets)."
+    )
+    targets: TargetsIn | None = Field(
+        default=None,
+        description="Free mode: the outputs wanted (exclusive with preset); "
+        "403 unless the deployment policy allows it.",
+    )
 
 
 class StepAttemptRead(StepRunRead):
@@ -131,6 +315,7 @@ class StepAttemptRead(StepRunRead):
 
 
 class RunDetailRead(PipelineRunRead):
+    plan: RunPlanRead
     cancel_requested: bool = False
     inputs: list[RunInputRead] = []
     slots: list[RunSlotRead] = []
@@ -172,9 +357,15 @@ __all__ = [
     "ArtifactV1Read",
     "CaseDetailRead",
     "CaseUpdateV1",
+    "ConfigRead",
     "ImplementationAdminRead",
     "PipelineDetail",
     "PipelineSummary",
+    "PlanPreviewRead",
+    "PlanRequestIn",
+    "PresetAdminRead",
+    "PresetRead",
+    "PresetSettingUpdate",
     "ReportV1Read",
     "RunActionResponse",
     "RunCreate",

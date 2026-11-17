@@ -79,6 +79,7 @@ services:
       STEP_MANIFESTS_DIR: ${API_STEP_MANIFESTS_DIR:-/app/steps-disabled}
       BUNDLE_ROOT: ${BUNDLE_ROOT:-/app/data/bundles}
       DEPLOYMENT_PROFILE: ${DEPLOYMENT_PROFILE:-research-public}
+      RUN_PLAN_POLICY: ${RUN_PLAN_POLICY:-}
       PLATFORM_VERSION: ${PLATFORM_VERSION:-0.0.0-dev}
     depends_on:
       postgres:

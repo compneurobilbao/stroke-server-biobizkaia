@@ -1,7 +1,9 @@
-"""Administrator endpoints: enable, disable and default implementations of pipeline slots.
+"""Administrator endpoints: enable, disable and default implementations of pipeline slots
+and presets.
 
-Settings are stored per pipeline id (``slot_implementation_settings``), not per version,
-and apply to every loaded version that allows the implementation.
+Settings are stored per pipeline id (``slot_implementation_settings``,
+``preset_settings``), not per version, and apply to every loaded version that allows the
+implementation or offers the preset.
 """
 
 from __future__ import annotations
@@ -15,9 +17,14 @@ from app.api.v1.errors import v1_error
 from app.api.v1.pipelines import version_key
 from app.db.session import get_db
 from app.models._common import utcnow
+from app.models.preset_setting import PresetSetting
 from app.models.reference_bundle import SlotImplementationSetting
 from app.models.user import User
-from app.schemas.api_v1 import ImplementationAdminRead
+from app.schemas.api_v1 import (
+    ImplementationAdminRead,
+    PresetAdminRead,
+    PresetSettingUpdate,
+)
 from app.schemas.bundle import SlotImplementationSettingUpdate
 from app.services.auth import client_ip, get_current_user
 
@@ -148,3 +155,121 @@ def set_implementation(
     db.commit()
     db.refresh(row)
     return _read(key, step, row)
+
+
+# ----------------------------------------------------------------------- presets
+
+
+def _loaded_presets(orch: Orchestration) -> dict[tuple[str, str], dict]:
+    """(pipeline id, preset id) -> title, preset versions and the loaded pipeline
+    versions that offer it, from every loaded pipeline version."""
+    out: dict[tuple[str, str], dict] = {}
+    for pipeline in sorted(
+        orch.pipelines.all(), key=lambda p: version_key(p.version), reverse=True
+    ):
+        for preset in orch.presets.presets(pipeline.id, pipeline.version):
+            entry = out.setdefault(
+                (pipeline.id, preset.id),
+                {"title": preset.data["title"], "versions": set(), "pipelines": set()},
+            )
+            entry["versions"].add(preset.version)
+            entry["pipelines"].add(pipeline.version)
+    return out
+
+
+def _preset_read(key, entry, row: PresetSetting | None) -> PresetAdminRead:
+    return PresetAdminRead(
+        pipeline_id=key[0],
+        preset_id=key[1],
+        title=entry["title"],
+        versions=sorted(entry["versions"], key=version_key),
+        pipeline_versions=sorted(entry["pipelines"], key=version_key),
+        enabled=bool(row and row.enabled),
+        is_default=bool(row and row.is_default),
+        updated_at=row.updated_at if row else None,
+        updated_by_user_id=row.updated_by_user_id if row else None,
+    )
+
+
+@router.get("/presets", response_model=list[PresetAdminRead])
+def list_presets(
+    pipeline_id: str | None = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    orch: Orchestration = Depends(get_orchestration),
+) -> list[PresetAdminRead]:
+    """Every preset offered by a loaded pipeline version, with its deployment setting.
+    A preset without a setting row is disabled."""
+    authorize(current_user, "preset.manage")
+    rows = {(r.pipeline_id, r.preset_id): r for r in db.scalars(select(PresetSetting))}
+    return [
+        _preset_read(key, entry, rows.get(key))
+        for key, entry in sorted(_loaded_presets(orch).items())
+        if pipeline_id is None or key[0] == pipeline_id
+    ]
+
+
+@router.put("/presets/{pipeline_id}/{preset_id}", response_model=PresetAdminRead)
+def set_preset(
+    pipeline_id: str,
+    preset_id: str,
+    body: PresetSettingUpdate,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    orch: Orchestration = Depends(get_orchestration),
+) -> PresetAdminRead:
+    """Enable or disable a preset and optionally make it the pipeline's default (at most
+    one; it replaces the previous one). Disabling only hides the preset from new runs:
+    runs already created keep their plan and can be resumed."""
+    authorize(current_user, "preset.manage")
+    key = (pipeline_id, preset_id)
+    entry = _loaded_presets(orch).get(key)
+    if entry is None:
+        raise v1_error(
+            404,
+            "preset_not_found",
+            "No loaded pipeline version offers this preset",
+        )
+    now = utcnow()
+    if body.is_default:
+        db.execute(
+            update(PresetSetting)
+            .where(
+                PresetSetting.pipeline_id == pipeline_id,
+                PresetSetting.preset_id != preset_id,
+                PresetSetting.is_default.is_(True),
+            )
+            .values(
+                is_default=False, updated_at=now, updated_by_user_id=current_user.id
+            )
+            .execution_options(synchronize_session=False)
+        )
+    row = db.scalar(
+        select(PresetSetting).where(
+            PresetSetting.pipeline_id == pipeline_id,
+            PresetSetting.preset_id == preset_id,
+        )
+    )
+    if row is None:
+        row = PresetSetting(pipeline_id=pipeline_id, preset_id=preset_id)
+        db.add(row)
+    row.enabled = body.enabled
+    row.is_default = body.is_default
+    row.updated_at = now
+    row.updated_by_user_id = current_user.id
+    audit_event(
+        db,
+        "preset_setting_changed",
+        current_user,
+        details={
+            "pipeline_id": pipeline_id,
+            "preset_id": preset_id,
+            "enabled": body.enabled,
+            "is_default": body.is_default,
+        },
+        ip_address=client_ip(request),
+    )
+    db.commit()
+    db.refresh(row)
+    return _preset_read(key, entry, row)

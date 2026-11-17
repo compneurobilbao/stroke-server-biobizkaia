@@ -398,6 +398,34 @@
         "title": "CaseUpdateV1",
         "type": "object"
       },
+      "ConfigRead": {
+        "properties": {
+          "deployment_profile": {
+            "title": "Deployment Profile",
+            "type": "string"
+          },
+          "free_mode_allowed": {
+            "title": "Free Mode Allowed",
+            "type": "boolean"
+          },
+          "run_plan_policy": {
+            "enum": [
+              "presets_only",
+              "free_for_admins",
+              "free_for_researchers"
+            ],
+            "title": "Run Plan Policy",
+            "type": "string"
+          }
+        },
+        "required": [
+          "deployment_profile",
+          "run_plan_policy",
+          "free_mode_allowed"
+        ],
+        "title": "ConfigRead",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -945,6 +973,333 @@
         "title": "PipelineSummary",
         "type": "object"
       },
+      "PlanPresetRead": {
+        "properties": {
+          "id": {
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+            "title": "Id",
+            "type": "string"
+          },
+          "sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "version": {
+            "maxLength": 64,
+            "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "sha256"
+        ],
+        "title": "PlanPresetRead",
+        "type": "object"
+      },
+      "PlanPreviewRead": {
+        "properties": {
+          "feasible": {
+            "title": "Feasible",
+            "type": "boolean"
+          },
+          "input_set": {
+            "title": "Input Set",
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "full",
+              "preset",
+              "free"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "preset": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlanPresetRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reasons": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/PlanReasonRead"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "slots": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/PlanSlotRead"
+            },
+            "title": "Slots",
+            "type": "array"
+          },
+          "targets": {
+            "$ref": "#/components/schemas/PlanTargetsRead",
+            "default": {
+              "if_available": [],
+              "required": []
+            }
+          }
+        },
+        "required": [
+          "feasible",
+          "mode",
+          "input_set"
+        ],
+        "title": "PlanPreviewRead",
+        "type": "object"
+      },
+      "PlanReasonRead": {
+        "description": "One reason a plan request is refused (run-plans.md 3.3); fields only when relevant.",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "port": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Port"
+          },
+          "required_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Required By"
+          },
+          "slot": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slot"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "PlanReasonRead",
+        "type": "object"
+      },
+      "PlanRequestIn": {
+        "additionalProperties": false,
+        "description": "Dry run of a run request: the plan it would get, nothing written.",
+        "properties": {
+          "implementations": {
+            "patternProperties": {
+              "^[a-z][a-z0-9]*(-[a-z0-9]+)*$": {
+                "maxLength": 64,
+                "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+                "type": "string"
+              }
+            },
+            "propertyNames": {
+              "maxLength": 64
+            },
+            "title": "Implementations",
+            "type": "object"
+          },
+          "input_roles": {
+            "description": "Input roles the run would have; they decide the input set.",
+            "items": {
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*$",
+              "type": "string"
+            },
+            "maxItems": 32,
+            "minItems": 1,
+            "title": "Input Roles",
+            "type": "array"
+          },
+          "preset": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PresetRefIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "targets": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TargetsIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "input_roles"
+        ],
+        "title": "PlanRequestIn",
+        "type": "object"
+      },
+      "PlanSlotRead": {
+        "properties": {
+          "chosen_by": {
+            "anyOf": [
+              {
+                "enum": [
+                  "user",
+                  "deployment_default",
+                  "pipeline_default",
+                  "preset"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chosen By"
+          },
+          "implementation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Implementation"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "plan_role": {
+            "anyOf": [
+              {
+                "enum": [
+                  "target",
+                  "upstream",
+                  "if_available"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Role"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "condition_false",
+                  "upstream_absent",
+                  "no_implementation",
+                  "not_requested"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "required_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Required By"
+          },
+          "status": {
+            "enum": [
+              "selected",
+              "skipped",
+              "unavailable"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "status"
+        ],
+        "title": "PlanSlotRead",
+        "type": "object"
+      },
+      "PlanTargetsRead": {
+        "description": "The request as resolved: ``slot.port`` lists; both empty for the full plan.",
+        "properties": {
+          "if_available": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "If Available",
+            "type": "array"
+          },
+          "required": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Required",
+            "type": "array"
+          }
+        },
+        "title": "PlanTargetsRead",
+        "type": "object"
+      },
       "PortRead": {
         "properties": {
           "optional": {
@@ -966,6 +1321,273 @@
           "type"
         ],
         "title": "PortRead",
+        "type": "object"
+      },
+      "PresetAdminRead": {
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "is_default": {
+            "title": "Is Default",
+            "type": "boolean"
+          },
+          "pipeline_id": {
+            "title": "Pipeline Id",
+            "type": "string"
+          },
+          "pipeline_versions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Pipeline Versions",
+            "type": "array"
+          },
+          "preset_id": {
+            "title": "Preset Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "updated_by_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated By User Id"
+          },
+          "versions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Versions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "pipeline_id",
+          "preset_id",
+          "title",
+          "versions",
+          "pipeline_versions",
+          "enabled",
+          "is_default"
+        ],
+        "title": "PresetAdminRead",
+        "type": "object"
+      },
+      "PresetChoiceRead": {
+        "properties": {
+          "default": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default"
+          },
+          "fixed": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fixed"
+          }
+        },
+        "title": "PresetChoiceRead",
+        "type": "object"
+      },
+      "PresetPlanRead": {
+        "description": "The plan of a preset for one input set, with the deployment's current enablement.",
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "input_set": {
+            "title": "Input Set",
+            "type": "string"
+          },
+          "reasons": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/PlanReasonRead"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "slots": {
+            "items": {
+              "$ref": "#/components/schemas/PlanSlotRead"
+            },
+            "title": "Slots",
+            "type": "array"
+          }
+        },
+        "required": [
+          "input_set",
+          "available",
+          "slots"
+        ],
+        "title": "PresetPlanRead",
+        "type": "object"
+      },
+      "PresetRead": {
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "id": {
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+            "title": "Id",
+            "type": "string"
+          },
+          "implementations": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/PresetChoiceRead"
+            },
+            "default": {},
+            "title": "Implementations",
+            "type": "object"
+          },
+          "input_sets": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Input Sets",
+            "type": "array"
+          },
+          "is_default": {
+            "title": "Is Default",
+            "type": "boolean"
+          },
+          "plans": {
+            "items": {
+              "$ref": "#/components/schemas/PresetPlanRead"
+            },
+            "title": "Plans",
+            "type": "array"
+          },
+          "sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "targets": {
+            "$ref": "#/components/schemas/PlanTargetsRead"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "version": {
+            "maxLength": 64,
+            "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "sha256",
+          "title",
+          "input_sets",
+          "targets",
+          "is_default",
+          "available",
+          "plans"
+        ],
+        "title": "PresetRead",
+        "type": "object"
+      },
+      "PresetRefIn": {
+        "additionalProperties": false,
+        "description": "A preset named in a request; without ``version``, the highest enabled one.",
+        "properties": {
+          "id": {
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+            "title": "Id",
+            "type": "string"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "PresetRefIn",
+        "type": "object"
+      },
+      "PresetSettingUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "is_default": {
+            "default": false,
+            "title": "Is Default",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "PresetSettingUpdate",
         "type": "object"
       },
       "ReportV1Read": {
@@ -1143,6 +1765,17 @@
             ],
             "title": "Pipeline Version"
           },
+          "preset": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PresetRefIn"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Run a reviewed preset (exclusive with targets)."
+          },
           "seed": {
             "anyOf": [
               {
@@ -1155,6 +1788,17 @@
               }
             ],
             "title": "Seed"
+          },
+          "targets": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TargetsIn"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Free mode: the outputs wanted (exclusive with preset); 403 unless the deployment policy allows it."
           }
         },
         "required": [
@@ -1316,6 +1960,9 @@
             "title": "Pipeline Version",
             "type": "string"
           },
+          "plan": {
+            "$ref": "#/components/schemas/RunPlanRead"
+          },
           "platform_version": {
             "title": "Platform Version",
             "type": "string"
@@ -1400,7 +2047,8 @@
           "accounting_submitted_by",
           "accounting_submit_as",
           "created_at",
-          "updated_at"
+          "updated_at",
+          "plan"
         ],
         "title": "RunDetailRead",
         "type": "object"
@@ -1424,6 +2072,42 @@
           "input_file_id"
         ],
         "title": "RunInputRead",
+        "type": "object"
+      },
+      "RunPlanRead": {
+        "description": "The plan request of a run as recorded (``pipeline_runs.plan_mode`` and siblings).",
+        "properties": {
+          "mode": {
+            "enum": [
+              "full",
+              "preset",
+              "free"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "preset": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlanPresetRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "targets": {
+            "$ref": "#/components/schemas/PlanTargetsRead",
+            "default": {
+              "if_available": [],
+              "required": []
+            }
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "title": "RunPlanRead",
         "type": "object"
       },
       "RunSlotBundleRead": {
@@ -2098,6 +2782,34 @@
         "title": "StepAttemptRead",
         "type": "object"
       },
+      "TargetsIn": {
+        "additionalProperties": false,
+        "description": "Free-mode targets (run-plans.md 3.2): slots, ``slot.port`` or artefact types.",
+        "properties": {
+          "if_available": {
+            "items": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 64,
+            "title": "If Available",
+            "type": "array"
+          },
+          "required": {
+            "items": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 64,
+            "title": "Required",
+            "type": "array"
+          }
+        },
+        "title": "TargetsIn",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "loc": {
@@ -2276,6 +2988,132 @@
           }
         ],
         "summary": "Set Implementation",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/presets": {
+      "get": {
+        "description": "Every preset offered by a loaded pipeline version, with its deployment setting.\nA preset without a setting row is disabled.",
+        "operationId": "list_presets_api_v1_admin_presets_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "pipeline_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Pipeline Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PresetAdminRead"
+                  },
+                  "title": "Response List Presets Api V1 Admin Presets Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Presets",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/presets/{pipeline_id}/{preset_id}": {
+      "put": {
+        "description": "Enable or disable a preset and optionally make it the pipeline's default (at most\none; it replaces the previous one). Disabling only hides the preset from new runs:\nruns already created keep their plan and can be resumed.",
+        "operationId": "set_preset_api_v1_admin_presets__pipeline_id___preset_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pipeline_id",
+            "required": true,
+            "schema": {
+              "title": "Pipeline Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "preset_id",
+            "required": true,
+            "schema": {
+              "title": "Preset Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PresetSettingUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PresetAdminRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Preset",
         "tags": [
           "admin"
         ]
@@ -2833,7 +3671,7 @@
         ]
       },
       "post": {
-        "description": "Resolve the pipeline against the case's inputs, validate the per-slot choices\n(422 when a choice is not enabled), store the run as ``queued`` and enqueue it.",
+        "description": "Resolve the pipeline against the case's inputs, validate the per-slot choices\n(422 when a choice is not enabled), store the run as ``queued`` and enqueue it.\n\nWithout ``preset`` and ``targets`` the run gets the full plan; ``preset`` runs a\nreviewed preset; ``targets`` (free mode, 403 unless the deployment's\n``RUN_PLAN_POLICY`` allows it to the caller) builds a plan from the outputs wanted.\nRefusals carry every reason in ``reasons`` (run-plans.md 3.3).",
         "operationId": "create_case_run_api_v1_cases__case_id__runs_post",
         "parameters": [
           {
@@ -2887,6 +3725,33 @@
         "summary": "Create Case Run",
         "tags": [
           "runs"
+        ]
+      }
+    },
+    "/api/v1/config": {
+      "get": {
+        "description": "The deployment profile, its run-plan policy and whether the caller may use free\nmode, so that the UI does not offer it in vain.",
+        "operationId": "get_config_api_v1_config_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Config",
+        "tags": [
+          "plans"
         ]
       }
     },
@@ -2985,6 +3850,134 @@
         "summary": "Get Pipeline",
         "tags": [
           "pipelines"
+        ]
+      }
+    },
+    "/api/v1/pipelines/{pipeline_id}/versions/{version}/plan": {
+      "post": {
+        "description": "Dry run of run creation: the plan the request would get, with the same policy\nchecks (403 ``free_mode_not_allowed`` for targets when the policy does not allow\nthem to this user) and the same plan as ``POST /cases/{id}/runs`` for the same\nrequest. A refused plan is a 200 with ``feasible: false`` and every reason; only a\nmalformed request (unknown slot or input role, inputs matching no input set) is a\n422. Nothing is written.",
+        "operationId": "preview_plan_api_v1_pipelines__pipeline_id__versions__version__plan_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pipeline_id",
+            "required": true,
+            "schema": {
+              "title": "Pipeline Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "title": "Version",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlanRequestIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanPreviewRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Preview Plan",
+        "tags": [
+          "plans"
+        ]
+      }
+    },
+    "/api/v1/pipelines/{pipeline_id}/versions/{version}/presets": {
+      "get": {
+        "description": "Presets attached to this pipeline version that are enabled in the deployment:\ntitle, accepted input sets, the plan per input set (slots, roles, implementations)\nand ``available`` with the reasons when the deployment cannot run it now (for\nexample a required slot has no enabled implementation). Several versions of one\npreset are all listed, ascending.",
+        "operationId": "list_presets_api_v1_pipelines__pipeline_id__versions__version__presets_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pipeline_id",
+            "required": true,
+            "schema": {
+              "title": "Pipeline Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "title": "Version",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PresetRead"
+                  },
+                  "title": "Response List Presets Api V1 Pipelines  Pipeline Id  Versions  Version  Presets Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Presets",
+        "tags": [
+          "plans"
         ]
       }
     },

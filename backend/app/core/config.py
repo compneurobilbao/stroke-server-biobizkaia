@@ -1,10 +1,53 @@
 from __future__ import annotations
 
+import os
+from collections.abc import Mapping
 from functools import lru_cache
 from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+# Who may start a run in free mode (docs/design/run-plans.md 3.5). Roles are those of
+# ``users.role``; presets and the full plan are open to everyone allowed to create runs.
+RUN_PLAN_POLICIES: dict[str, frozenset[str]] = {
+    "presets_only": frozenset(),
+    "free_for_admins": frozenset({"admin"}),
+    "free_for_researchers": frozenset({"admin", "researcher"}),
+}
+# Profiles whose policy is fixed to ``presets_only``: a configuration that sets another
+# value is refused at start. The other profiles take the value of ``RUN_PLAN_POLICY``,
+# or ``free_for_researchers`` when it is not set.
+PRESETS_ONLY_PROFILES = frozenset({"research-public", "mask-only"})
+DEFAULT_RUN_PLAN_POLICY = "free_for_researchers"
+
+
+def run_plan_policy(profile: str, env: Mapping[str, str] | None = None) -> str:
+    """The effective ``RUN_PLAN_POLICY`` of a deployment profile.
+
+    ``RUN_PLAN_POLICY`` is read from the process environment (an empty value counts as
+    unset). On ``research-public`` and ``mask-only`` the policy is ``presets_only`` and
+    any other value raises ``RuntimeError``; elsewhere an unset value is
+    ``free_for_researchers``. An unknown value always raises.
+    """
+    env = os.environ if env is None else env
+    value = (env.get("RUN_PLAN_POLICY") or "").strip()
+    if value and value not in RUN_PLAN_POLICIES:
+        raise RuntimeError(f"RUN_PLAN_POLICY must be one of {sorted(RUN_PLAN_POLICIES)}")
+    if profile in PRESETS_ONLY_PROFILES:
+        if value not in ("", "presets_only"):
+            raise RuntimeError(
+                f"RUN_PLAN_POLICY must be presets_only on the {profile} profile "
+                f"(got {value})"
+            )
+        return "presets_only"
+    return value or DEFAULT_RUN_PLAN_POLICY
+
+
+def free_mode_allowed(policy: str, role: str) -> bool:
+    """True if a user with ``role`` may use free mode under ``policy``."""
+    return role in RUN_PLAN_POLICIES[policy]
 
 
 class Settings(BaseSettings):
