@@ -92,19 +92,27 @@ from orchestrator.pipeline import (
     sources_of,
     staged_name,
 )
-from orchestrator.provenance import build_run_provenance, timestamp
+from orchestrator.provenance import (
+    build_run_provenance,
+    run_provenance_for_step,
+    timestamp,
+)
 from orchestrator.store import RunStore, sha256_file
 
 log = logging.getLogger(__name__)
 
 LIVE = ("queued", "running")
+# The fields of build_run_provenance that start the run-level file; contract_version
+# and plan because a run with a plan declares contract 1.2 (card F1-19).
 RUN_HEADER_FIELDS = (
+    "contract_version",
     "pipeline",
     "platform",
     "created_at",
     "seed",
     "input_set",
     "inputs",
+    "plan",
     "slots",
     "accounting",
 )
@@ -1100,6 +1108,8 @@ class Orchestrator:
                         if prov.exists()
                         else build_run_provenance(db, run)
                     )
+                    # In the form of the contract the step declares (F1-19).
+                    record = run_provenance_for_step(record, manifest)
                     _write_atomic(source, json.dumps(record, indent=2))
             name = staged_name(port["name"], consume["type"])
             staged[name] = source
