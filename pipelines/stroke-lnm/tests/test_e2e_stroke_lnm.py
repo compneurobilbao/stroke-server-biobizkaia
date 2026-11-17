@@ -87,7 +87,7 @@ def test_committed_pipeline_is_valid_and_lists_every_slot():
     definition = load_pipeline(HERE / "pipeline.yaml")
     assert [s["name"] for s in definition.slots] == SLOTS
     assert definition.match_input_set(["lesion_mni"]) == "mni-mask"
-    assert definition.version == "0.2.0"
+    assert definition.version == "0.3.0"
 
 
 def test_report_does_not_need_tract_disconnection():
@@ -100,7 +100,7 @@ def test_report_does_not_need_tract_disconnection():
     assert port["from"] == "tract-disconnection.tract_disconnection"
     # the report step version that states the absence in its section
     for impl in slots["report"]["implementations"]["allowed"]:
-        assert impl["step"] == {"name": "research-report", "version": "0.2.0"}
+        assert impl["step"] == {"name": "research-report", "version": "0.3.0"}
 
 
 def test_committed_digests_are_placeholders():
@@ -202,7 +202,7 @@ class Stack:
         self.orch = build_orchestrator(
             self.Session, self.store_root, settings=_Settings(), env=env
         )
-        self.pipeline = self.orch.pipelines.get("stroke-lnm", "0.2.0")
+        self.pipeline = self.orch.pipelines.get("stroke-lnm", "0.3.0")
         assert self.pipeline is not None
         # the presets of the materialized tree (registry.py materialize copies them unchanged)
         self.presets = DirectoryPresetRegistry(PIPELINES_DIR, self.orch.pipelines, self.orch.steps)
@@ -416,7 +416,7 @@ def test_default_run_on_the_mni_mask(stack, mni_case, tmp_path):
     # the full plan still gives the full report: the tract section is filled in
     report = json.loads(artifact_path(stack, run_id, "report", "report_json").read_text())
     assert report["sections"]["tract_disconnection"] == "available"
-    assert report["generator"]["version"] == "0.2.0"
+    assert report["generator"]["version"] == "0.3.0"
 
 
 @needs_e2e
@@ -649,7 +649,7 @@ def _runs_of(stack, case_id) -> int:
 
 @needs_e2e
 def test_the_presets_are_attached_to_the_materialized_pipeline(stack):
-    attached = stack.presets.presets("stroke-lnm", "0.2.0")
+    attached = stack.presets.presets("stroke-lnm", "0.3.0")
     assert [p.id for p in attached] == sorted(PRESET_IDS)
     for preset in attached:
         raw = (Path(PIPELINES_DIR) / "stroke-lnm" / "presets" / f"{preset.id}.yaml").read_bytes()
@@ -658,8 +658,8 @@ def test_the_presets_are_attached_to_the_materialized_pipeline(stack):
 
 @needs_e2e
 def test_ct_normalisation_preset_runs_intake_and_normalisation_only(stack, tmp_path):
-    """The preset that plans no step reading `run.provenance` is a finished run today: the
-    two slots of its plan succeed, every other slot is `not_requested` and never attempted."""
+    """The two slots of the plan succeed, every other slot is `not_requested` and never
+    attempted."""
     import nibabel as nib
     import numpy as np
 
@@ -676,7 +676,7 @@ def test_ct_normalisation_preset_runs_intake_and_normalisation_only(stack, tmp_p
         "mode": "preset",
         "preset": {
             "id": "ct-normalisation",
-            "version": "1.0.0",
+            "version": "1.1.0",
             "sha256": hashlib.sha256(preset_file.read_bytes()).hexdigest(),
         },
         "targets": {"required": ["lesion-intake.lesion_qc", "normalisation.lesion_mask_mni"]},
@@ -707,7 +707,7 @@ def test_ct_normalisation_preset_runs_intake_and_normalisation_only(stack, tmp_p
         assert (run.plan_mode, run.preset_id, run.preset_version) == (
             "preset",
             "ct-normalisation",
-            "1.0.0",
+            "1.1.0",
         )
         rows = {
             r.slot: r for r in db.scalars(select(RunSlot).where(RunSlot.pipeline_run_id == run_id))
@@ -750,30 +750,94 @@ def test_ct_normalisation_preset_is_refused_when_normalisation_is_unmounted(stac
     ]
 
 
-@needs_e2e
-def test_presets_that_plan_the_report_are_refused_until_the_report_declares_contract_1_2(
-    stack, mni_case
-):
-    """`full`, `mni-mask-analysis` and `lesion-qc-report` all plan the report, whose merged
-    version (research-report 0.2.0) declares contract 1.0 and reads `run.provenance`, so they
-    are refused with `step_contract_too_old` and no run is written. Card F1-25 turns them into
-    finished runs: this test then has to assert the runs instead (mni-mask-analysis: tract,
-    functional disconnection and the report succeed, as in the default run above)."""
-    from orchestrator.resolution import RunRefused
+def _finished_preset_run(stack, case_id, preset_id, tmp_path):
+    """Create, drive and read a preset run that plans the report (card F1-25: they finish)."""
+    run_id = stack.create(case_id, preset=PresetRef(preset_id))
+    stack.drive(run_id)
+    record = run_record(stack, run_id)
+    validate_record(record, tmp_path)
+    assert artifact_path(stack, run_id, "report", "report_pdf").stat().st_size > 0
+    report = json.loads(artifact_path(stack, run_id, "report", "report_json").read_text())
+    preset_file = Path(PIPELINES_DIR) / "stroke-lnm" / "presets" / f"{preset_id}.yaml"
+    sha256 = hashlib.sha256(preset_file.read_bytes()).hexdigest()
+    assert record["contract_version"] == "1.2"
+    assert record["plan"]["preset"] == {"id": preset_id, "version": "1.1.0", "sha256": sha256}
+    # the report reads the run record as it is (it declares contract 1.2) and states the plan
+    assert report["generator"] == {"step": "research-report", "version": "0.3.0"}
+    assert report["report_version"] == "1.1"
+    assert report["plan"]["mode"] == "preset"
+    assert report["plan"]["preset"] == record["plan"]["preset"]
+    assert "external_tools" not in report and "declared_origins" not in report
+    step = next(s for s in record["steps"] if s["slot"] == "report")
+    assert step["provenance"]["contract_version"] == "1.2"
+    return record, report
 
-    ct_case = _ct_case(stack)
-    cases = [
-        ("mni-mask-analysis", mni_case),
-        ("full", mni_case),
-        ("full", ct_case),
-        ("lesion-qc-report", mni_case),
-        ("lesion-qc-report", ct_case),
-    ]
-    for preset_id, case_id in cases:
-        before = _runs_of(stack, case_id)
-        with pytest.raises(RunRefused) as refused:
-            stack.create(case_id, preset=PresetRef(preset_id))
-        assert [(r.code, r.slot) for r in refused.value.reasons] == [
-            ("step_contract_too_old", "report")
-        ], preset_id
-        assert _runs_of(stack, case_id) == before
+
+def _ran(record) -> set[str]:
+    return {s["slot"] for s in record["steps"]}
+
+
+@needs_e2e
+def test_mni_mask_analysis_preset_finishes_with_the_report(stack, mni_case, tmp_path):
+    record, report = _finished_preset_run(stack, mni_case, "mni-mask-analysis", tmp_path)
+    slots = {s["slot"]: s for s in record["slots"]}
+    assert (slots["normalisation"]["status"], slots["normalisation"]["reason"]) == (
+        "skipped",
+        "condition_false",
+    )
+    for name in ("functional-disconnection", "tract-disconnection", "report"):
+        assert slots[name]["status"] == "selected" and slots[name]["plan_role"] == "target", name
+    assert slots["lesion-intake"]["plan_role"] == "upstream"
+    assert slots["cognet-profile"]["plan_role"] == "if_available"
+    assert _ran(record) == set(SLOTS) - {"normalisation"}
+    assert report["sections"] == {
+        "lesion": "available",
+        "functional_disconnection": "available",
+        "tract_disconnection": "available",
+        "cognitive_profile": "available",
+    }
+    assert {
+        "tract-disconnection.tract_disconnection",
+        "functional-disconnection.fdisconnection_map",
+    } <= set(report["plan"]["targets"]["required"])
+
+
+@needs_e2e
+@pytest.mark.parametrize("input_set", ["mni", "ct"])
+def test_full_preset_finishes_with_the_full_report(stack, mni_case, tmp_path, input_set):
+    case_id = mni_case if input_set == "mni" else _ct_case(stack)
+    record, report = _finished_preset_run(stack, case_id, "full", tmp_path)
+    slots = {s["slot"]: s for s in record["slots"]}
+    expected = set(SLOTS) if input_set == "ct" else set(SLOTS) - {"normalisation"}
+    assert _ran(record) == expected
+    assert {n for n, s in slots.items() if s["status"] == "selected"} == expected
+    assert report["sections"] == {
+        "lesion": "available",
+        "functional_disconnection": "available",
+        "tract_disconnection": "available",
+        "cognitive_profile": "available",
+    }
+    assert report["plan"]["mode"] == "preset" and report["plan"]["preset"]["id"] == "full"
+
+
+@needs_e2e
+@pytest.mark.parametrize("input_set", ["mni", "ct"])
+def test_lesion_qc_report_preset_finishes_with_not_requested_analyses(
+    stack, mni_case, tmp_path, input_set
+):
+    case_id = mni_case if input_set == "mni" else _ct_case(stack)
+    record, report = _finished_preset_run(stack, case_id, "lesion-qc-report", tmp_path)
+    slots = {s["slot"]: s for s in record["slots"]}
+    for name in ("functional-disconnection", "tract-disconnection", "cognet-profile"):
+        assert (slots[name]["status"], slots[name]["reason"]) == ("skipped", "not_requested"), name
+    # in CT mode the report needs the normalised mask, so the plan adds the normalisation
+    expected = {"lesion-intake", "report"} | ({"normalisation"} if input_set == "ct" else set())
+    assert _ran(record) == expected
+    assert report["sections"] == {
+        "lesion": "available",
+        "functional_disconnection": "not_requested",
+        "tract_disconnection": "not_requested",
+        "cognitive_profile": "not_requested",
+    }
+    for section in ("functional_disconnection", "tract_disconnection", "cognitive_profile"):
+        assert report[section] == {"status": "not_requested"}

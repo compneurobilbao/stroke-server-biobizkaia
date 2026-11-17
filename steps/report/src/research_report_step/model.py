@@ -13,8 +13,14 @@ from pathlib import Path
 import nibabel as nib
 import numpy as np
 
-REPORT_VERSION = "1.0"
+REPORT_VERSION = "1.1"
 RESEARCH_USE_ONLY = "For research use only, not for clinical decisions."
+# analysis section of the report -> pipeline slot that produces its input
+SECTION_SLOTS = {
+    "functional_disconnection": "functional-disconnection",
+    "tract_disconnection": "tract-disconnection",
+    "cognitive_profile": "cognet-profile",
+}
 MEASURES = ("disconnection_positive", "disconnection_negative", "lesion_overlap")
 
 LESION_QC_REQUIRED = (
@@ -201,6 +207,8 @@ def provenance_section(run: dict) -> dict:
             "reason": s.get("reason"),
             "implementation": None,
         }
+        if s.get("plan_role"):
+            rec["plan_role"] = s["plan_role"]
         impl = s.get("implementation")
         if impl:
             rec["implementation"] = {
@@ -212,6 +220,8 @@ def provenance_section(run: dict) -> dict:
                 "stub": bool(impl["stub"]),
                 "chosen_by": impl["chosen_by"],
             }
+            if impl.get("upstream"):
+                rec["implementation"]["upstream"] = dict(impl["upstream"])
         rec["bundles"] = [
             {k: b[k] for k in ("name", "id", "version", "content_digest")}
             for b in s.get("bundles", [])
@@ -254,6 +264,76 @@ def provenance_section(run: dict) -> dict:
     }
 
 
+# --- plan, external tools, declared origins (contract 1.2 records) ------------------------
+
+
+def plan_section(run: dict) -> dict | None:
+    """The plan of the run as the record states it, or None for a record without ``plan``
+    (contract 1.0 and 1.1 records, which mean the full plan)."""
+    plan = run.get("plan")
+    if plan is None:
+        return None
+    targets = plan.get("targets") or {}
+    return {
+        "mode": plan["mode"],
+        "preset": dict(plan["preset"]) if plan.get("preset") else None,
+        "targets": {
+            "required": list(targets.get("required", [])),
+            "if_available": list(targets.get("if_available", [])),
+        },
+    }
+
+
+def external_tools_section(run: dict) -> list[dict]:
+    """One record per selected slot whose implementation wraps an external tool (it carries
+    the ``upstream`` block of its step manifest). The run record holds nothing about the
+    validation level of an implementation, so none is stated here."""
+    tools = []
+    for s in run.get("slots", []):
+        impl = s.get("implementation") or {}
+        if s.get("status") != "selected" or not impl.get("upstream"):
+            continue
+        tools.append(
+            {
+                "slot": s["slot"],
+                "implementation": impl["id"],
+                "step_name": impl["step"]["name"],
+                "step_version": impl["step"]["version"],
+                "upstream": dict(impl["upstream"]),
+            }
+        )
+    return tools
+
+
+def declared_origins_section(run: dict) -> list[dict]:
+    """Run inputs whose uploader declared an origin. The platform cannot verify it."""
+    out = []
+    for item in run.get("inputs", []):
+        if item.get("origin"):
+            out.append(
+                {
+                    "name": item["name"],
+                    "type": item["type"],
+                    "sha256": item["sha256"],
+                    "origin": dict(item["origin"]),
+                }
+            )
+    out.sort(key=lambda i: i["name"])
+    return out
+
+
+def mark_not_requested(section: dict, run: dict, key: str) -> dict:
+    """An absent analysis section whose slot is outside the run plan says so, instead of
+    "input not provided"."""
+    if section["status"] != "absent":
+        return section
+    slot = SECTION_SLOTS[key]
+    for s in run.get("slots", []):
+        if s["slot"] == slot and s.get("reason") == "not_requested":
+            return {"status": "not_requested"}
+    return section
+
+
 # --- whole report --------------------------------------------------------------------
 
 
@@ -267,7 +347,13 @@ def build_report(
     functional: dict,
     tracts: dict,
     cognet: dict,
+    plan: dict | None = None,
+    external_tools: list[dict] | None = None,
+    declared_origins: list[dict] | None = None,
 ) -> dict:
+    """``plan``, ``external_tools`` and ``declared_origins`` are added to the report only
+    when the run record has something to say, so a report of a 1.0 or 1.1 record has the
+    content of report version 1.0 apart from the version fields."""
     sections = {
         "lesion": lesion["status"],
         "functional_disconnection": functional["status"],
@@ -279,7 +365,11 @@ def build_report(
         notes.append("lesion_mask_differs_from_qc")
     if cognet.get("bundle", {}).get("synthetic"):
         notes.append("synthetic_reference_data")
-    return {
+    if external_tools:
+        notes.append("external_tool_used")
+    if declared_origins:
+        notes.append("input_origin_declared_by_user")
+    report = {
         "kind": "ResearchReport",
         "report_version": REPORT_VERSION,
         "language": language,
@@ -295,3 +385,10 @@ def build_report(
         "provenance": run_provenance,
         "inputs": inputs,
     }
+    if plan is not None:
+        report["plan"] = plan
+    if external_tools:
+        report["external_tools"] = external_tools
+    if declared_origins:
+        report["declared_origins"] = declared_origins
+    return report

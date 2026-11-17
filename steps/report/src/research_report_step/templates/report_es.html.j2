@@ -39,9 +39,9 @@
 <table>
 <tr><th>Sección</th><th>Estado</th></tr>
 <tr><td>Lesión</td><td>disponible</td></tr>
-<tr><td>Mapa de desconexión funcional</td><td>{{ "disponible" if r.sections.functional_disconnection == "available" else "ausente (entrada no proporcionada)" }}</td></tr>
-<tr><td>Desconexión de tractos</td><td>{{ "disponible" if r.sections.tract_disconnection == "available" else "no forma parte de este análisis" }}</td></tr>
-<tr><td>Perfil cognitivo</td><td>{{ "disponible" if r.sections.cognitive_profile == "available" else "ausente (entrada no proporcionada)" }}</td></tr>
+<tr><td>Mapa de desconexión funcional</td><td>{{ "disponible" if r.sections.functional_disconnection == "available" else ("no solicitado en este plan" if r.sections.functional_disconnection == "not_requested" else "ausente (entrada no proporcionada)") }}</td></tr>
+<tr><td>Desconexión de tractos</td><td>{{ "disponible" if r.sections.tract_disconnection == "available" else ("no solicitado en este plan" if r.sections.tract_disconnection == "not_requested" else "no forma parte de este análisis") }}</td></tr>
+<tr><td>Perfil cognitivo</td><td>{{ "disponible" if r.sections.cognitive_profile == "available" else ("no solicitado en este plan" if r.sections.cognitive_profile == "not_requested" else "ausente (entrada no proporcionada)") }}</td></tr>
 </table>
 <ul>
 <li>Volumen de la lesión {{ r.lesion.volume_ml | fixed(3) }} mL, hemisferio: {{ hemi[r.lesion.hemisphere] }}, {{ r.lesion.components.count }} componente(s) conexo(s).</li>
@@ -51,7 +51,38 @@
 {% if r.cognitive_profile.status == "available" %}
 <li>Perfil cognitivo: {{ r.cognitive_profile.significant_concepts | length }} de {{ r.cognitive_profile.n_concepts }} conceptos significativos tras la corrección.</li>
 {% endif %}
+{% for t in r.get("external_tools", []) %}
+<li>Herramienta externa: los resultados de la ranura {{ t.slot }} los produjo {{ t.upstream.name }} {{ t.upstream.version }} (licencia {{ t.upstream.licence }}), encapsulada por el paso {{ t.step_name }} {{ t.step_version }}; véase la sección 5.4.</li>
+{% endfor %}
+{% for d in r.get("declared_origins", []) %}
+<li>Entrada {{ d.name }}: origen declarado por el usuario ({{ "dibujada a mano" if d.origin.kind == "manual" else "herramienta externa " ~ d.origin.tool ~ " " ~ d.origin.version }}); la plataforma no puede verificarlo.</li>
+{% endfor %}
 </ul>
+{% if r.get("plan") %}
+<h3>Plan de análisis</h3>
+{% if r.plan.mode == "full" %}
+<p>Análisis completo: la ejecución no tenía preajuste ni objetivos personalizados, por lo que se planificó toda ranura del flujo que pudiera ejecutarse.</p>
+{% elif r.plan.mode == "preset" %}
+<p>Preajuste {{ r.plan.preset.id }} versión {{ r.plan.preset.version }}, huella de la definición <span class="mono">sha256:{{ r.plan.preset.sha256 }}</span>.</p>
+{% else %}
+<p>Plan personalizado: el usuario eligió los resultados indicados abajo; la plataforma añadió los pasos que necesitan.</p>
+{% endif %}
+{% if r.plan.targets.required or r.plan.targets.if_available %}
+<table class="kv">
+<tr><td>Resultados requeridos</td><td>{{ r.plan.targets.required | join(", ") if r.plan.targets.required else "-" }}</td></tr>
+<tr><td>Resultados si están disponibles</td><td>{{ r.plan.targets.if_available | join(", ") if r.plan.targets.if_available else "-" }}</td></tr>
+</table>
+{% endif %}
+{% set role = {'target': 'solicitada', 'upstream': 'añadida (necesaria para un resultado solicitado)', 'if_available': 'si está disponible'} %}
+<table>
+<tr><th>Ranura</th><th>En el plan como</th><th>Resultado</th></tr>
+{% for s in r.provenance.slots %}
+<tr><td>{{ s.slot }}</td>
+<td>{% if s.get("plan_role") %}{{ role[s.plan_role] }}{% elif s.reason == "not_requested" %}no solicitada{% elif s.reason == "condition_false" %}no aplicable al conjunto de entradas{% else %}-{% endif %}</td>
+<td>{{ "no solicitada" if s.reason == "not_requested" else s.status ~ (" (" ~ s.reason ~ ")" if s.reason else "") }}</td></tr>
+{% endfor %}
+</table>
+{% endif %}
 
 <h2>2. Lesión</h2>
 <figure>
@@ -95,7 +126,11 @@
 <tr><td>Media de los vóxeles positivos</td><td>{{ r.functional_disconnection.mean_of_positive | fixed(4) }}</td></tr>
 </table>
 {% else %}
+{% if r.functional_disconnection.status == "not_requested" %}
+<p class="absent">No solicitado: el análisis de desconexión funcional queda fuera del plan de esta ejecución, por lo que esta sección está vacía.</p>
+{% else %}
 <p class="absent">No disponible: el mapa de desconexión funcional no se proporcionó a este informe, por lo que esta sección está vacía.</p>
+{% endif %}
 {% endif %}
 
 <h3>3.2 Desconexión de tractos</h3>
@@ -112,7 +147,11 @@
 {% endfor %}
 </table>
 {% else %}
+{% if r.tract_disconnection.status == "not_requested" %}
+<p class="absent">No solicitado: el análisis de desconexión de tractos queda fuera del plan de esta ejecución, por lo que esta sección está vacía.</p>
+{% else %}
 <p class="absent">No forma parte de este análisis: la desconexión de tractos no se ejecutó para este informe, por lo que esta sección está vacía.</p>
+{% endif %}
 {% endif %}
 
 <h2>4. Perfil cognitivo</h2>
@@ -144,7 +183,11 @@
 <p>Ningún concepto es significativo tras la corrección.</p>
 {% endif %}
 {% else %}
+{% if r.cognitive_profile.status == "not_requested" %}
+<p class="absent">No solicitado: el perfil cognitivo queda fuera del plan de esta ejecución, por lo que esta sección está vacía.</p>
+{% else %}
 <p class="absent">No disponible: el perfil cognitivo no se proporcionó a este informe, por lo que esta sección está vacía.</p>
+{% endif %}
 {% endif %}
 
 <h2>5. Procedencia</h2>
@@ -157,7 +200,7 @@
 <td>{{ s.slot }}</td>
 <td>{{ s.status }}{% if s.reason %} ({{ s.reason }}){% endif %}</td>
 {% if s.implementation %}
-<td>{{ s.implementation.step_name }} {{ s.implementation.step_version }}{% if s.implementation.stub %} (simulado){% endif %}</td>
+<td>{{ s.implementation.step_name }} {{ s.implementation.step_version }}{% if s.implementation.stub %} (simulado){% endif %}{% if s.implementation.get("upstream") %} (herramienta externa: {{ s.implementation.upstream.name }} {{ s.implementation.upstream.version }}){% endif %}</td>
 <td class="mono">{{ s.implementation.image }}</td>
 <td>{% for st in r.provenance.steps if st.slot == s.slot %}{% for sw in st.software %}{{ sw.name }} {{ sw.version }}{% if not loop.last %}, {% endif %}{% endfor %}{% endfor %}</td>
 {% else %}
@@ -191,12 +234,39 @@
 {% endfor %}
 </table>
 
+{% if r.get("external_tools") %}
+<h3>5.4 Herramientas externas</h3>
+<p>Los resultados de estas ranuras proceden de software de terceros encapsulado por un paso de esta plataforma. El registro de la ejecución no indica un nivel de validación para ellas y este informe no lo deduce.</p>
+<table>
+<tr><th>Ranura</th><th>Paso envoltorio</th><th>Herramienta externa</th><th>Licencia</th><th>Cita</th></tr>
+{% for t in r.get("external_tools", []) %}
+<tr><td>{{ t.slot }}</td><td>{{ t.step_name }} {{ t.step_version }}</td><td>{{ t.upstream.name }} {{ t.upstream.version }}<br><span class="mono">{{ t.upstream.homepage }}</span></td><td>{{ t.upstream.licence }}</td><td>{{ t.upstream.citation if t.upstream.get("citation") else "no indicada" }}</td></tr>
+{% endfor %}
+</table>
+{% endif %}
+{% if r.get("declared_origins") %}
+<h3>5.5 Origen declarado de las entradas aportadas</h3>
+<p>Estos orígenes los declaró el usuario al subir los archivos; la plataforma no puede verificarlos.</p>
+<table>
+<tr><th>Entrada</th><th>Tipo</th><th>SHA-256</th><th>Origen declarado</th></tr>
+{% for d in r.get("declared_origins", []) %}
+<tr><td>{{ d.name }}</td><td>{{ d.type }}</td><td class="mono">{{ d.sha256 }}</td><td>{{ "dibujada a mano" if d.origin.kind == "manual" else "herramienta externa " ~ d.origin.tool ~ " " ~ d.origin.version }} (declarado por el usuario)</td></tr>
+{% endfor %}
+</table>
+{% endif %}
+
 <h2>6. Notas</h2>
 <ul>
 <li>Este documento es solo para uso en investigación, no para decisiones clínicas.</li>
 <li>El contenido legible por máquina de este informe está en report.json; sus bytes son la base del sellado.</li>
 {% if "synthetic_reference_data" in r.notes %}
 <li>Los datos de referencia usados para el perfil cognitivo están marcados como sintéticos.</li>
+{% endif %}
+{% if "external_tool_used" in r.notes %}
+<li>Al menos un resultado lo produjo una herramienta externa; su nombre, versión y licencia están en la sección 5.4.</li>
+{% endif %}
+{% if "input_origin_declared_by_user" in r.notes %}
+<li>El origen de al menos una entrada aportada lo declaró el usuario y la plataforma no lo verifica (sección 5.5).</li>
 {% endif %}
 {% if "lesion_mask_differs_from_qc" in r.notes %}
 <li>La máscara de lesión entregada a este informe difiere del volumen registrado por el control de calidad de la lesión; revise la configuración del flujo.</li>
