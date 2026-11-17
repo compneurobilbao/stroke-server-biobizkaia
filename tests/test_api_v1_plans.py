@@ -1180,10 +1180,11 @@ def real(client, monkeypatch):
     env = Env(client, build("1.2"), monkeypatch)
     env.build = build
     env.policy("free_for_researchers")
-    path, registry = seed.find_registry_files(ROOT / "pipelines")[0]
+    _path, registry = seed.find_registry_files(ROOT / "pipelines")[0]
+    preset_ids, _failed = seed.preset_ids_by_pipeline(ROOT / "pipelines")
     with env.Session() as db:
         seed.seed_registry(
-            db, registry, "deployment", preset_ids=seed.preset_ids_of(path)
+            db, registry, "deployment", preset_ids=preset_ids["stroke-lnm"]
         )
         db.commit()
     return env

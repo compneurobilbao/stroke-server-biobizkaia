@@ -183,6 +183,25 @@ Steps, in order:
    This runs `python -m app.cli.seed_implementations --profile deployment` in `api`. It reads `<PIPELINES_DIR>/<id>/registry.yaml` and writes one `slot_implementation_settings` row per allowed implementation, enabled as the profile says, and one `preset_settings` row per preset file in `<id>/presets/` (enabled and default as `profiles.<profile>.presets` says). Stubs and planned entries are never enabled under `deployment` (the command refuses a registry that does so). Existing rows are not touched, so changes an admin made with `PUT /api/v1/admin/implementations/...` survive a re-run; `--reset` overwrites every row with the profile. The command logs each row (`insert`, `update`, `unchanged`, `warning`) and warns about enabled implementations whose image digest is still a placeholder.
 6. **Use `/api/v1`.** `GET /api/v1/pipelines` and `.../versions/<v>/slots` show what is enabled; admins refine it through `/api/v1/admin/implementations`; researchers create cases, upload inputs and start runs (`docs/api.md`). Restart `api` after changing the mounted pipelines or manifests: they are loaded once per process.
 
+#### Enabling free mode on an on-premise (lab) instance
+
+Free mode (a run with outputs chosen by the user instead of a reviewed preset) is refused everywhere by default. A lab instance enables it in this order; do not set `RUN_PLAN_POLICY` first.
+
+1. **Set the profile first.** In `.env`: `DEPLOYMENT_PROFILE=on-premise`, then `make up` (or `make rebuild`). The profile is read when the API starts. It changes three things:
+   * new v1 cases are stamped with the profile `on-premise` (cases already created keep theirs);
+   * the default policy becomes `free_for_researchers` (admins and researchers may use free mode, nobody else), instead of `presets_only`;
+   * the minimum validation level for external tools is the lab level (`reference-tested`, shown as experimental), instead of `validated` as on the public profiles (design: `docs/design/run-plans.md` 4.4; the admin check that enforces it comes with card F1-23, so today the setting is documented but not yet enforced).
+2. **Optionally narrow or fix the policy.** Leave `RUN_PLAN_POLICY` empty to take the profile default, or set it to `free_for_admins`, `free_for_researchers` or `presets_only`. Restart `api` after changing it.
+3. **Verify.** As any signed-in user, `GET /api/v1/config` returns `{"deployment_profile": "on-premise", "run_plan_policy": "free_for_researchers", "free_mode_allowed": <true for admin and researcher>}`. If it still says `research-public` or `presets_only`, the `api` container did not get the new `.env` (recreate it with `make up`).
+
+**Warning.** Setting `RUN_PLAN_POLICY` to anything other than `presets_only` while the profile is `research-public` or `mask-only` stops the API at startup, legacy routes included (the whole application fails to import). The Compose default profile is `research-public`, so setting `RUN_PLAN_POLICY=free_for_researchers` without `DEPLOYMENT_PROFILE=on-premise` takes the site down. Fix by setting the profile or unsetting the policy and restarting.
+
+**Invalid values stop the whole application.** Since card F1-21, an unknown `DEPLOYMENT_PROFILE` (not `research-public`, `mask-only` or `on-premise`) or an unknown `RUN_PLAN_POLICY` (not `presets_only`, `free_for_admins` or `free_for_researchers`) makes `api` exit at startup with a `RuntimeError` naming the allowed values; before that release a bad profile only failed the v1 requests that read it. After editing these two variables, check `docker compose logs api` for the start-up error if the stack does not become healthy.
+
+#### Preset files and `PRESETS_DIR`
+
+The API and `seed_implementations` find presets with the same function (`orchestrator.catalog.resolve_presets_dir`): `PRESETS_DIR` when set, else the pipelines directory, scanning every `presets/<id>.yaml`. A preset file must be named after its `id` (`full.yaml` holds `id: full`); a file whose name and `id` differ is a load error, logged by the API and reported (and skipped) by the seeding command. `seed_implementations --reset` also disables the `preset_settings` rows of presets whose file no longer exists and lists them as `update`. The Compose file does not forward `PRESETS_DIR` to `api` yet; with Compose, keep presets under the pipelines tree.
+
 #### What is not available yet
 
 Image digests in `pipelines/stroke-lnm/registry.yaml` are placeholders (64 zeros) until the step images are published (card F1-14). The executor only starts images pinned by digest and never pulls a placeholder, and run creation needs the step manifests. **A real deployment therefore cannot run stroke-lnm yet**: with the repository tree, listing and seeding work, but runs cannot complete. CT normalisation (`ct-lesion-to-mni152`) is mounted in both the `ci` and `deployment` profiles, so the CT input set is accepted; a deployment that disables the slot refuses CT-mode runs. The functional disconnection stub is enabled in `ci` only; `deployment` enables `flnm-fast`, which needs the normative-fc bundle installed locally.

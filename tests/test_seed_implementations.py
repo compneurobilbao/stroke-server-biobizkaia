@@ -256,7 +256,13 @@ def test_compose_api_is_inert_without_pipeline_settings():
 
 def test_env_example_declares_api_pipeline_settings():
     text = (ROOT / ".env.example").read_text(encoding="utf-8")
-    for key in ("API_PIPELINES_DIR", "API_STEP_MANIFESTS_DIR", "DEPLOYMENT_PROFILE"):
+    for key in (
+        "API_PIPELINES_DIR",
+        "API_STEP_MANIFESTS_DIR",
+        "DEPLOYMENT_PROFILE",
+        "RUN_PLAN_POLICY",
+        "PRESETS_DIR",
+    ):
         assert key in text
 
 
@@ -374,3 +380,85 @@ def test_a_registry_without_presets_seeds_none(factory, pipelines_copy):
     assert run(factory, "--profile", "deployment", pipelines=pipelines_copy) == 0
     assert preset_rows(factory) == {}
     assert rows(factory)
+
+
+# ------------------------------------------- PRESETS_DIR, stem rule, stale rows (F1-21a)
+
+
+def _copy_presets(tmp_path, keep=None):
+    target = tmp_path / "presets-tree" / "stroke-lnm" / "presets"
+    target.mkdir(parents=True)
+    for p in (PIPELINES / "stroke-lnm" / "presets").glob("*.yaml"):
+        if keep is None or p.stem in keep:
+            shutil.copy(p, target / p.name)
+    return tmp_path / "presets-tree"
+
+
+def test_seed_uses_the_same_presets_dir_as_the_api(
+    factory, tmp_path, monkeypatch, capsys
+):
+    from orchestrator.catalog import resolve_presets_dir, scan_presets
+
+    keep = {"full", "ct-normalisation"}
+    tree = _copy_presets(tmp_path, keep)
+    monkeypatch.setenv("PRESETS_DIR", str(tree))
+    assert resolve_presets_dir(PIPELINES) == tree
+    # The registry enables four presets; only two files exist under PRESETS_DIR.
+    assert run(factory, "--profile", "deployment") == 1
+    assert "has no file" in capsys.readouterr().err
+    assert preset_rows(factory) == {}
+    # With a registry that enables only those two, the rows are exactly those offered.
+    pipelines = tmp_path / "pipelines"
+    shutil.copytree(
+        PIPELINES / "stroke-lnm",
+        pipelines / "stroke-lnm",
+        ignore=shutil.ignore_patterns("tests", "__pycache__", "presets"),
+    )
+    path = pipelines / "stroke-lnm" / "registry.yaml"
+    doc = yaml.safe_load(path.read_text())
+    for profile in doc["profiles"].values():
+        profile["presets"]["enabled"] = [
+            p for p in profile["presets"]["enabled"] if p in keep
+        ]
+    path.write_text(yaml.safe_dump(doc, sort_keys=False))
+    assert run(factory, "--profile", "deployment", pipelines=pipelines) == 0
+    assert set(preset_rows(factory)) == keep
+    offered = {preset.id for _path, preset in scan_presets(tree)[0]}
+    assert offered == keep == set(preset_rows(factory))
+
+
+def test_seed_skips_a_preset_whose_stem_differs_from_its_id(
+    factory, pipelines_copy, capsys
+):
+    presets = pipelines_copy / "stroke-lnm" / "presets"
+    (presets / "full.yaml").rename(presets / "everything.yaml")
+    assert run(factory, "--profile", "deployment", pipelines=pipelines_copy) == 1
+    err = capsys.readouterr().err
+    assert "everything.yaml" in err and "does not match its id" in err
+    assert "enabled preset 'full' has no file" in err
+    assert preset_rows(factory) == {}
+
+
+def test_reset_disables_settings_of_presets_without_a_file(
+    factory, pipelines_copy, capsys
+):
+    assert run(factory, "--profile", "deployment", pipelines=pipelines_copy) == 0
+    assert preset_rows(factory)["ct-normalisation"] == (True, False)
+    (pipelines_copy / "stroke-lnm" / "presets" / "ct-normalisation.yaml").unlink()
+    path = pipelines_copy / "stroke-lnm" / "registry.yaml"
+    doc = yaml.safe_load(path.read_text())
+    for profile in doc["profiles"].values():
+        profile["presets"]["enabled"].remove("ct-normalisation")
+    path.write_text(yaml.safe_dump(doc, sort_keys=False))
+    capsys.readouterr()
+    # Without --reset the row is left alone.
+    assert run(factory, "--profile", "deployment", pipelines=pipelines_copy) == 0
+    assert preset_rows(factory)["ct-normalisation"] == (True, False)
+    capsys.readouterr()
+    assert (
+        run(factory, "--profile", "deployment", "--reset", pipelines=pipelines_copy)
+        == 0
+    )
+    assert preset_rows(factory)["ct-normalisation"] == (False, False)
+    assert preset_rows(factory)["full"] == (True, True)
+    assert "preset file no longer exists" in capsys.readouterr().out
