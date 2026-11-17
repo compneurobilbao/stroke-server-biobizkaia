@@ -1463,7 +1463,8 @@
                 "enum": [
                   "user",
                   "deployment_default",
-                  "pipeline_default"
+                  "pipeline_default",
+                  "preset"
                 ],
                 "type": "string"
               },
@@ -1518,6 +1519,22 @@
             "title": "Optional",
             "type": "boolean"
           },
+          "plan_role": {
+            "anyOf": [
+              {
+                "enum": [
+                  "target",
+                  "upstream",
+                  "if_available"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Role"
+          },
           "position": {
             "title": "Position",
             "type": "integer"
@@ -1528,7 +1545,8 @@
                 "enum": [
                   "condition_false",
                   "upstream_absent",
-                  "no_implementation"
+                  "no_implementation",
+                  "not_requested"
                 ],
                 "type": "string"
               },
@@ -1589,6 +1607,18 @@
               }
             ],
             "title": "Stub"
+          },
+          "upstream": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Upstream"
           }
         },
         "required": [

@@ -1,12 +1,26 @@
 """Build a ``RunProvenance`` record from the database (docs/data-model.md section 8).
 
-Used to stage the ``run.provenance`` source (pipeline.md 3.1) for the report
-step, with ``status: running``. Writing the run-level file next to the
-derivatives is card F0-17's job; it can use the same function.
+Used to start the run-level ``provenance.json`` in the case store (F0-17) and to
+stage the ``run.provenance`` source (pipeline.md 3.1) for steps such as the report,
+with ``status: running``.
+
+Contract version of the record (card F1-19, data-model.md 8): the record carries the
+run plan (``plan`` and the slots' ``plan_role``) only when every applicable slot row
+(reason other than ``condition_false`` and ``not_requested``) has a ``plan_role``,
+and then declares contract 1.2; so does a record with a slot
+``implementation.upstream``. Otherwise (runs created before the plan-aware
+orchestrator) it carries neither and declares contract 1.1.
+
+A step reads the record in the form of the contract its manifest declares
+(``run_provenance_for_step``): a step declaring 1.0 or 1.1 gets the record without
+the 1.2 fields, which it could not validate (step images copy the contract schemas
+of their build, presets.md 4.3).
 """
 
 from __future__ import annotations
 
+import copy
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any
 
@@ -16,10 +30,14 @@ from sqlalchemy.orm import Session
 from app.models.case import InputFile
 from app.models.pipeline_run import PipelineRun, RunInput, RunSlot, StepRun
 from app.models.reference_bundle import ReferenceBundle
-from contracts.validate import CONTRACT_VERSION
+from contracts import validate as contract
 
 RUN_STATUS = {"queued": "running", "running": "running", "awaiting_review": "running"}
 TERMINAL_STEP = ("succeeded", "failed", "canceled")
+# plan, plan_role, not_requested, chosen_by: preset, implementation.upstream
+PLAN_CONTRACT_VERSION = "1.2"
+BASE_CONTRACT_VERSION = "1.1"  # a record that uses none of them
+NO_PLAN_ROLE = ("condition_false", "not_requested")
 
 
 def timestamp(value: datetime | None) -> str | None:
@@ -64,10 +82,39 @@ def _execution(step: StepRun) -> dict[str, Any]:
     return record
 
 
+def has_plan(slots: list[RunSlot]) -> bool:
+    """The data-model.md 8 rule: every applicable slot row has a ``plan_role``."""
+    return all(s.plan_role is not None for s in slots if s.reason not in NO_PLAN_ROLE)
+
+
+def plan_record(run: PipelineRun) -> dict[str, Any]:
+    """``RunProvenance.plan`` (provenance.md 3.4) from ``pipeline_runs``."""
+    preset = None
+    if run.plan_mode == "preset":
+        preset = {
+            "id": run.preset_id,
+            "version": run.preset_version,
+            "sha256": run.preset_sha256,
+        }
+    return {
+        "mode": run.plan_mode,
+        "preset": preset,
+        "targets": copy.deepcopy(dict(run.targets or {})),
+    }
+
+
 def build_run_provenance(db: Session, run: PipelineRun) -> dict[str, Any]:
-    _version, types_version = run.platform_version, run.artefact_types_version
+    slots = db.scalars(
+        select(RunSlot)
+        .where(RunSlot.pipeline_run_id == run.id)
+        .order_by(RunSlot.position)
+    ).all()
+    with_plan = has_plan(slots)
+    upstream = any(s.upstream is not None for s in slots if s.status == "selected")
     record: dict[str, Any] = {
-        "contract_version": CONTRACT_VERSION,
+        "contract_version": (
+            PLAN_CONTRACT_VERSION if with_plan or upstream else BASE_CONTRACT_VERSION
+        ),
         "kind": "RunProvenance",
         "run_id": str(run.id),
         "case_id": str(run.case_id),
@@ -78,7 +125,7 @@ def build_run_provenance(db: Session, run: PipelineRun) -> dict[str, Any]:
         },
         "platform": {
             "version": run.platform_version,
-            "artefact_types_version": types_version,
+            "artefact_types_version": run.artefact_types_version,
         },
         "status": RUN_STATUS.get(run.status, run.status),
         "created_at": timestamp(run.created_at),
@@ -102,22 +149,21 @@ def build_run_provenance(db: Session, run: PipelineRun) -> dict[str, Any]:
         }
         for role, f in inputs
     ]
+    if with_plan:
+        record["plan"] = plan_record(run)
     record["accounting"] = {
         "submitted_by": run.accounting_submitted_by,
         "submit_as": run.accounting_submit_as,
         "billing_account": run.accounting_billing_account,
     }
-    slots = db.scalars(
-        select(RunSlot)
-        .where(RunSlot.pipeline_run_id == run.id)
-        .order_by(RunSlot.position)
-    ).all()
     record["slots"] = []
     for slot in slots:
+        entry: dict[str, Any] = {"slot": slot.slot, "status": slot.status}
+        if with_plan and slot.plan_role is not None:
+            entry["plan_role"] = slot.plan_role
         if slot.status != "selected":
-            record["slots"].append(
-                {"slot": slot.slot, "status": slot.status, "reason": slot.reason}
-            )
+            entry["reason"] = slot.reason
+            record["slots"].append(entry)
             continue
         bundles = []
         for link in slot.bundles:
@@ -130,20 +176,18 @@ def build_run_provenance(db: Session, run: PipelineRun) -> dict[str, Any]:
                     "content_digest": bundle.content_digest,
                 }
             )
-        record["slots"].append(
-            {
-                "slot": slot.slot,
-                "status": "selected",
-                "implementation": {
-                    "id": slot.implementation_id,
-                    "step": {"name": slot.step_name, "version": slot.step_version},
-                    "image": slot.image,
-                    "stub": slot.stub,
-                    "chosen_by": slot.chosen_by,
-                },
-                "bundles": sorted(bundles, key=lambda b: b["name"]),
-            }
-        )
+        implementation = {
+            "id": slot.implementation_id,
+            "step": {"name": slot.step_name, "version": slot.step_version},
+            "image": slot.image,
+            "stub": slot.stub,
+            "chosen_by": slot.chosen_by,
+        }
+        if slot.upstream is not None:
+            implementation["upstream"] = copy.deepcopy(dict(slot.upstream))
+        entry["implementation"] = implementation
+        entry["bundles"] = sorted(bundles, key=lambda b: b["name"])
+        record["slots"].append(entry)
     names = {s.id: s.slot for s in slots}
     steps = db.scalars(
         select(StepRun)
@@ -160,3 +204,44 @@ def build_run_provenance(db: Session, run: PipelineRun) -> dict[str, Any]:
         for s in steps
     ]
     return record
+
+
+def run_provenance_for_step(
+    record: dict[str, Any], manifest: Mapping[str, Any] | None
+) -> dict[str, Any]:
+    """The run record as staged for a step that reads ``run.provenance``.
+
+    A step always gets the record in the form of the contract its manifest declares:
+    a step declaring the record's version or a later one gets ``record`` unchanged; a
+    step declaring an older version implements that contract and rejects newer
+    documents (versioning.md 2 rule 4; its image validates the record against the
+    schemas of its build), so the record is relabelled to the step's version, without
+    ``plan``, ``plan_role``, ``implementation.upstream`` and ``inputs[].origin``
+    (1.2 additions; for a 1.1 record nothing but the label changes, since
+    RunProvenance has no field added in 1.1). Only the full plan has such a form:
+    a preset or free plan, slots outside the plan (``not_requested``) and preset
+    choices (``chosen_by: preset``) do not, run creation refuses those plans for
+    such steps (``step_contract_too_old``,
+    ``orchestrator.planning.provenance_consumer_reasons``), and a record that still
+    has them is returned unchanged rather than altered.
+    """
+    consumer = contract.contract_minor((manifest or {}).get("contract_version"))
+    current = contract.contract_minor(record.get("contract_version"))
+    if consumer < 0 or consumer >= current:
+        return record
+    plan = record.get("plan")
+    if (plan is not None and plan.get("mode") != "full") or any(
+        s.get("reason") == "not_requested"
+        or s.get("implementation", {}).get("chosen_by") == "preset"
+        for s in record.get("slots", [])
+    ):
+        return record
+    out = copy.deepcopy(record)
+    out["contract_version"] = f"{contract.CONTRACT_MAJOR}.{consumer}"
+    out.pop("plan", None)
+    for item in out.get("inputs", []):
+        item.pop("origin", None)
+    for slot in out.get("slots", []):
+        slot.pop("plan_role", None)
+        slot.get("implementation", {}).pop("upstream", None)
+    return out
