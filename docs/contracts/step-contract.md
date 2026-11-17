@@ -1,6 +1,6 @@
-# Step contract 1.1
+# Step contract 1.2
 
-Status: normative. Contract version `1.1`. Decision records: [ADR-0001](../adr/0001-step-contract.md), [ADR-0017](../adr/0017-contract-1-1-sdk-gaps.md) (changes in 1.1).
+Status: normative. Contract version `1.2`. Decision records: [ADR-0001](../adr/0001-step-contract.md), [ADR-0017](../adr/0017-contract-1-1-sdk-gaps.md) (changes in 1.1), [ADR-0018](../adr/0018-presets-free-mode-external-tools.md) (changes in 1.2: the optional `upstream` block, [1.8](#18-external-tools-the-upstream-block)).
 Schemas: [`contracts/schemas/v1/step.schema.json`](../../contracts/schemas/v1/step.schema.json), [`error.schema.json`](../../contracts/schemas/v1/error.schema.json), [`provenance.schema.json`](../../contracts/schemas/v1/provenance.schema.json).
 Conventions (RFC 2119 keywords, identifiers, hashes, timestamps) are defined in [README.md](README.md#conventions).
 
@@ -26,7 +26,7 @@ Parties named in this document:
 
 | Field | Req. | Meaning | Consumers |
 |---|---|---|---|
-| `contract_version` | MUST | Contract version the step implements, `"1.1"` (or `"1.0"` for a step written for 1.0, which keeps the 1.0 rules; rules marked *1.1* below apply only to steps declaring 1.1 or later). | orchestrator (compatibility), SDK |
+| `contract_version` | MUST | Contract version the step implements, `"1.2"` (or `"1.0"` / `"1.1"` for a step written for those versions, which keeps their rules; rules and fields marked *1.1* or *1.2* below apply only to steps declaring that version or later). A step that uses no 1.2 field MAY keep declaring `"1.1"`. | orchestrator (compatibility), SDK |
 | `kind` | MUST | `Step`. | validator |
 | `name` | MUST | Step identifier, kebab-case, stable across versions. | registry, provenance, UI |
 | `version` | MUST | Semantic version of the step ([versioning.md](versioning.md#3-steps)). | registry, provenance |
@@ -44,6 +44,7 @@ Parties named in this document:
 | `resources` | MUST | Resource request ([1.6](#16-resources)). | executors |
 | `errors[]` | SHOULD | Declared error codes ([4.3](#43-error-codes)). | UI translations, SDK |
 | `reference_test` | SHOULD (MUST for non-stub steps before they are marked validated) | Reference dataset and expected outputs ([1.7](#17-reference-test)). | step CI, nightly CI |
+| `upstream` | MAY (*1.2*) | The external tool the step wraps ([1.8](#18-external-tools-the-upstream-block)). | registry check, run provenance, UI, report |
 
 Unknown fields are rejected (the schemas set `additionalProperties: false`).
 
@@ -109,6 +110,28 @@ The manifest does not say which executor runs a step: that is deployment configu
    - generated files SHOULD be ignored by version control. A change to the generator that changes the bytes it writes is a change of the reference dataset: the step's next version follows [versioning.md](versioning.md#3-steps) as if the fixtures had been edited.
 
    *Rationale:* NIfTI fixtures on the working grid are large and binary; a small deterministic generator is reviewable, and byte-identity keeps "same inputs" checkable by hash.
+
+### 1.8 External tools: the `upstream` block
+
+*1.2.* A step that wraps a third-party tool (a *wrapper step*: the upstream image or tool plus the SDK and an adapter, [ADR-0018](../adr/0018-presets-free-mode-external-tools.md)) MAY declare it:
+
+```yaml
+upstream:
+  name: example-segmenter            # upstream project name
+  version: 2.1.0                     # upstream release wrapped by this step version
+  homepage: https://example.org/example-segmenter
+  image: docker.io/example/segmenter@sha256:<64 hex>   # the base image, as in the Dockerfile
+  licence: Apache-2.0                # SPDX expression of the upstream code
+  citation: "..."                    # optional; used by the report
+```
+
+1. `name`, `version`, `homepage` (`https://`), `image` (fully qualified, pinned by digest) and `licence` are REQUIRED; `citation` is OPTIONAL. Only steps declaring contract 1.2 or later may use the block.
+2. The upstream tool MUST also be listed in `licence.third_party[]` with the same `name` and with `spdx` equal to `licence`, and SHOULD appear at run time in the step's `provenance.software[]` with the version actually run.
+3. The orchestrator copies the block, unchanged, into the slot record of every run that selects the step (`implementation.upstream`, [provenance.md §3.1](provenance.md#31-slot-records)); UI and report label results as produced by an external tool with its name, version and licence.
+4. The block is descriptive: it changes nothing in invocation, staging or collection. Whether an implementation counts as external, its licence review and its validation status are deployment registry data (`registry.yaml`), not part of the manifest. A pipeline's registry check MAY require the block for implementations it marks external.
+5. A new upstream release is a new step version, and the block is part of the manifest, so changing it requires a new step version ([versioning.md §3](versioning.md#3-steps)).
+
+Example: [`contracts/examples/step-lesion-segmenter-wrapper.yaml`](../../contracts/examples/step-lesion-segmenter-wrapper.yaml).
 
 ## 2. Invocation
 

@@ -1,7 +1,7 @@
-# Provenance records 1.1 (`provenance.json`)
+# Provenance records 1.2 (`provenance.json`)
 
-Status: normative. Contract version `1.1`. Schema: [`contracts/schemas/v1/provenance.schema.json`](../../contracts/schemas/v1/provenance.schema.json).
-Worked examples: [`provenance-step.json`](../../contracts/examples/provenance-step.json), [`provenance-step-rejected.json`](../../contracts/examples/provenance-step-rejected.json), [`provenance-run.json`](../../contracts/examples/provenance-run.json).
+Status: normative. Contract version `1.2` (`RunProvenance` gains the plan record and declared input origins in 1.2, [ADR-0018](../adr/0018-presets-free-mode-external-tools.md); `StepProvenance` is unchanged since 1.1). Schema: [`contracts/schemas/v1/provenance.schema.json`](../../contracts/schemas/v1/provenance.schema.json).
+Worked examples: [`provenance-step.json`](../../contracts/examples/provenance-step.json), [`provenance-step-rejected.json`](../../contracts/examples/provenance-step-rejected.json), [`provenance-run.json`](../../contracts/examples/provenance-run.json), [`provenance-run-plan.json`](../../contracts/examples/provenance-run-plan.json) (1.2, a run created from a preset).
 
 There are two kinds of record, in one schema:
 
@@ -49,18 +49,26 @@ The orchestrator, when collecting, MUST validate the record against the schema, 
 | `created_at`, `finished_at` | Run timestamps. | API |
 | `seed` | Run seed (unsigned 32-bit), passed to every step that declares `seed`. Kept on resume and retry. | reproducibility |
 | `input_set` | Name of the matched input set. | report, UI |
-| `inputs[]` | `{name, type, sha256, size_bytes}` of the run inputs. | audit |
+| `inputs[]` | `{name, type, sha256, size_bytes, origin}` of the run inputs; `origin` ([3.3](#33-declared-input-origins), *1.2*) is optional. | audit, report |
+| `plan` | *1.2*, optional: the run's plan request as resolved ([3.4](#34-plan-record)). | report, UI, "run again with the same plan" |
 | `accounting` | Optional `{submitted_by, submit_as, billing_account}` ([4](#4-accounting)). | HPC usage reports |
 | `slots[]` | One record per pipeline slot, in pipeline order ([3.1](#31-slot-records)). | report, UI, audit |
 | `steps[]` | One record per step execution attempt ([3.2](#32-step-records)). | report, UI, audit |
 
 ### 3.1 Slot records
 
-`{slot, status, reason, implementation, bundles}`:
+`{slot, status, reason, plan_role, implementation, bundles}`:
 
-- `status: selected` with `implementation {id, step {name, version}, image, stub, chosen_by}` and the resolved `bundles[]`; `chosen_by` is `user`, `deployment_default` or `pipeline_default` (D15: "the choice, image digest and model bundle are recorded in provenance").
-- `status: skipped` with `reason` `condition_false` or `upstream_absent`.
+- `status: selected` with `implementation {id, step {name, version}, image, stub, chosen_by, upstream}` and the resolved `bundles[]`; `chosen_by` is `user`, `deployment_default`, `pipeline_default` or (*1.2*) `preset` (D15: "the choice, image digest and model bundle are recorded in provenance"). *1.2:* `upstream` is a copy of the step manifest's `upstream` block ([step-contract.md §1.8](step-contract.md#18-external-tools-the-upstream-block)) and is present exactly when the manifest has one.
+- `status: skipped` with `reason` `condition_false`, `upstream_absent` or (*1.2*) `not_requested` (the slot is outside the run plan, [presets.md §4](presets.md#4-static-plan-closure)).
 - `status: unavailable` with `reason: no_implementation`.
+- *1.2:* `plan_role` (`target`, `upstream`, `if_available`, [presets.md §4.1](presets.md#41-plan-roles)) says why the slot is in the plan.
+
+Rules for records declaring 1.2 (checked by `contracts/validate.py`):
+
+1. A record with `plan` gives every slot a `plan_role` except slots with reason `condition_false` or `not_requested`, which have none. A slot that is `unavailable` or `skipped` with `upstream_absent` has role `if_available` (a `target` or `upstream` slot without an implementation refuses the run).
+2. `plan_role`, reason `not_requested` and `chosen_by: preset` need `plan`; `not_requested` needs `plan.mode` `preset` or `free` and status `skipped`; `chosen_by: preset` needs `plan.mode: preset`.
+3. Records declaring 1.0 or 1.1 MUST NOT use `plan`, `plan_role`, `not_requested`, `chosen_by: preset`, `implementation.upstream` or `inputs[].origin`.
 
 ### 3.2 Step records
 
@@ -73,6 +81,22 @@ The orchestrator, when collecting, MUST validate the record against the schema, 
 `executor: external` is reserved for results that were computed outside the platform and uploaded through a service-account endpoint (D8, path 2); `runtime` is then `none` and `provenance` holds whatever step record accompanied the upload.
 
 The legacy `subprocess` executor (dummy and anatproc processors during migration) records `runtime: none`, no `image`, and usually `provenance: null`.
+
+### 3.3 Declared input origins
+
+*1.2.* A run input MAY carry the origin its uploader declared: `{kind: manual}` (drawn by hand) or `{kind: external-tool, tool, version}`, where `tool` and `version` match `[A-Za-z0-9._+-]{1,64}` (no free text, which could carry identifiers). The platform cannot verify a declared origin; UI and report present it as "declared by the user". The origin `platform-run` (an artefact of an earlier run) is reserved for a later minor version.
+
+### 3.4 Plan record
+
+*1.2.* `plan` is `{mode, preset, targets}`:
+
+| Field | Meaning |
+|---|---|
+| `mode` | `full` (no preset and no targets: rule R0 of [presets.md §4](presets.md#4-static-plan-closure)), `preset` or `free` (targets chosen by the user). |
+| `preset` | `{id, version, sha256}` of the preset (SHA-256 of the exact file bytes) when `mode` is `preset`; `null` otherwise. |
+| `targets` | The request as resolved: `{required: [slot.port], if_available: [slot.port]}`. Empty (`{}`) for `full`; at least one required target for `preset`; at least one target for `free`. A port is not both required and if available. |
+
+Against the pipeline, every target is a produced port, and the slot of every required target has `plan_role: target`. Together with the pipeline SHA-256 and the slot records, the plan record is enough to re-submit the same request and to explain why each slot ran or did not.
 
 ## 4. Accounting
 

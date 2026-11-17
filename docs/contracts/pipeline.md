@@ -1,6 +1,6 @@
-# Pipeline definition 1.1 (`pipeline.yaml`)
+# Pipeline definition 1.2 (`pipeline.yaml`)
 
-Status: normative. Contract version `1.1` (this document is unchanged since 1.0). Decision records: [ADR-0002](../adr/0002-declarative-pipelines-own-orchestrator.md), [ADR-0015](../adr/0015-selectable-implementations-per-slot.md).
+Status: normative. Contract version `1.2` (this document is unchanged since 1.0). Decision records: [ADR-0002](../adr/0002-declarative-pipelines-own-orchestrator.md), [ADR-0015](../adr/0015-selectable-implementations-per-slot.md).
 Schema: [`contracts/schemas/v1/pipeline.schema.json`](../../contracts/schemas/v1/pipeline.schema.json). Worked example: [`contracts/examples/pipeline-stroke-lnm.yaml`](../../contracts/examples/pipeline-stroke-lnm.yaml).
 
 A pipeline is a small directed acyclic graph of **slots**. A slot is a named position defined by the artefact types it consumes and produces; any step whose manifest declares `provides: <slot>` and matches the slot's ports can fill it. The pipeline file lists, per slot, the implementations that are *allowed* (by image digest); a deployment *enables* a subset of them; the user *chooses* one per slot when creating a run.
@@ -128,6 +128,8 @@ At run creation the orchestrator, for each slot in topological order:
 5. Bundles are resolved per requirement: a pin in the implementation entry, else a pin in the deployment configuration, else the highest installed version of a matching bundle that satisfies the range.
 
 Execution: slots run in dependency order; independent slots MAY run concurrently. A step that ends with any outcome other than `succeeded` stops the run (no new steps are started; running independent steps are allowed to finish); the user may retry the failed step. Per-slot failure tolerance (`on_failure`) is not part of contract 1.1.
+
+*Contract 1.2:* a run may also be created from a preset or from user-chosen targets; the slots it attempts are then the closure of those targets, and the other slots are `skipped` with reason `not_requested` ([presets.md](presets.md)). The resolution above is that closure's full plan (rule R0) and is unchanged.
 
 ## 7. Deployment configuration (not part of this file)
 
