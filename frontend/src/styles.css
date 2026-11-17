@@ -711,3 +711,19 @@ th, td {
 .viewer-slider input[type="range"] { flex: none; width: 100%; height: auto; padding: 0; }
 .viewer-slider output { font-variant-numeric: tabular-nums; text-align: right; font-weight: 400; }
 @media (max-width: 900px) { .viewer-layout { grid-template-columns: 1fr; } .viewer-canvas-wrap { height: 55vh; min-height: 320px; } }
+
+/* Analysis step, plan preview and run plan (card F1-22) */
+span.block { display: block; margin-top: 4px; }
+.plan-preview { border: 1px solid #e3eaf0; border-radius: 12px; padding: 12px 16px; background: #f8fafc; }
+.plan-preview h3 { margin: 0 0 8px; font-size: 1rem; color: var(--bb-indigo); }
+.plan-body.stale { opacity: .6; }
+.plan-list { list-style: none; padding: 0; margin: 8px 0; display: flex; flex-direction: column; gap: 6px; }
+.plan-slot { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.plan-slot .tag { margin-left: 0; }
+.plan-slot[data-plan-state="not_requested"], .plan-slot[data-plan-state="condition_false"] { opacity: .7; }
+.plan-reasons { margin-top: 10px; padding: 10px 14px; border-left: 4px solid #b7791f; background: #fffbea; border-radius: 8px; }
+.plan-reasons ul { margin: 6px 0 0; padding-left: 18px; }
+.create-error { margin-top: 12px; }
+.slot-fixed { margin: 4px 0 8px; }
+.timeline-collapsed { list-style: none; }
+.timeline-collapsed summary { cursor: pointer; color: var(--bb-indigo); font-weight: 600; margin: 4px 0 8px; }

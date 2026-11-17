@@ -31,12 +31,19 @@ export interface SlotImplementation {
   stub?: boolean | null;
 }
 
+export interface SlotPort {
+  port: string;
+  type: string;
+  optional?: boolean;
+}
+
 export interface Slot {
   name: string;
   title?: string | null;
   description?: string | null;
   position: number;
   optional: boolean;
+  produces?: SlotPort[];
   when?: { inputs_present?: string[] } | Record<string, unknown> | null;
   default_implementation?: string | null;
   implementations: SlotImplementation[];
@@ -70,18 +77,129 @@ export interface CaseCreate {
   age_band?: string | null;
 }
 
+export type PlanMode = 'full' | 'preset' | 'free';
+export type PlanRole = 'target' | 'upstream' | 'if_available';
+export type SlotStatus = 'selected' | 'skipped' | 'unavailable';
+export type SlotReason = 'condition_false' | 'upstream_absent' | 'no_implementation' | 'not_requested';
+export type ChosenBy = 'user' | 'deployment_default' | 'pipeline_default' | 'preset';
+
+/** The external tool an implementation wraps (step contract 1.2 `upstream` block), copied into the run. */
+export interface UpstreamInfo {
+  name?: string;
+  version?: string;
+  licence?: string;
+  homepage?: string;
+  [key: string]: unknown;
+}
+
 export interface RunSlot {
   id: string;
   slot: string;
   position: number;
   optional: boolean;
-  status: 'selected' | 'skipped' | 'unavailable';
+  status: SlotStatus;
   implementation_id?: string | null;
   step_name?: string | null;
   step_version?: string | null;
-  chosen_by?: 'user' | 'deployment_default' | 'pipeline_default' | null;
+  chosen_by?: ChosenBy | null;
   stub?: boolean | null;
-  reason?: 'condition_false' | 'upstream_absent' | 'no_implementation' | null;
+  reason?: SlotReason | null;
+  plan_role?: PlanRole | null;
+  upstream?: UpstreamInfo | null;
+}
+
+export interface PlanPresetRef {
+  id: string;
+  version: string;
+  sha256?: string;
+}
+
+/** Targets as `slot.port` lists (resolved) or as slot names (request). */
+export interface PlanTargets {
+  required: string[];
+  if_available: string[];
+}
+
+export interface RunPlan {
+  mode: PlanMode;
+  preset?: PlanPresetRef | null;
+  targets?: PlanTargets;
+}
+
+/** Origin of a supplied input as declared by the user (contract 1.2); not verified by the platform. */
+export interface InputOrigin {
+  kind: string;
+  tool?: string;
+  version?: string;
+}
+
+export interface RunInput {
+  role: string;
+  input_file_id?: string;
+  origin?: InputOrigin | null;
+}
+
+export interface PlanReason {
+  code: string;
+  message: string;
+  target?: string | null;
+  slot?: string | null;
+  port?: string | null;
+  required_by?: string | null;
+}
+
+export interface PlanSlot {
+  name: string;
+  status: SlotStatus;
+  reason?: SlotReason | null;
+  plan_role?: PlanRole | null;
+  required_by?: string | null;
+  implementation?: string | null;
+  chosen_by?: ChosenBy | null;
+}
+
+export interface PlanPreview {
+  feasible: boolean;
+  mode: PlanMode;
+  input_set: string;
+  preset?: PlanPresetRef | null;
+  targets?: PlanTargets;
+  slots?: PlanSlot[];
+  reasons?: PlanReason[];
+}
+
+export interface PresetPlan {
+  input_set: string;
+  available: boolean;
+  slots: PlanSlot[];
+  reasons?: PlanReason[];
+}
+
+export interface Preset {
+  id: string;
+  version: string;
+  sha256: string;
+  title: string;
+  description?: string | null;
+  input_sets: string[];
+  targets: PlanTargets;
+  implementations?: Record<string, { default?: string | null; fixed?: string | null }>;
+  is_default: boolean;
+  available: boolean;
+  plans: PresetPlan[];
+}
+
+export interface PlanRequest {
+  input_roles: string[];
+  preset?: { id: string; version?: string | null } | null;
+  targets?: PlanTargets | null;
+  implementations?: Record<string, string>;
+}
+
+export interface Config {
+  deployment_profile: string;
+  run_plan_policy: 'presets_only' | 'free_for_admins' | 'free_for_researchers';
+  free_mode_allowed: boolean;
 }
 
 export interface StepAttempt {
@@ -118,6 +236,8 @@ export interface RunRead {
 
 export interface RunDetail extends RunRead {
   cancel_requested?: boolean;
+  plan?: RunPlan;
+  inputs?: RunInput[];
   slots?: RunSlot[];
   steps?: StepAttempt[];
 }
@@ -151,6 +271,10 @@ export interface RunCreate {
   pipeline_version?: string | null;
   implementations?: Record<string, string>;
   input_roles?: string[] | null;
+  /** A reviewed preset (exclusive with `targets`); without either the run gets the full plan. */
+  preset?: { id: string; version?: string | null } | null;
+  /** Free mode: the outputs wanted (exclusive with `preset`); 403 unless the deployment allows it. */
+  targets?: PlanTargets | null;
 }
 
 /** Valid age bands (data-model section 9): 5-year bands 0-4 .. 85-89 plus the collapsed 90-104. */
@@ -173,6 +297,18 @@ export const listPipelines = (api: ApiClient) => api.json<PipelineSummary[]>('/v
 
 export const listSlots = (api: ApiClient, pipelineId: string, version: string) =>
   api.json<Slot[]>(`/v1/pipelines/${enc(pipelineId)}/versions/${enc(version)}/slots`);
+
+export const getConfig = (api: ApiClient) => api.json<Config>('/v1/config');
+
+export const listPresets = (api: ApiClient, pipelineId: string, version: string) =>
+  api.json<Preset[]>(`/v1/pipelines/${enc(pipelineId)}/versions/${enc(version)}/presets`);
+
+/** Dry run of run creation: a refused plan is a 200 with `feasible: false` and every reason. */
+export const previewPlan = (api: ApiClient, pipelineId: string, version: string, body: PlanRequest) =>
+  api.json<PlanPreview>(`/v1/pipelines/${enc(pipelineId)}/versions/${enc(version)}/plan`, {
+    method: 'POST',
+    json: body,
+  });
 
 export const listCases = (api: ApiClient) => api.json<CaseRead[]>('/v1/cases');
 

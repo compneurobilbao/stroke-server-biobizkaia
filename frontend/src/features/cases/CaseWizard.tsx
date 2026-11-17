@@ -1,22 +1,43 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { errorText } from '../../api/client';
 import {
   AGE_BANDS,
   createCase,
   createRun,
+  getConfig,
   listPipelines,
+  listPresets,
   listSlots,
+  previewPlan,
   putInput,
+  type Config,
   type PipelineSummary,
+  type Preset,
   type Sex,
   type Slot,
 } from '../../api/v1';
 import { useMessage } from '../../shared/messages';
 import { useAuth } from '../auth/AuthContext';
+import { AnalysisStep } from './AnalysisStep';
+import {
+  CUSTOM_KEY,
+  FULL_KEY,
+  buildAnalysisOptions,
+  buildPlanRequest,
+  defaultAnalysisKey,
+  inputSetName,
+  isOfferedKey,
+  planReasonsOf,
+  presetKey,
+  type CustomTargets,
+  type RerunRequest,
+  type TargetKind,
+} from './plan';
+import { IDLE_PREVIEW, ReasonList, slotTitleOf, type PreviewState } from './PlanPreview';
 import { SlotSelector } from './SlotSelector';
-import { blockingSlots, defaultChoices, overrides } from './slots';
+import { baselineImplementation, fixedImplementation, implementationOverrides } from './slots';
 
 export type WizardMode = 'ct' | 'mni';
 
@@ -26,8 +47,11 @@ export const MODE_ROLES: Record<WizardMode, readonly string[]> = {
   mni: ['lesion_mni'],
 };
 
-const STEPS = ['mode', 'files', 'steps'] as const;
+const STEPS = ['mode', 'files', 'analysis', 'steps'] as const;
 type Step = (typeof STEPS)[number];
+
+/** Wait after the last change before the plan preview is requested. */
+export const PREVIEW_DEBOUNCE_MS = 250;
 
 function acceptsRoles(pipeline: PipelineSummary, roles: readonly string[]): boolean {
   return pipeline.input_sets.some(
@@ -39,20 +63,39 @@ function compareVersions(a: string, b: string): number {
   return a.localeCompare(b, undefined, { numeric: true });
 }
 
+
+/** Analysis choice a recorded plan maps to (applied only when the deployment still offers it). */
+function initialChoice(rerun: RerunRequest | null): string | null {
+  if (!rerun) return null;
+  if (rerun.planMode === 'preset' && rerun.presetId) return presetKey(rerun.presetId);
+  return rerun.planMode === 'free' ? CUSTOM_KEY : FULL_KEY;
+}
+
 export function CaseWizard() {
   const { t } = useTranslation();
   const { api } = useAuth();
   const { setMessage } = useMessage();
   const navigate = useNavigate();
+  // "Run again with the same plan" opens the wizard with the recorded request.
+  const rerun = (useLocation().state as { rerun?: RerunRequest } | null)?.rerun ?? null;
 
   const [step, setStep] = useState<Step>('mode');
-  const [mode, setMode] = useState<WizardMode>('ct');
+  const [mode, setMode] = useState<WizardMode>(rerun?.mode ?? 'ct');
   const [sex, setSex] = useState<'' | Sex>('');
   const [ageBand, setAgeBand] = useState('');
   const [files, setFiles] = useState<Record<string, File | null>>({});
   const [pipelines, setPipelines] = useState<PipelineSummary[] | null>(null);
   const [slots, setSlots] = useState<Slot[] | null>(null);
-  const [choices, setChoices] = useState<Record<string, string>>({});
+  const [config, setConfig] = useState<Config | null>(null);
+  const [presets, setPresets] = useState<Preset[] | null>(null);
+  // The user's explicit analysis choice (the default applies when it is not offered), the custom
+  // outputs, and the implementations picked by hand (only those that differ from the default).
+  const [analysisChoice, setAnalysisChoice] = useState<string | null>(initialChoice(rerun));
+  const [custom, setCustom] = useState<CustomTargets>(rerun?.custom ?? {});
+  const [picks, setPicks] = useState<Record<string, string>>({});
+  const [preview, setPreview] = useState<PreviewState>(IDLE_PREVIEW);
+  const [previewKey, setPreviewKey] = useState('');
+  const [createError, setCreateError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   // Kept across attempts so that a retry after a failed upload or run creation reuses the case.
   const caseId = useRef<string | null>(null);
@@ -82,35 +125,165 @@ export function CaseWizard() {
     };
   }, [api, setMessage, t]);
 
+  // Whether the user may use free mode: the wizard offers "Custom" only when the server says so.
+  useEffect(() => {
+    let cancelled = false;
+    getConfig(api)
+      .then((value) => {
+        if (!cancelled) setConfig(value);
+      })
+      .catch(() => {
+        if (!cancelled) setConfig(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [api]);
+
   useEffect(() => {
     if (!pipeline) {
       setSlots(null);
+      setPresets(null);
       return;
     }
     let cancelled = false;
     setSlots(null);
+    setPresets(null);
     listSlots(api, pipeline.id, pipeline.version)
       .then((list) => {
         if (cancelled) return;
         setSlots(list);
-        setChoices(defaultChoices(list));
+        setPicks({});
       })
       .catch((error) => {
         if (!cancelled) setMessage(errorText(error, t('cases.wizard.slotsFailed')));
+      });
+    listPresets(api, pipeline.id, pipeline.version)
+      .then((list) => {
+        if (!cancelled) setPresets(list);
+      })
+      .catch((error) => {
+        // Without the preset list the wizard offers the full plan, as before presets existed.
+        if (cancelled) return;
+        setPresets([]);
+        setMessage(errorText(error, t('cases.wizard.presetsFailed')));
       });
     return () => {
       cancelled = true;
     };
   }, [api, pipeline, setMessage, t]);
 
+  const customAllowed = config?.free_mode_allowed === true;
+  const inputSet = pipeline ? inputSetName(pipeline, roles) : null;
+  const options = useMemo(
+    () => buildAnalysisOptions(presets ?? [], inputSet, customAllowed),
+    [presets, inputSet, customAllowed],
+  );
+  const optionsReady = presets !== null;
+  const selectedKey = optionsReady
+    ? isOfferedKey(options, analysisChoice)
+      ? analysisChoice
+      : defaultAnalysisKey(options)
+    : null;
+  const selectedPreset = options.presets.find((option) => option.key === selectedKey)?.preset ?? null;
+  const fixed = useMemo(() => {
+    const result: Record<string, string> = {};
+    for (const slot of slots ?? []) {
+      const id = fixedImplementation(selectedPreset, slot.name);
+      if (id) result[slot.name] = id;
+    }
+    return result;
+  }, [slots, selectedPreset]);
+
+  // The request of the preview and of the run creation: one body for both.
+  const request = useMemo(
+    () =>
+      slots
+        ? buildPlanRequest(
+            selectedKey,
+            options,
+            custom,
+            slots,
+            roles,
+            implementationOverrides(slots, picks, selectedPreset),
+          )
+        : null,
+    [slots, selectedKey, options, custom, roles, picks, selectedPreset],
+  );
+  const requestKey = request ? JSON.stringify(request) : '';
+  const stepIndex = STEPS.indexOf(step);
+  const previewActive = stepIndex >= STEPS.indexOf('analysis');
+
+  // Live plan preview: requested after every change, debounced; a newer change drops the older answer.
+  useEffect(() => {
+    setCreateError(null);
+    if (!pipeline || !request || !previewActive) {
+      setPreview(IDLE_PREVIEW);
+      setPreviewKey('');
+      return;
+    }
+    let cancelled = false;
+    setPreview((previous) => ({ ...previous, status: 'loading', error: '' }));
+    const timer = window.setTimeout(() => {
+      previewPlan(api, pipeline.id, pipeline.version, request)
+        .then((data) => {
+          if (cancelled) return;
+          setPreview({ status: 'ready', data, error: '' });
+          setPreviewKey(requestKey);
+        })
+        .catch((error) => {
+          if (cancelled) return;
+          setPreview({ status: 'error', data: null, error: errorText(error, t('cases.plan.previewFailed')) });
+          setPreviewKey('');
+        });
+    }, PREVIEW_DEBOUNCE_MS);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+    // `request` is derived from the same inputs as `requestKey`, which makes this run once per change.
+  }, [api, pipeline, requestKey, previewActive, t]);
+
   const missingFiles = roles.filter((role) => !files[role] && !uploaded.current.has(role));
-  const blocking = slots ? blockingSlots(slots, roles) : [];
-  const canStart = !busy && pipeline !== null && slots !== null && missingFiles.length === 0 && blocking.length === 0;
+  const feasible = preview.status === 'ready' && previewKey === requestKey && preview.data?.feasible === true;
+  const canStart =
+    !busy && pipeline !== null && slots !== null && request !== null && missingFiles.length === 0 && feasible;
+  const titleOf = slotTitleOf(slots ?? []);
+
+  function changeMode(value: WizardMode) {
+    if (value === mode) return;
+    setMode(value);
+    // Slots and presets differ per mode: start the analysis choice again.
+    setCustom({});
+    setPicks({});
+    setAnalysisChoice(null);
+  }
+
+  function changeCustom(slot: string, kind: TargetKind | null) {
+    setCustom((previous) => {
+      const next = { ...previous };
+      if (kind) next[slot] = kind;
+      else delete next[slot];
+      return next;
+    });
+  }
+
+  function changePick(slot: string, id: string) {
+    const found = slots?.find((s) => s.name === slot);
+    const baseline = found ? baselineImplementation(found, selectedPreset) : null;
+    setPicks((previous) => {
+      const next = { ...previous };
+      if (id === baseline) delete next[slot];
+      else next[slot] = id;
+      return next;
+    });
+  }
 
   async function start() {
-    if (!pipeline || !slots) return;
+    if (!pipeline || !slots || !request) return;
     setBusy(true);
     setMessage('');
+    setCreateError(null);
     try {
       let id = caseId.current;
       if (!id) {
@@ -129,17 +302,26 @@ export function CaseWizard() {
         pipeline_id: pipeline.id,
         pipeline_version: pipeline.version,
         input_roles: [...roles],
-        implementations: overrides(slots, choices),
+        implementations: request.implementations ?? {},
+        ...(request.preset ? { preset: request.preset } : {}),
+        ...(request.targets ? { targets: request.targets } : {}),
       });
       navigate(`/runs/${run.id}`);
     } catch (error) {
-      setMessage(errorText(error, t('cases.wizard.failed')));
+      // The preview does not check bundles, manifests or parameters: the server can still refuse.
+      setCreateError(error);
     } finally {
       setBusy(false);
     }
   }
 
-  const stepIndex = STEPS.indexOf(step);
+  const createReasons = planReasonsOf(createError);
+  // What the selectors show: the picks, else the implementation the plan resolved.
+  const shown: Record<string, string> = {};
+  for (const slot of preview.data?.slots ?? []) {
+    if (slot.status === 'selected' && slot.implementation) shown[slot.name] = slot.implementation;
+  }
+  Object.assign(shown, picks);
 
   return (
     <section className="card wizard" aria-labelledby="wizard-title">
@@ -164,7 +346,7 @@ export function CaseWizard() {
                   name="mode"
                   value={value}
                   checked={mode === value}
-                  onChange={() => setMode(value)}
+                  onChange={() => changeMode(value)}
                 />
                 <span>
                   <strong>{t(`cases.wizard.mode.${value}`)}</strong>
@@ -219,28 +401,95 @@ export function CaseWizard() {
         </div>
       )}
 
+      {step === 'analysis' && (
+        <>
+          {pipelines && !pipeline && (
+            <p className="hint" role="alert">
+              {t('cases.wizard.noPipeline')}
+            </p>
+          )}
+          {pipeline && (!optionsReady || !slots) && <p className="hint">{t('cases.wizard.loading')}</p>}
+          {pipeline && optionsReady && slots && (
+            <AnalysisStep
+              options={options}
+              selected={selectedKey}
+              onSelect={setAnalysisChoice}
+              slots={slots}
+              roles={roles}
+              custom={custom}
+              onCustomChange={changeCustom}
+              preview={preview}
+              disabled={busy}
+            />
+          )}
+        </>
+      )}
+
       {step === 'steps' && (
         <div className="wizard-panel">
           <p className="hint">{t('cases.wizard.stepsHint')}</p>
-          {pipelines && !pipeline && <p className="hint" role="alert">{t('cases.wizard.noPipeline')}</p>}
+          {pipelines && !pipeline && (
+            <p className="hint" role="alert">
+              {t('cases.wizard.noPipeline')}
+            </p>
+          )}
           {pipeline && (
             <p className="hint">
               {t('cases.wizard.pipeline')}: <strong>{pipeline.title}</strong> <code>{pipeline.version}</code>
+              {selectedPreset && (
+                <>
+                  {' - '}
+                  {t('cases.wizard.analysis')}: <strong>{selectedPreset.title}</strong>{' '}
+                  <code>{selectedPreset.version}</code>
+                </>
+              )}
+              {selectedKey === CUSTOM_KEY && (
+                <>
+                  {' - '}
+                  {t('cases.wizard.analysis')}: <strong>{t('cases.analysis.custom')}</strong>
+                </>
+              )}
             </p>
           )}
-          {pipeline && !slots && <p className="hint">{t('cases.wizard.loading')}</p>}
-          {slots && (
+          {pipeline && !preview.data && preview.status !== 'error' && (
+            <p className="hint" role="status">
+              {t('cases.wizard.loading')}
+            </p>
+          )}
+          {pipeline && slots && preview.data && (
             <SlotSelector
               slots={slots}
               roles={roles}
-              value={choices}
+              value={shown}
+              plan={preview.data.slots ?? []}
+              fixed={fixed}
               disabled={busy}
-              onChange={(slot, id) => setChoices((prev) => ({ ...prev, [slot]: id }))}
+              onChange={changePick}
             />
           )}
-          {blocking.length > 0 && (
+          {preview.status === 'error' && (
             <p className="hint" role="alert">
-              {t('cases.wizard.blocked', { slots: blocking.map((s) => s.title || s.name).join(', ') })}
+              {preview.error}
+            </p>
+          )}
+          {preview.data && !preview.data.feasible && (
+            <ReasonList
+              reasons={preview.data.reasons ?? []}
+              titleOf={titleOf}
+              alert
+              heading={t('cases.plan.refused')}
+            />
+          )}
+        </div>
+      )}
+
+      {createError !== null && (
+        <div className="create-error" data-testid="create-error">
+          {createReasons.length > 0 ? (
+            <ReasonList reasons={createReasons} titleOf={titleOf} alert heading={t('cases.wizard.refused')} />
+          ) : (
+            <p className="message" role="alert">
+              {errorText(createError, t('cases.wizard.failed'))}
             </p>
           )}
         </div>
@@ -258,7 +507,10 @@ export function CaseWizard() {
         {step !== 'steps' && (
           <button
             type="button"
-            disabled={step === 'files' && missingFiles.length > 0}
+            disabled={
+              (step === 'files' && missingFiles.length > 0) ||
+              (step === 'analysis' && (!optionsReady || !slots || request === null))
+            }
             onClick={() => setStep(STEPS[stepIndex + 1])}
           >
             {t('cases.wizard.next')}

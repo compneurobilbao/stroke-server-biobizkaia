@@ -1,5 +1,6 @@
 import { vi } from 'vitest';
-import type { PipelineSummary, RunDetail, Slot } from '../api/v1';
+import type { Config, PipelineSummary, PlanPreview, PlanReason, PlanRequest, PlanSlot, Preset, RunDetail, Slot } from '../api/v1';
+import { defaultImplementationId, slotApplies } from '../features/cases/slots';
 
 /** Shapes below follow docs/api/openapi-v1.json (only the fields the UI reads). */
 
@@ -86,6 +87,7 @@ export function makeRun(overrides: Partial<RunDetail> = {}): RunDetail {
     input_set: 'mni-mask',
     status: 'running',
     created_at: '2026-11-14T10:00:00Z',
+    plan: { mode: 'full', preset: null, targets: { required: [], if_available: [] } },
     slots: [
       { id: 's1', slot: 'lesion-intake', position: 0, optional: false, status: 'selected', implementation_id: 'lesion-qc', step_name: 'lesion-qc', step_version: '1.0.0', chosen_by: 'deployment_default', stub: false },
       { id: 's2', slot: 'normalisation', position: 1, optional: false, status: 'skipped', reason: 'condition_false' },
@@ -99,6 +101,88 @@ export function makeRun(overrides: Partial<RunDetail> = {}): RunDetail {
   };
 }
 
+export function makePreset(id: string, overrides: Partial<Preset> = {}): Preset {
+  return {
+    id,
+    version: '1.0.0',
+    sha256: 'a'.repeat(64),
+    title: id,
+    description: null,
+    input_sets: ['ct-and-native-mask', 'mni-mask'],
+    targets: { required: [], if_available: [] },
+    implementations: {},
+    is_default: false,
+    available: true,
+    plans: [
+      { input_set: 'ct-and-native-mask', available: true, slots: [], reasons: [] },
+      { input_set: 'mni-mask', available: true, slots: [], reasons: [] },
+    ],
+    ...overrides,
+  };
+}
+
+/**
+ * A small stand-in for the server's planner, enough for the wizard: the full plan makes every
+ * applicable slot a target (optional ones if available); a preset or targets request plans the
+ * requested slots plus `lesion-intake` as upstream and leaves the others `not_requested`.
+ * A planned slot without an enabled implementation is `unavailable`, and refuses the plan when
+ * it is not optional.
+ */
+export function defaultPlan(slots: Slot[], presets: Preset[], body: PlanRequest): PlanPreview {
+  const preset = body.preset ? presets.find((p) => p.id === body.preset?.id) : undefined;
+  const targets = body.targets ?? preset?.targets ?? null;
+  const required = new Set(targets?.required ?? []);
+  const optional = new Set(targets?.if_available ?? []);
+  const out: PlanSlot[] = [];
+  const reasons: PlanReason[] = [];
+  for (const slot of [...slots].sort((a, b) => a.position - b.position)) {
+    if (!slotApplies(slot, body.input_roles)) {
+      out.push({ name: slot.name, status: 'skipped', reason: 'condition_false' });
+      continue;
+    }
+    let role: PlanSlot['plan_role'] = null;
+    if (!targets) role = slot.optional ? 'if_available' : 'target';
+    else if (required.has(slot.name)) role = 'target';
+    else if (optional.has(slot.name)) role = 'if_available';
+    else if (slot.name === 'lesion-intake') role = 'upstream';
+    if (!role) {
+      out.push({ name: slot.name, status: 'skipped', reason: 'not_requested' });
+      continue;
+    }
+    const impl = body.implementations?.[slot.name] ?? defaultImplementationId(slot);
+    if (!impl) {
+      out.push({ name: slot.name, status: 'unavailable', reason: 'no_implementation', plan_role: role });
+      if (role !== 'if_available') {
+        reasons.push({
+          code: 'no_implementation',
+          message: `The slot '${slot.name}' has no enabled implementation in this deployment.`,
+          slot: slot.name,
+          target: slot.name,
+          required_by: slot.name,
+        });
+      }
+      continue;
+    }
+    out.push({
+      name: slot.name,
+      status: 'selected',
+      plan_role: role,
+      implementation: impl,
+      required_by: role === 'upstream' ? 'report' : null,
+      chosen_by: body.implementations?.[slot.name] ? 'user' : 'deployment_default',
+    });
+  }
+  return {
+    feasible: reasons.length === 0,
+    mode: body.targets ? 'free' : body.preset ? 'preset' : 'full',
+    input_set: body.input_roles.includes('lesion_mni') ? 'mni-mask' : 'ct-and-native-mask',
+    preset: preset ? { id: preset.id, version: preset.version, sha256: preset.sha256 } : null,
+    targets: { required: [...required], if_available: [...optional] },
+    slots: out,
+    reasons,
+  };
+}
+
 export interface Call {
   method: string;
   path: string;
@@ -109,6 +193,12 @@ export interface MockOptions {
   pipelines?: PipelineSummary[];
   slots?: Slot[];
   run?: RunDetail;
+  /** Enabled presets of the pipeline version (default: none, so the wizard offers the full plan). */
+  presets?: Preset[];
+  /** `GET /config` (default: free mode not allowed). */
+  config?: Partial<Config>;
+  /** Answer of the plan preview for a request (default: `defaultPlan`). */
+  plan?: (body: PlanRequest) => PlanPreview;
   /** Extra or overriding handlers keyed `METHOD /path` (path without `/api` and query). */
   routes?: Record<string, (init: RequestInit | undefined) => Response>;
 }
@@ -125,6 +215,13 @@ export function mockApi(options: MockOptions = {}) {
     'GET /auth/me': () => jsonResponse(USER),
     'GET /v1/pipelines': () => jsonResponse(options.pipelines ?? [PIPELINE]),
     'GET /v1/pipelines/stroke-lnm/versions/0.1.0/slots': () => jsonResponse(options.slots ?? makeSlots()),
+    'GET /v1/config': () =>
+      jsonResponse({ deployment_profile: 'research-public', run_plan_policy: 'presets_only', free_mode_allowed: false, ...options.config }),
+    'GET /v1/pipelines/stroke-lnm/versions/0.1.0/presets': () => jsonResponse(options.presets ?? []),
+    'POST /v1/pipelines/stroke-lnm/versions/0.1.0/plan': (init) => {
+      const body = JSON.parse(String(init?.body ?? '{}')) as PlanRequest;
+      return jsonResponse(options.plan ? options.plan(body) : defaultPlan(options.slots ?? makeSlots(), options.presets ?? [], body));
+    },
     'GET /v1/cases': () => jsonResponse([]),
     'POST /v1/cases': () =>
       jsonResponse({ id: 'c1', subject_label: 'sub-0001', session_label: 'ses-01', created_at: '2026-11-14T10:00:00Z', updated_at: '2026-11-14T10:00:00Z' }, 201),
