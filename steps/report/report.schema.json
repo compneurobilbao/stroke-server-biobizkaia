@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://example.invalid/schemas/research_report/1.0",
-  "title": "research report 1.0",
-  "description": "Content of the report_json artefact written by the research-report step. Canonical encoding: UTF-8, sorted keys, no whitespace, no trailing newline, floats in fixed notation rounded to 6 decimals. No clock values of its own, no software versions, no accounting data. A section whose optional input was not provided has only {status: absent}.",
+  "$id": "https://example.invalid/schemas/research_report/1.1",
+  "title": "research report 1.1",
+  "description": "Content of the report_json artefact written by the research-report step. Canonical encoding: UTF-8, sorted keys, no whitespace, no trailing newline, floats in fixed notation rounded to 6 decimals. No clock values of its own, no software versions, no accounting data. A section whose optional input was not provided has only {status: absent}; one whose slot is outside the run plan has only {status: not_requested}. Version 1.1 adds the optional keys plan, external_tools and declared_origins, present only when the run record (contract 1.2) has the corresponding information.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -14,12 +14,21 @@
     "sha256_hex": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "absent": {
       "type": "object", "additionalProperties": false, "required": ["status"],
-      "properties": {"status": {"const": "absent"}}
-    }
+      "properties": {"status": {"enum": ["absent", "not_requested"]}}
+    },
+    "upstream": {
+      "description": "Copy of the upstream block of the step manifest (step-contract.md 1.8).",
+      "type": "object", "required": ["name", "version", "homepage", "image", "licence"],
+      "properties": {
+        "name": {"type": "string"}, "version": {"type": "string"}, "homepage": {"type": "string"},
+        "image": {"type": "string"}, "licence": {"type": "string"}, "citation": {"type": "string"}
+      }
+    },
+    "slot_port": {"type": "string", "pattern": "^[a-z][a-z0-9-]*[.][a-z][a-z0-9_]*$"}
   },
   "properties": {
     "kind": {"const": "ResearchReport"},
-    "report_version": {"const": "1.0"},
+    "report_version": {"const": "1.1"},
     "language": {"enum": ["en", "es"]},
     "research_use_only": {"const": true},
     "research_use_statement": {"const": "For research use only, not for clinical decisions."},
@@ -32,14 +41,14 @@
       "required": ["lesion", "functional_disconnection", "tract_disconnection", "cognitive_profile"],
       "properties": {
         "lesion": {"enum": ["available"]},
-        "functional_disconnection": {"enum": ["available", "absent"]},
-        "tract_disconnection": {"enum": ["available", "absent"]},
-        "cognitive_profile": {"enum": ["available", "absent"]}
+        "functional_disconnection": {"enum": ["available", "absent", "not_requested"]},
+        "tract_disconnection": {"enum": ["available", "absent", "not_requested"]},
+        "cognitive_profile": {"enum": ["available", "absent", "not_requested"]}
       }
     },
     "notes": {
       "type": "array",
-      "items": {"enum": ["lesion_mask_differs_from_qc", "synthetic_reference_data"]}
+      "items": {"enum": ["lesion_mask_differs_from_qc", "synthetic_reference_data", "external_tool_used", "input_origin_declared_by_user"]}
     },
     "lesion": {
       "type": "object",
@@ -122,10 +131,13 @@
           "items": {
             "type": "object", "required": ["slot", "status", "bundles"],
             "properties": {
+              "plan_role": {"enum": ["target", "upstream", "if_available"]},
               "implementation": {
                 "type": ["object", "null"],
                 "required": ["id", "step_name", "step_version", "image", "image_digest", "stub", "chosen_by"],
                 "properties": {
+                  "chosen_by": {"enum": ["user", "deployment_default", "pipeline_default", "preset"]},
+                  "upstream": {"$ref": "#/$defs/upstream"},
                   "image": {"type": "string"},
                   "image_digest": {"type": ["string", "null"], "pattern": "^sha256:[a-f0-9]{64}$"}
                 }
@@ -138,6 +150,72 @@
           "items": {
             "type": "object",
             "required": ["slot", "step_name", "step_version", "image", "outcome", "exit_code", "software", "inputs", "outputs"]
+          }
+        }
+      }
+    },
+    "plan": {
+      "description": "The plan of the run as its record states it (provenance.md 3.4); absent for records of contract 1.0 and 1.1, which mean the full plan.",
+      "type": "object", "additionalProperties": false, "required": ["mode", "preset", "targets"],
+      "properties": {
+        "mode": {"enum": ["full", "preset", "free"]},
+        "preset": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object", "additionalProperties": false, "required": ["id", "version", "sha256"],
+              "properties": {
+                "id": {"type": "string"}, "version": {"type": "string"},
+                "sha256": {"$ref": "#/$defs/sha256_hex"}
+              }
+            }
+          ]
+        },
+        "targets": {
+          "type": "object", "additionalProperties": false, "required": ["required", "if_available"],
+          "properties": {
+            "required": {"type": "array", "items": {"$ref": "#/$defs/slot_port"}},
+            "if_available": {"type": "array", "items": {"$ref": "#/$defs/slot_port"}}
+          }
+        }
+      }
+    },
+    "external_tools": {
+      "description": "Selected slots whose implementation wraps an external tool. The run record carries no validation level of an implementation, so none is stated.",
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["slot", "implementation", "step_name", "step_version", "upstream"],
+        "properties": {
+          "slot": {"type": "string"}, "implementation": {"type": "string"},
+          "step_name": {"type": "string"}, "step_version": {"type": "string"},
+          "upstream": {"$ref": "#/$defs/upstream"}
+        }
+      }
+    },
+    "declared_origins": {
+      "description": "Run inputs with an origin declared by the uploader (not verified by the platform), sorted by input name.",
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["name", "type", "sha256", "origin"],
+        "properties": {
+          "name": {"type": "string"}, "type": {"type": "string"},
+          "sha256": {"$ref": "#/$defs/sha256_hex"},
+          "origin": {
+            "oneOf": [
+              {
+                "type": "object", "additionalProperties": false, "required": ["kind"],
+                "properties": {"kind": {"const": "manual"}}
+              },
+              {
+                "type": "object", "additionalProperties": false, "required": ["kind", "tool", "version"],
+                "properties": {
+                  "kind": {"const": "external-tool"},
+                  "tool": {"type": "string", "pattern": "^[A-Za-z0-9._+-]{1,64}$"},
+                  "version": {"type": "string", "pattern": "^[A-Za-z0-9._+-]{1,64}$"}
+                }
+              }
+            ]
           }
         }
       }

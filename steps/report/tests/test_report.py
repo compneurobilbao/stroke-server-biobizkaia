@@ -57,6 +57,12 @@ FILES = {
     "cognet_profile": "cognet_profile.json",
 }
 MINIMAL = ("lesion_qc", "lesion_mask", "run_provenance")
+DATA = STEP_DIR / "tests" / "data"
+# run records of contract 1.2 (generated from the 1.0 record, validated with contracts/validate.py)
+PRESET_RUN = "run_provenance_preset.json"  # preset mni-mask-analysis, COGNET if available but absent
+CUSTOM_RUN = "run_provenance_custom.json"  # free plan: lesion QC and report; three slots not requested
+EXTERNAL_RUN = "run_provenance_external.json"  # full plan, external tool, declared mask origin
+NO_COGNET = tuple(p for p in FILES if p != "cognet_profile")
 NO_TRACT = tuple(p for p in FILES if p != "tract_disconnection")  # QC report without tracts
 
 
@@ -87,6 +93,13 @@ class Staged:
         self.params = {"language": language}
         for port in ports:
             self.put(port, reference / FILES[port])
+
+    def with_run_record(self, name: str) -> "Staged":
+        """Replace the staged run record by a committed one (CRLF checkouts must not change it)."""
+        (self.in_dir / "run_provenance.json").write_bytes(
+            (DATA / name).read_bytes().replace(b"\r\n", b"\n")
+        )
+        return self
 
     def without_tract_slot(self) -> "Staged":
         """Provenance of a QC-only plan: the tract slot has no enabled implementation."""
@@ -193,7 +206,7 @@ def test_report_json_golden_without_tract_table_en(tmp_path, reference, no_pdf):
         "cognitive_profile": "available",
     }
     assert doc["tract_disconnection"] == {"status": "absent"}
-    assert doc["generator"] == {"step": "research-report", "version": "0.2.0"}
+    assert doc["generator"] == {"step": "research-report", "version": "0.3.0"}
     absent = [i["port"] for i in doc["inputs"] if not i["present"]]
     assert absent == ["ct_mni", "tract_disconnection"]
 
@@ -211,6 +224,140 @@ def test_tract_table_only_changes_the_tract_parts_of_the_report(tmp_path, refere
         doc["sections"].pop("tract_disconnection")
         doc["inputs"] = [i for i in doc["inputs"] if i["port"] != "tract_disconnection"]
     assert a == b
+
+
+# --- plan, external tools, declared origins (run records of contract 1.2) -----------------------
+
+
+def _assert_no_plan_keys(doc: dict) -> None:
+    for key in ("plan", "external_tools", "declared_origins"):
+        assert key not in doc
+    assert not {"external_tool_used", "input_origin_declared_by_user"} & set(doc["notes"])
+
+
+def test_record_without_plan_gives_the_content_of_report_1_0(tmp_path, reference, no_pdf):
+    """Full-plan output is unchanged apart from the version fields: a 1.0 record adds no key."""
+    staged = Staged(tmp_path, reference)
+    assert staged.run() == EXIT_OK
+    doc = json.loads(staged.json_bytes())
+    _assert_no_plan_keys(doc)
+    assert doc["report_version"] == "1.1" and doc["generator"]["version"] == "0.3.0"
+    assert set(doc) == {
+        "kind", "report_version", "language", "research_use_only", "research_use_statement",
+        "generator", "sections", "notes", "lesion", "functional_disconnection",
+        "tract_disconnection", "cognitive_profile", "provenance", "inputs",
+    }  # fmt: skip
+
+
+def test_report_json_golden_preset_run_en(tmp_path, reference, no_pdf):
+    staged = Staged(tmp_path, reference, ports=NO_COGNET).with_run_record(PRESET_RUN)
+    assert staged.run() == EXIT_OK
+    data = staged.json_bytes()
+    _check_golden_bytes("report_preset_en.json", data)
+    doc = json.loads(data)
+    SCHEMA.validate(doc)
+    assert doc["plan"] == {
+        "mode": "preset",
+        "preset": {
+            "id": "mni-mask-analysis",
+            "version": "1.1.0",
+            "sha256": "8459de0e342a20033358dd3827bffd5893163fff2b64415f69d3ae5262edda56",
+        },
+        "targets": {
+            "required": [
+                "tract-disconnection.tract_disconnection",
+                "functional-disconnection.fdisconnection_map",
+                "report.report_pdf",
+                "report.report_json",
+            ],
+            "if_available": ["cognitive-profile.cognet_profile"],
+        },
+    }
+    # the COGNET slot was planned "if available" but has no implementation: absent, not "not requested"
+    assert doc["cognitive_profile"] == {"status": "absent"}
+    roles = {s["slot"]: s.get("plan_role") for s in doc["provenance"]["slots"]}
+    assert roles["lesion-intake"] == "upstream" and roles["report"] == "target"
+    assert roles["cognitive-profile"] == "if_available" and roles["normalisation"] is None
+    assert "external_tools" not in doc and "declared_origins" not in doc
+
+
+def test_report_json_golden_custom_run_es(tmp_path, reference, no_pdf):
+    """A free plan with lesion QC and the report only: the three analyses are not requested."""
+    staged = Staged(tmp_path, reference, ports=MINIMAL, language="es").with_run_record(CUSTOM_RUN)
+    assert staged.run() == EXIT_OK
+    data = staged.json_bytes()
+    _check_golden_bytes("report_custom_es.json", data)
+    doc = json.loads(data)
+    SCHEMA.validate(doc)
+    assert doc["plan"]["mode"] == "free" and doc["plan"]["preset"] is None
+    assert doc["plan"]["targets"]["if_available"] == []
+    for section in ("functional_disconnection", "tract_disconnection", "cognitive_profile"):
+        assert doc[section] == {"status": "not_requested"}
+        assert doc["sections"][section] == "not_requested"
+    reasons = {s["slot"]: s["reason"] for s in doc["provenance"]["slots"] if s["reason"]}
+    assert reasons["tract-disconnection"] == "not_requested"
+
+
+def test_report_json_golden_external_tool_and_declared_origin_en(tmp_path, reference, no_pdf):
+    staged = Staged(tmp_path, reference, ports=NO_COGNET).with_run_record(EXTERNAL_RUN)
+    assert staged.run() == EXIT_OK
+    data = staged.json_bytes()
+    _check_golden_bytes("report_external_en.json", data)
+    doc = json.loads(data)
+    SCHEMA.validate(doc)
+    assert doc["plan"] == {"mode": "full", "preset": None, "targets": {"required": [], "if_available": []}}
+    assert [t["slot"] for t in doc["external_tools"]] == ["functional-disconnection"]
+    tool = doc["external_tools"][0]
+    assert tool["upstream"]["name"] == "example-fc-tool" and tool["upstream"]["licence"] == "Apache-2.0"
+    assert tool["upstream"]["citation"].startswith("Example Authors (2025)")
+    # no validation level is invented: the record carries none, so the report has no such field
+    assert "validation" not in json.dumps(doc)
+    assert doc["declared_origins"] == [
+        {
+            "name": "lesion_mni",
+            "type": "lesion_mask_mni_any",
+            "sha256": "7039a1152e72b0cc78c6ca4048eeb4b0297714bca3b3a686d8bd27da68103356",
+            "origin": {"kind": "external-tool", "tool": "example-segmenter", "version": "2.1.0"},
+        }
+    ]
+    assert doc["notes"] == ["external_tool_used", "input_origin_declared_by_user"]
+    functional = next(
+        s for s in doc["provenance"]["slots"] if s["slot"] == "functional-disconnection"
+    )
+    assert functional["implementation"]["upstream"] == tool["upstream"]
+
+
+def test_manual_origin_is_reported(tmp_path, reference, no_pdf):
+    staged = Staged(tmp_path, reference, ports=NO_COGNET).with_run_record(EXTERNAL_RUN)
+    path = staged.in_dir / "run_provenance.json"
+    record = json.loads(path.read_text(encoding="utf-8"))
+    record["inputs"][0]["origin"] = {"kind": "manual"}
+    path.write_text(json.dumps(record), encoding="utf-8")
+    assert staged.run() == EXIT_OK
+    doc = json.loads(staged.json_bytes())
+    SCHEMA.validate(doc)
+    assert doc["declared_origins"][0]["origin"] == {"kind": "manual"}
+
+
+def test_run_record_that_violates_its_schema_is_rejected(tmp_path, reference, no_pdf):
+    staged = Staged(tmp_path, reference, ports=NO_COGNET).with_run_record(EXTERNAL_RUN)
+    path = staged.in_dir / "run_provenance.json"
+    record = json.loads(path.read_text(encoding="utf-8"))
+    record["inputs"][0]["origin"] = {"kind": "external-tool", "tool": "free text with spaces", "version": "1"}
+    path.write_text(json.dumps(record), encoding="utf-8")
+    assert staged.run() == EXIT_REJECTED
+    assert staged.error()["port"] == "run_provenance"
+
+
+def test_manifest_declares_contract_1_2_and_image_copies_the_schemas():
+    manifest = (STEP_DIR / "step.yaml").read_text(encoding="utf-8")
+    assert 'contract_version: "1.2"' in manifest
+    dockerfile = (STEP_DIR / "Dockerfile").read_text(encoding="utf-8")
+    assert "COPY contracts/schemas /opt/step/contracts/schemas" in dockerfile
+    schema = json.loads(
+        (REPO / "contracts" / "schemas" / "v1" / "provenance.schema.json").read_text(encoding="utf-8")
+    )
+    assert "plan" in schema["$defs"]["run_provenance"]["properties"]
 
 
 def test_report_json_golden_minimal_es(tmp_path, reference, no_pdf):
@@ -343,6 +490,21 @@ def test_templates_contain_no_external_resources():
 # --- PDF (text level) ---------------------------------------------------------------------
 
 
+def _pdf_golden(staged: Staged, language: str, golden_name: str) -> Path:
+    pdf = staged.out_dir / "report_pdf.pdf"
+    if ACTUAL:
+        Path(ACTUAL).mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(pdf, Path(ACTUAL) / f"{golden_name}.pdf")
+        (Path(ACTUAL) / f"{golden_name}.txt").write_text(
+            report_pdftext.readable(pdf, language), encoding="utf-8"
+        )
+    if UPDATE:
+        (GOLDEN / f"{golden_name}.txt").write_text(
+            report_pdftext.readable(pdf, language), encoding="utf-8"
+        )
+    return pdf
+
+
 def _pdf_case(tmp_path, reference, ports, language, golden_name):
     staged = Staged(tmp_path, reference, ports=ports, language=language)
     if ports == NO_TRACT:
@@ -414,6 +576,59 @@ def test_pdf_without_tract_table_golden_text_and_section(tmp_path, reference):
     assert report_pdftext.squash("Not available:") not in flat
     # the other optional sections are present, the tract table and its figure are not
     assert "Mostdisconnectedtract" not in flat and "toy_cst_left" not in flat
+
+
+@needs_pdf
+def test_pdf_preset_run_golden_text_and_plan(tmp_path, reference):
+    staged = Staged(tmp_path, reference, ports=NO_COGNET).with_run_record(PRESET_RUN)
+    assert staged.run() == EXIT_OK
+    pdf = _pdf_golden(staged, "en", "report_preset_en")
+    assert report_pdftext.pages_without_banner(pdf, "en") == []
+    assert report_pdftext.compare(pdf, GOLDEN / "report_preset_en.txt", "en") is None
+    flat = report_pdftext.squash("".join(report_pdftext.page_texts(pdf)))
+    for text in (
+        "Analysis plan",
+        "Preset mni-mask-analysis version 1.1.0",
+        "added (needed by a requested output)",
+    ):
+        assert report_pdftext.squash(text) in flat
+    assert report_pdftext.squash("Not requested:") not in flat
+
+
+@needs_pdf
+def test_pdf_custom_run_golden_text_marks_slots_not_requested(tmp_path, reference):
+    staged = Staged(tmp_path, reference, ports=MINIMAL, language="es").with_run_record(CUSTOM_RUN)
+    assert staged.run() == EXIT_OK
+    pdf = _pdf_golden(staged, "es", "report_custom_es")
+    assert report_pdftext.pages_without_banner(pdf, "es") == []
+    assert report_pdftext.compare(pdf, GOLDEN / "report_custom_es.txt", "es") is None
+    flat = report_pdftext.squash("".join(report_pdftext.page_texts(pdf)))
+    assert flat.count(report_pdftext.squash("No solicitado:")) == 3
+    assert report_pdftext.squash("Plan personalizado") in flat
+    assert report_pdftext.squash("no solicitado en este plan") in flat
+
+
+@needs_pdf
+@pytest.mark.parametrize("language", ["en", "es"])
+def test_pdf_external_tool_and_declared_origin(tmp_path, reference, language):
+    staged = Staged(tmp_path, reference, ports=NO_COGNET, language=language).with_run_record(
+        EXTERNAL_RUN
+    )
+    assert staged.run() == EXIT_OK
+    name = f"report_external_{language}"
+    pdf = _pdf_golden(staged, language, name)
+    assert report_pdftext.pages_without_banner(pdf, language) == []
+    assert report_pdftext.compare(pdf, GOLDEN / f"{name}.txt", language) is None
+    flat = report_pdftext.squash("".join(report_pdftext.page_texts(pdf)))
+    for text in (
+        "example-fc-tool 2.1.0",
+        "Apache-2.0",
+        "Example Authors (2025)",
+        "example-segmenter 2.1.0",
+    ):
+        assert report_pdftext.squash(text) in flat
+    declared = "declared by the user" if language == "en" else "declarado por el usuario"
+    assert report_pdftext.squash(declared) in flat
 
 
 @needs_pdf

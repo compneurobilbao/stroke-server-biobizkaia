@@ -8,7 +8,7 @@
 contract_version: "1.0"
 kind: Pipeline
 id: stroke-lnm
-version: 0.2.0
+version: 0.3.0
 title: Lesion network mapping v0
 description: >-
   Lesion intake and QC, normalisation of CT lesions to MNI152 (skipped when an MNI mask is
@@ -16,6 +16,9 @@ description: >-
   and a research report. Version 0.2.0: tract disconnection is optional and the report does not
   need it, so a run without an enabled tract-disconnection implementation ends with a QC-only
   report (research-report 0.2.0 says that tract disconnection is not part of the analysis).
+  Version 0.3.0: research-report 0.3.0 declares contract 1.2, so presets and custom plans that
+  include the report run; the report states the plan, the external tools and the declared
+  origins of supplied inputs.
 
 inputs:
   - name: ct
@@ -150,11 +153,11 @@ slots:
       default: research-report
       allowed:
         - id: research-report
-          step: {name: research-report, version: 0.2.0}
+          step: {name: research-report, version: 0.3.0}
           image: docker.io/compneurobilbaolab/step-research-report@sha256:0000000000000000000000000000000000000000000000000000000000000000
         # Configured variant of the same image: the report text in Spanish.
         - id: research-report-es
-          step: {name: research-report, version: 0.2.0}
+          step: {name: research-report, version: 0.3.0}
           image: docker.io/compneurobilbaolab/step-research-report@sha256:0000000000000000000000000000000000000000000000000000000000000000
           parameters:
             language: es

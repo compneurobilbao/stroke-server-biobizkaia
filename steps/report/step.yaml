@@ -1,7 +1,7 @@
-contract_version: "1.0"
+contract_version: "1.2"
 kind: Step
 name: research-report
-version: 0.2.0
+version: 0.3.0
 title: Research report
 description: >-
   Builds the research report of a run from the artefacts and JSON outputs of the previous
@@ -14,7 +14,12 @@ description: >-
   table with the image digest of every step of the run. An absent optional input is not an
   error: the section says so. A run without the tract disconnection table (for example a
   QC-only report) is valid: its tract section says that tract disconnection is not part of
-  this analysis. The figures use nilearn on its bundled MNI152 template (or on
+  this analysis. Version 0.3.0 reads run records of contract 1.2: the report states the plan
+  (full analysis, preset with its version, or custom targets), marks analyses outside the plan
+  as not requested, lists the external tools that produced results (upstream name, version,
+  licence and citation as recorded in the slot record, without inferring a validation level)
+  and shows the origin of supplied inputs as declared by the user. A record of contract 1.0
+  or 1.1 gives the same content as before. The figures use nilearn on its bundled MNI152 template (or on
   the optional ct_mni image when it is provided).
 provides: report
 image:

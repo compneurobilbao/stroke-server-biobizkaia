@@ -39,9 +39,9 @@
 <table>
 <tr><th>Section</th><th>Status</th></tr>
 <tr><td>Lesion</td><td>available</td></tr>
-<tr><td>Functional disconnection map</td><td>{{ "available" if r.sections.functional_disconnection == "available" else "absent (input not provided)" }}</td></tr>
-<tr><td>Tract disconnection</td><td>{{ "available" if r.sections.tract_disconnection == "available" else "not part of this analysis" }}</td></tr>
-<tr><td>Cognitive profile</td><td>{{ "available" if r.sections.cognitive_profile == "available" else "absent (input not provided)" }}</td></tr>
+<tr><td>Functional disconnection map</td><td>{{ "available" if r.sections.functional_disconnection == "available" else ("not requested in this plan" if r.sections.functional_disconnection == "not_requested" else "absent (input not provided)") }}</td></tr>
+<tr><td>Tract disconnection</td><td>{{ "available" if r.sections.tract_disconnection == "available" else ("not requested in this plan" if r.sections.tract_disconnection == "not_requested" else "not part of this analysis") }}</td></tr>
+<tr><td>Cognitive profile</td><td>{{ "available" if r.sections.cognitive_profile == "available" else ("not requested in this plan" if r.sections.cognitive_profile == "not_requested" else "absent (input not provided)") }}</td></tr>
 </table>
 <ul>
 <li>Lesion volume {{ r.lesion.volume_ml | fixed(3) }} mL, hemisphere: {{ hemi[r.lesion.hemisphere] }}, {{ r.lesion.components.count }} connected component(s).</li>
@@ -51,7 +51,38 @@
 {% if r.cognitive_profile.status == "available" %}
 <li>Cognitive profile: {{ r.cognitive_profile.significant_concepts | length }} of {{ r.cognitive_profile.n_concepts }} concepts significant after correction.</li>
 {% endif %}
+{% for t in r.get("external_tools", []) %}
+<li>External tool: the results of the slot {{ t.slot }} were produced by {{ t.upstream.name }} {{ t.upstream.version }} (licence {{ t.upstream.licence }}), wrapped by the step {{ t.step_name }} {{ t.step_version }}; see section 5.4.</li>
+{% endfor %}
+{% for d in r.get("declared_origins", []) %}
+<li>Input {{ d.name }}: origin declared by the user ({{ "drawn by hand" if d.origin.kind == "manual" else "external tool " ~ d.origin.tool ~ " " ~ d.origin.version }}); the platform cannot verify it.</li>
+{% endfor %}
 </ul>
+{% if r.get("plan") %}
+<h3>Analysis plan</h3>
+{% if r.plan.mode == "full" %}
+<p>Full analysis: the run had no preset and no custom targets, so every slot of the pipeline that could run was planned.</p>
+{% elif r.plan.mode == "preset" %}
+<p>Preset {{ r.plan.preset.id }} version {{ r.plan.preset.version }}, definition digest <span class="mono">sha256:{{ r.plan.preset.sha256 }}</span>.</p>
+{% else %}
+<p>Custom plan: the user chose the outputs listed below; the platform added the steps they need.</p>
+{% endif %}
+{% if r.plan.targets.required or r.plan.targets.if_available %}
+<table class="kv">
+<tr><td>Required outputs</td><td>{{ r.plan.targets.required | join(", ") if r.plan.targets.required else "-" }}</td></tr>
+<tr><td>Outputs if available</td><td>{{ r.plan.targets.if_available | join(", ") if r.plan.targets.if_available else "-" }}</td></tr>
+</table>
+{% endif %}
+{% set role = {'target': 'requested', 'upstream': 'added (needed by a requested output)', 'if_available': 'if available'} %}
+<table>
+<tr><th>Slot</th><th>In the plan as</th><th>Outcome</th></tr>
+{% for s in r.provenance.slots %}
+<tr><td>{{ s.slot }}</td>
+<td>{% if s.get("plan_role") %}{{ role[s.plan_role] }}{% elif s.reason == "not_requested" %}not requested{% elif s.reason == "condition_false" %}not applicable to the input set{% else %}-{% endif %}</td>
+<td>{{ "not requested" if s.reason == "not_requested" else s.status ~ (" (" ~ s.reason ~ ")" if s.reason else "") }}</td></tr>
+{% endfor %}
+</table>
+{% endif %}
 
 <h2>2. Lesion</h2>
 <figure>
@@ -95,7 +126,11 @@
 <tr><td>Mean of positive voxels</td><td>{{ r.functional_disconnection.mean_of_positive | fixed(4) }}</td></tr>
 </table>
 {% else %}
+{% if r.functional_disconnection.status == "not_requested" %}
+<p class="absent">Not requested: the functional disconnection analysis is outside the plan of this run, so this section is empty.</p>
+{% else %}
 <p class="absent">Not available: the functional disconnection map was not provided to this report, so this section is empty.</p>
+{% endif %}
 {% endif %}
 
 <h3>3.2 Tract disconnection</h3>
@@ -112,7 +147,11 @@
 {% endfor %}
 </table>
 {% else %}
+{% if r.tract_disconnection.status == "not_requested" %}
+<p class="absent">Not requested: the tract disconnection analysis is outside the plan of this run, so this section is empty.</p>
+{% else %}
 <p class="absent">Not part of this analysis: tract disconnection was not run for this report, so this section is empty.</p>
+{% endif %}
 {% endif %}
 
 <h2>4. Cognitive profile</h2>
@@ -144,7 +183,11 @@
 <p>No concept is significant after correction.</p>
 {% endif %}
 {% else %}
+{% if r.cognitive_profile.status == "not_requested" %}
+<p class="absent">Not requested: the cognitive profile is outside the plan of this run, so this section is empty.</p>
+{% else %}
 <p class="absent">Not available: the cognitive profile was not provided to this report, so this section is empty.</p>
+{% endif %}
 {% endif %}
 
 <h2>5. Provenance</h2>
@@ -157,7 +200,7 @@
 <td>{{ s.slot }}</td>
 <td>{{ s.status }}{% if s.reason %} ({{ s.reason }}){% endif %}</td>
 {% if s.implementation %}
-<td>{{ s.implementation.step_name }} {{ s.implementation.step_version }}{% if s.implementation.stub %} (stub){% endif %}</td>
+<td>{{ s.implementation.step_name }} {{ s.implementation.step_version }}{% if s.implementation.stub %} (stub){% endif %}{% if s.implementation.get("upstream") %} (external tool: {{ s.implementation.upstream.name }} {{ s.implementation.upstream.version }}){% endif %}</td>
 <td class="mono">{{ s.implementation.image }}</td>
 <td>{% for st in r.provenance.steps if st.slot == s.slot %}{% for sw in st.software %}{{ sw.name }} {{ sw.version }}{% if not loop.last %}, {% endif %}{% endfor %}{% endfor %}</td>
 {% else %}
@@ -191,12 +234,39 @@
 {% endfor %}
 </table>
 
+{% if r.get("external_tools") %}
+<h3>5.4 External tools</h3>
+<p>The results of these slots come from third-party software wrapped by a step of this platform. The run record does not state a validation level for them, and this report does not infer one.</p>
+<table>
+<tr><th>Slot</th><th>Wrapper step</th><th>External tool</th><th>Licence</th><th>Citation</th></tr>
+{% for t in r.get("external_tools", []) %}
+<tr><td>{{ t.slot }}</td><td>{{ t.step_name }} {{ t.step_version }}</td><td>{{ t.upstream.name }} {{ t.upstream.version }}<br><span class="mono">{{ t.upstream.homepage }}</span></td><td>{{ t.upstream.licence }}</td><td>{{ t.upstream.citation if t.upstream.get("citation") else "not given" }}</td></tr>
+{% endfor %}
+</table>
+{% endif %}
+{% if r.get("declared_origins") %}
+<h3>5.5 Declared origin of supplied inputs</h3>
+<p>These origins were declared by the user when the files were uploaded; the platform cannot verify them.</p>
+<table>
+<tr><th>Input</th><th>Type</th><th>SHA-256</th><th>Declared origin</th></tr>
+{% for d in r.get("declared_origins", []) %}
+<tr><td>{{ d.name }}</td><td>{{ d.type }}</td><td class="mono">{{ d.sha256 }}</td><td>{{ "drawn by hand" if d.origin.kind == "manual" else "external tool " ~ d.origin.tool ~ " " ~ d.origin.version }} (declared by the user)</td></tr>
+{% endfor %}
+</table>
+{% endif %}
+
 <h2>6. Notes</h2>
 <ul>
 <li>This document is for research use only, not for clinical decisions.</li>
 <li>The machine-readable content of this report is in report.json; its bytes are the basis for sealing.</li>
 {% if "synthetic_reference_data" in r.notes %}
 <li>The reference data used for the cognitive profile are flagged as synthetic.</li>
+{% endif %}
+{% if "external_tool_used" in r.notes %}
+<li>At least one result was produced by an external tool; its upstream name, version and licence are in section 5.4.</li>
+{% endif %}
+{% if "input_origin_declared_by_user" in r.notes %}
+<li>The origin of at least one supplied input was declared by the user and is not verified by the platform (section 5.5).</li>
 {% endif %}
 {% if "lesion_mask_differs_from_qc" in r.notes %}
 <li>The lesion mask given to this report differs from the volume recorded by the lesion QC; check the pipeline wiring.</li>
