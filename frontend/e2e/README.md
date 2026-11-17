@@ -20,9 +20,11 @@ orchestrator:
   functional-disconnection stub, normalisation skipped), the artefact list, the PDF download
   (`%PDF-` magic) and the step log. A second run picks a non-default report implementation and
   checks that only that choice is sent and that the run records it as chosen by the user.
-- **CT mode** uploads `fixtures/data/cases/case-01` files, and asserts that the normalisation
-  slot is shown as unavailable (the CT step is not merged, card F0-33) and that Start is
-  disabled. It does not expect a completed run.
+- **CT mode** uploads the CT reference case that the workflow builds from a public head CT
+  template (`pipelines/stroke-lnm/ci/ct_reference.sh`; the synthetic CT under `fixtures/data/`
+  is too coarse for the step), runs the real normalisation step (`ct-lesion-to-mni152`, mounted
+  in the `ci` and `deployment` profiles) and checks that the run reaches `succeeded` with
+  normalisation `succeeded` and not a stub.
 
 The read-only viewer (card F0-32) has its own specs. `mocked/viewer.spec.ts` serves small synthetic NIfTI volumes generated in memory (`mocked/nifti.ts`) and checks, in real Chromium with WebGL, that the viewer opens from the run page, that artefacts are fetched with the token in the header and never in a URL, that no request leaves the application origin (offline requirement), that opacity, visibility and threshold change the drawn picture, and the no-background message. The real-stack MNI-mask spec ends by opening the viewer on the finished run.
 

@@ -57,6 +57,7 @@ FILES = {
     "cognet_profile": "cognet_profile.json",
 }
 MINIMAL = ("lesion_qc", "lesion_mask", "run_provenance")
+NO_TRACT = tuple(p for p in FILES if p != "tract_disconnection")  # QC report without tracts
 
 
 def _pdf_available() -> bool:
@@ -86,6 +87,19 @@ class Staged:
         self.params = {"language": language}
         for port in ports:
             self.put(port, reference / FILES[port])
+
+    def without_tract_slot(self) -> "Staged":
+        """Provenance of a QC-only plan: the tract slot has no enabled implementation."""
+        path = self.in_dir / "run_provenance.json"
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        for slot in doc["slots"]:
+            if slot["slot"] == "tract-disconnection":
+                for key in [k for k in slot if k not in ("slot",)]:
+                    del slot[key]
+                slot.update(status="unavailable", reason="no_implementation")
+        doc["steps"] = [s for s in doc["steps"] if s["slot"] != "tract-disconnection"]
+        path.write_text(json.dumps(doc), encoding="utf-8")
+        return self
 
     def put(self, port: str, source: Path) -> None:
         shutil.copyfile(source, self.in_dir / f"{port}{''.join(Path(FILES[port]).suffixes)}")
@@ -162,6 +176,41 @@ def test_report_json_golden_full_en(tmp_path, reference, no_pdf):
     }
     assert not data.endswith(b"\n")
     assert b"accounting" not in data and b"submitted_by" not in data
+
+
+def test_report_json_golden_without_tract_table_en(tmp_path, reference, no_pdf):
+    """The tract section of a run without tract disconnection (QC-only plan) is absent, not an error."""
+    staged = Staged(tmp_path, reference, ports=NO_TRACT).without_tract_slot()
+    assert staged.run() == EXIT_OK
+    data = staged.json_bytes()
+    _check_golden_bytes("report_notract_en.json", data)
+    doc = json.loads(data)
+    SCHEMA.validate(doc)
+    assert doc["sections"] == {
+        "lesion": "available",
+        "functional_disconnection": "available",
+        "tract_disconnection": "absent",
+        "cognitive_profile": "available",
+    }
+    assert doc["tract_disconnection"] == {"status": "absent"}
+    assert doc["generator"] == {"step": "research-report", "version": "0.2.0"}
+    absent = [i["port"] for i in doc["inputs"] if not i["present"]]
+    assert absent == ["ct_mni", "tract_disconnection"]
+
+
+def test_tract_table_only_changes_the_tract_parts_of_the_report(tmp_path, reference, no_pdf):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    with_tracts = Staged(tmp_path / "a", reference)
+    without = Staged(tmp_path / "b", reference, ports=NO_TRACT)  # same provenance
+    assert with_tracts.run() == EXIT_OK and without.run() == EXIT_OK
+    a, b = json.loads(with_tracts.json_bytes()), json.loads(without.json_bytes())
+    assert a["tract_disconnection"]["status"] == "available"
+    for doc in (a, b):
+        doc.pop("tract_disconnection")
+        doc["sections"].pop("tract_disconnection")
+        doc["inputs"] = [i for i in doc["inputs"] if i["port"] != "tract_disconnection"]
+    assert a == b
 
 
 def test_report_json_golden_minimal_es(tmp_path, reference, no_pdf):
@@ -296,6 +345,8 @@ def test_templates_contain_no_external_resources():
 
 def _pdf_case(tmp_path, reference, ports, language, golden_name):
     staged = Staged(tmp_path, reference, ports=ports, language=language)
+    if ports == NO_TRACT:
+        staged.without_tract_slot()
     assert staged.run() == EXIT_OK
     pdf = staged.out_dir / "report_pdf.pdf"
     if ACTUAL:
@@ -338,7 +389,8 @@ def test_pdf_minimal_es_golden_text_and_absent_sections(tmp_path, reference):
     assert report_pdftext.pages_without_banner(pdf, "es") == []
     assert report_pdftext.compare(pdf, GOLDEN / "report_min_es.txt", "es") is None
     flat = report_pdftext.squash("".join(report_pdftext.page_texts(pdf)))
-    assert flat.count(report_pdftext.squash("No disponible:")) == 3
+    assert flat.count(report_pdftext.squash("No disponible:")) == 2
+    assert flat.count(report_pdftext.squash("No forma parte de este análisis:")) == 1
     assert "Procedencia" in flat
 
 
@@ -347,8 +399,21 @@ def test_pdf_minimal_en_says_sections_are_absent(tmp_path, reference):
     staged, pdf = _pdf_case(tmp_path, reference, MINIMAL, "en", "report_min_en")
     assert report_pdftext.pages_without_banner(pdf, "en") == []
     flat = report_pdftext.squash("".join(report_pdftext.page_texts(pdf)))
-    assert flat.count(report_pdftext.squash("Not available:")) == 3
+    assert flat.count(report_pdftext.squash("Not available:")) == 2
+    assert flat.count(report_pdftext.squash("Not part of this analysis:")) == 1
     assert "Tractdisconnection" in flat
+
+
+@needs_pdf
+def test_pdf_without_tract_table_golden_text_and_section(tmp_path, reference):
+    staged, pdf = _pdf_case(tmp_path, reference, NO_TRACT, "en", "report_notract_en")
+    assert report_pdftext.pages_without_banner(pdf, "en") == []
+    assert report_pdftext.compare(pdf, GOLDEN / "report_notract_en.txt", "en") is None
+    flat = report_pdftext.squash("".join(report_pdftext.page_texts(pdf)))
+    assert flat.count(report_pdftext.squash("Not part of this analysis:")) == 1
+    assert report_pdftext.squash("Not available:") not in flat
+    # the other optional sections are present, the tract table and its figure are not
+    assert "Mostdisconnectedtract" not in flat and "toy_cst_left" not in flat
 
 
 @needs_pdf

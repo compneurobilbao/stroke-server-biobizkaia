@@ -9,7 +9,7 @@ Pipeline slot `report`: builds the research report of a run from the outputs of 
 | `run_provenance` | `run_provenance` | yes | run rejected |
 | `ct_mni` | `ct_mni` | no | figures use the MNI152 template bundled with nilearn |
 | `fdisconnection_map` | `fdisconnection_map` | no | the section says the input was not provided |
-| `tract_disconnection` | `tract_disconnection` (TSV: `tract`, `disconnection`) | no | same |
+| `tract_disconnection` | `tract_disconnection` (TSV: `tract`, `disconnection`) | no | the section says tract disconnection is not part of this analysis (QC-only report, version 0.2.0); `report.json` has `{status: absent}` as for the other optional sections |
 | `cognet_profile` | `cognet_profile` (validated against `contracts/schemas/v1/cognet-profile.schema.json`) | no | same |
 
 Parameter `language`: `en` (default) or `es`. Outputs: `report_pdf` and `report_json`.
@@ -23,7 +23,7 @@ Parameter `language`: `en` (default) or `es`. Outputs: `report_pdf` and `report_
 
 `python -m pytest steps/report` (needs `steps/sdk/requirements-image.txt` and `requirements-step.txt`; the PDF tests also need Pango, HarfBuzz and DejaVu fonts, and `pypdf`, and are skipped when WeasyPrint cannot load).
 
-- `tests/golden/report_full_en.json` and `report_min_es.json`: `report.json` compared byte for byte.
+- `tests/golden/report_full_en.json`, `report_notract_en.json` (everything except the tract table) and `report_min_es.json`: `report.json` compared byte for byte.
 - `tests/golden/*.txt`: expected PDF text. PDF bytes are never compared; the text of every page is extracted with pypdf, banner and page counter are removed, whitespace is ignored (`tests/report_pdftext.py`). Banner presence is asserted page by page.
 - Regenerate goldens after an intended change: `REPORT_UPDATE_GOLDEN=1 python -m pytest steps/report`. `REPORT_ACTUAL_DIR=<dir>` keeps the generated PDFs and texts (CI uploads them).
 - Inputs are synthetic: a mask from `fixtures/data/mni_masks`, values invented in `tests/make_reference.py`, and a run provenance with fake digests in `tests/data/run_provenance.json`.

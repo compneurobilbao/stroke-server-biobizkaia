@@ -3,9 +3,8 @@ Solo para uso en investigación, no para decisiones clínicas. Los valores de es
 investigación y no se han validado para diagnóstico, pronóstico ni tratamiento. Ejecución
 6f1c2a9e-3b7d-4e21-9c55-0d8e4f7a1b23 Caso c3a81f40-5e92-4b6d-8a17-2f9b0c6d4e85 Flujo de procesamiento stroke-
 lnm 0.1.0 Versión de la plataforma 0.3.0 (tipos de artefacto 1.0.0) Conjunto de entradas mni-mask Ejecución
-creada 2026-11-13T11:00:00Z Generador del informe research-report 0.1.0 1. Resumen Sección Estado Lesión
-disponible Mapa de desconexión funcional ausente (entrada no proporcionada) Desconexión de tractos ausente
-(entrada no proporcionada) Perfil cognitivo ausente (entrada no proporcionada) Volumen de la lesión 12.128 mL,
+creada 2026-11-13T11:00:00Z Generador del informe research-report 0.2.0 1. Resumen Sección Estado Lesión
+disponible Mapa de desconexión funcional ausente (entrada no proporcionada) Desconexión de tractos no forma parte de este análisis Perfil cognitivo ausente (entrada no proporcionada) Volumen de la lesión 12.128 mL,
 hemisferio: Izquierdo, 1 componente(s) conexo(s).• 2. Lesión Figura 1. Vistas ortogonales por el centroide de
 la lesión (espacio MNI152, L y R indican izquierda y derecha). Fondo: una plantilla T1 MNI152 incluida en la
 biblioteca de figuras (no la versión NLin6Asym), solo como orientación; son esperables pequeños
@@ -15,8 +14,7 @@ volumen Centroide (mm) -38.0, -15.0, 15.0 Rejilla MNI152NLin6Asym-res2, forma 91
 2.0 mm Máscara en la rejilla de trabajo12.128 mL, 1516 vóxeles (coherente con el control de calidad) El
 control de calidad de la lesión no registró avisos. 3. Desconexión 3.1 Mapa de desconexión funcional No
 disponible: el mapa de desconexión funcional no se proporcionó a este informe, por lo que esta sección está
-vacía. 3.2 Desconexión de tractos No disponible: la tabla de desconexión de tractos no se proporcionó a este
-informe, por lo que esta sección está vacía. 4. Perfil cognitivo No disponible: el perfil cognitivo no se
+vacía. 3.2 Desconexión de tractos No forma parte de este análisis: la desconexión de tractos no se ejecutó para este informe, por lo que esta sección está vacía. 4. Perfil cognitivo No disponible: el perfil cognitivo no se
 proporcionó a este informe, por lo que esta sección está vacía. 5. Procedencia Flujo stroke-lnm 0.1.0, huella
 de la definición sha256:c8feb380411aad0d2619b60361ae599eb407526546239c6be5b1f20bc996c408. Estado de la
 ejecución al construir el informe: running. 5.1 Pasos e imágenes de contenedor Ranura Estado Paso Imagen de

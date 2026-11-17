@@ -2,7 +2,9 @@
 
 Required inputs: ``lesion_qc``, ``lesion_mask`` and ``run_provenance``. The other inputs
 (``ct_mni``, ``fdisconnection_map``, ``tract_disconnection``, ``cognet_profile``) are
-optional: when one is absent its section says so and the run still succeeds.
+optional: when one is absent its section says so and the run still succeeds. A run without
+``tract_disconnection`` (QC-only report, version 0.2.0) states that tract disconnection is not
+part of the analysis.
 """
 
 from __future__ import annotations

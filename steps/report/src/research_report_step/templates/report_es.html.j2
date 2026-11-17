@@ -40,7 +40,7 @@
 <tr><th>Sección</th><th>Estado</th></tr>
 <tr><td>Lesión</td><td>disponible</td></tr>
 <tr><td>Mapa de desconexión funcional</td><td>{{ "disponible" if r.sections.functional_disconnection == "available" else "ausente (entrada no proporcionada)" }}</td></tr>
-<tr><td>Desconexión de tractos</td><td>{{ "disponible" if r.sections.tract_disconnection == "available" else "ausente (entrada no proporcionada)" }}</td></tr>
+<tr><td>Desconexión de tractos</td><td>{{ "disponible" if r.sections.tract_disconnection == "available" else "no forma parte de este análisis" }}</td></tr>
 <tr><td>Perfil cognitivo</td><td>{{ "disponible" if r.sections.cognitive_profile == "available" else "ausente (entrada no proporcionada)" }}</td></tr>
 </table>
 <ul>
@@ -112,7 +112,7 @@
 {% endfor %}
 </table>
 {% else %}
-<p class="absent">No disponible: la tabla de desconexión de tractos no se proporcionó a este informe, por lo que esta sección está vacía.</p>
+<p class="absent">No forma parte de este análisis: la desconexión de tractos no se ejecutó para este informe, por lo que esta sección está vacía.</p>
 {% endif %}
 
 <h2>4. Perfil cognitivo</h2>

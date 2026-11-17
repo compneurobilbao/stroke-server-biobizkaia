@@ -185,7 +185,7 @@ Steps, in order:
 
 #### What is not available yet
 
-Image digests in `pipelines/stroke-lnm/registry.yaml` are placeholders (64 zeros) until the step images are published (card F1-14). The executor only starts images pinned by digest and never pulls a placeholder, and run creation needs the step manifests. **A real deployment therefore cannot run stroke-lnm yet**: with the repository tree, listing and seeding work, but runs cannot complete. Also unavailable: functional disconnection (only a stub, enabled in `ci` only) and CT normalisation (planned, not merged), so the CT input set is refused.
+Image digests in `pipelines/stroke-lnm/registry.yaml` are placeholders (64 zeros) until the step images are published (card F1-14). The executor only starts images pinned by digest and never pulls a placeholder, and run creation needs the step manifests. **A real deployment therefore cannot run stroke-lnm yet**: with the repository tree, listing and seeding work, but runs cannot complete. CT normalisation (`ct-lesion-to-mni152`) is mounted in both the `ci` and `deployment` profiles, so the CT input set is accepted; a deployment that disables the slot refuses CT-mode runs. The functional disconnection stub is enabled in `ci` only; `deployment` enables `flnm-fast`, which needs the normative-fc bundle installed locally.
 
 The reference path is the CI one: the `e2e-stroke-lnm` workflow (`.github/workflows/e2e-stroke-lnm.yml`, `docs/processing-pipeline.md`) builds the steps, obtains digests from a throwaway registry, materialises the pipeline, registers toy bundles, seeds the `ci` profile and runs the pipeline on synthetic fixtures. Reproduce a deployment the same way by replacing the throwaway digests with the published ones.
 
