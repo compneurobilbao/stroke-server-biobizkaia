@@ -393,3 +393,55 @@ def test_step_runs_are_never_created_for_skipped_slots(plan_env):
         assert db.get(PipelineRun, run_id).status == "succeeded"
     assert names == ["intake"]
     shutil.rmtree(env.root, ignore_errors=True)
+
+
+def test_a_free_plan_with_an_older_report_is_refused(plan_env):
+    """Review fix: any preset or free plan with a selected step that reads
+    run.provenance and declares a contract older than 1.2, even without slots
+    outside the plan."""
+    env = plan_env(report_contract="1.0")
+    with pytest.raises(RunRefused) as exc:
+        env.create(
+            env.make_case(),
+            targets=TargetRequest(("report", "disconnection"), ("intake",)),
+        )
+    assert (exc.value.code, exc.value.slot) == ("step_contract_too_old", "report")
+
+
+def test_slot_rows_of_a_plan_run_are_valid_api_reads(plan_env):
+    """GET /runs/{id} reads run_slots through RunSlotRead: not_requested, plan_role,
+    chosen_by preset and upstream must validate."""
+    from app.schemas.run import RunSlotRead
+
+    env = plan_env(disc_upstream=True)
+    preset_run = env.create(
+        env.make_case(), preset=PresetRef("qc-report"), presets=env.presets
+    )
+    with env.Session() as db:
+        db.execute(
+            update(PipelineRun).values(
+                status="canceled", finished_at=PipelineRun.created_at
+            )
+        )
+        db.execute(
+            update(RunSlot)
+            .where(RunSlot.pipeline_run_id == preset_run, RunSlot.slot == "intake")
+            .values(chosen_by="preset")
+        )
+        db.commit()
+    free_run = env.create(
+        env.make_case(), targets=TargetRequest(("tract_disconnection",))
+    )
+    with env.Session() as db:
+        for run_id in (preset_run, free_run):
+            rows = db.scalars(
+                select(RunSlot).where(RunSlot.pipeline_run_id == run_id)
+            ).all()
+            reads = {r.slot: RunSlotRead.model_validate(r) for r in rows}
+            assert any(r.reason == "not_requested" for r in reads.values())
+            assert all(
+                (r.plan_role is None)
+                == (r.reason in ("not_requested", "condition_false"))
+                for r in reads.values()
+            )
+        assert reads["disconnection"].upstream["name"] == "example-tool"

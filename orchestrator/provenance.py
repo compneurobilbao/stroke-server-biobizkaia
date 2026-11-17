@@ -211,22 +211,26 @@ def run_provenance_for_step(
 ) -> dict[str, Any]:
     """The run record as staged for a step that reads ``run.provenance``.
 
-    A step whose manifest declares contract 1.2 or later gets ``record`` unchanged. A
-    step declaring 1.0 or 1.1 implements that contract and rejects newer documents
-    (versioning.md 2 rule 4); its image validates the record against the schemas of
-    its build. It gets the record of the contract it declares: without ``plan``,
-    ``plan_role``, ``implementation.upstream`` and ``inputs[].origin``, optional
-    additions it cannot read. Slots outside the plan (``not_requested``) and preset
-    choices (``chosen_by: preset``) have no such form: run creation refuses those
-    plans for such steps (``step_contract_too_old``,
+    A step always gets the record in the form of the contract its manifest declares:
+    a step declaring the record's version or a later one gets ``record`` unchanged; a
+    step declaring an older version implements that contract and rejects newer
+    documents (versioning.md 2 rule 4; its image validates the record against the
+    schemas of its build), so the record is relabelled to the step's version, without
+    ``plan``, ``plan_role``, ``implementation.upstream`` and ``inputs[].origin``
+    (1.2 additions; for a 1.1 record nothing but the label changes, since
+    RunProvenance has no field added in 1.1). Only the full plan has such a form:
+    a preset or free plan, slots outside the plan (``not_requested``) and preset
+    choices (``chosen_by: preset``) do not, run creation refuses those plans for
+    such steps (``step_contract_too_old``,
     ``orchestrator.planning.provenance_consumer_reasons``), and a record that still
     has them is returned unchanged rather than altered.
     """
     consumer = contract.contract_minor((manifest or {}).get("contract_version"))
     current = contract.contract_minor(record.get("contract_version"))
-    if consumer < 0 or consumer >= current or current < contract.RULES_1_2:
+    if consumer < 0 or consumer >= current:
         return record
-    if any(
+    plan = record.get("plan")
+    if (plan is not None and plan.get("mode") != "full") or any(
         s.get("reason") == "not_requested"
         or s.get("implementation", {}).get("chosen_by") == "preset"
         for s in record.get("slots", [])

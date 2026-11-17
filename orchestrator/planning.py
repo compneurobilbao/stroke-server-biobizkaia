@@ -148,9 +148,13 @@ class Plan:
 
     @property
     def needs_contract_1_2(self) -> bool:
-        """True if the run record of this plan has values that a record declaring
-        contract 1.0 or 1.1 cannot carry (slots outside the plan, preset choices)."""
-        return any(
+        """True if the run record of this plan cannot be written truthfully as a
+        contract 1.0 or 1.1 record: every preset or free plan (a targeted plan may
+        leave non-optional slots out of the plan, unavailable or skipped, which a
+        1.0 or 1.1 record would show as a run without its plan), and any plan with
+        slots outside the plan or preset choices. Only the full plan (rule R0, the
+        meaning of 1.1) can be."""
+        return self.mode != FULL or any(
             s.reason == NOT_REQUESTED or s.chosen_by == CHOSEN_BY_PRESET
             for s in self.slots
         )
@@ -343,6 +347,7 @@ def plan(
 
     choices: dict[str, tuple[str, str]] = {}
     request_errors: dict[str, PlanReason] = {}
+    fixed_conflicts: dict[str, PlanReason] = {}
     for slot in pipeline.slots:
         name = slot["name"]
         preset_choice = preset.choice(name) if preset is not None else None
@@ -353,13 +358,12 @@ def plan(
             and user is not None
             and user != preset_choice[1]
         ):
-            reasons.append(
-                PlanReason(
-                    "implementation_fixed_by_preset",
-                    f"The preset '{preset.id}' fixes the implementation of the slot "
-                    f"'{name}' to '{preset_choice[1]}'; '{user}' cannot be chosen.",
-                    slot=name,
-                )
+            # Reported below only if the slot is in the plan under this input set.
+            fixed_conflicts[name] = PlanReason(
+                "implementation_fixed_by_preset",
+                f"The preset '{preset.id}' fixes the implementation of the slot "
+                f"'{name}' to '{preset_choice[1]}'; '{user}' cannot be chosen.",
+                slot=name,
             )
         result = choose_implementation(slot, enablement, user, preset_choice)
         if isinstance(result, PlanReason):
@@ -378,6 +382,13 @@ def plan(
         required,
         if_available,
         {name: [impl] for name, (impl, _by) in choices.items()},
+    )
+    # A contradicted fixed choice matters only for slots of this plan (not for
+    # slots skipped by their condition or outside the plan), like other choices.
+    reasons.extend(
+        fixed_conflicts[s.slot]
+        for s in static.slots
+        if s.slot in fixed_conflicts and s.plan_role is not None
     )
     decisions = []
     replaced: set[str] = set()
@@ -466,11 +477,14 @@ def provenance_consumer_reasons(
 
     A step receives the run record in the form of the contract its manifest declares
     (``orchestrator.provenance.run_provenance_for_step``; versioning.md 2 rule 4: a
-    component of contract 1.Y rejects documents of 1.Z with Z > Y). For older steps
-    the plan fields are left out, which loses nothing they can read; but slots outside
-    the plan (``not_requested``) and preset choices (``chosen_by: preset``) have no
-    1.0 or 1.1 form, so such a plan is refused (``step_contract_too_old``) until
-    the step has a version that declares contract 1.2 (presets.md 4.3).
+    component of contract 1.Y rejects documents of 1.Z with Z > Y). For the full
+    plan the older form leaves out only the plan fields, which loses nothing (R0 is
+    what a 1.0 or 1.1 record means). A preset or free plan has no truthful older
+    form: slots outside the plan (``not_requested``) and preset choices
+    (``chosen_by: preset``) cannot be written, and without its plan the record would
+    read as a full run whose non-optional slots did not run. Such a plan is refused
+    (``step_contract_too_old``) until the step has a version that declares contract
+    1.2 (presets.md 4.3; for the report step, card F1-25).
     ``manifests`` maps selected slot names to their step manifests."""
     if not plan_.needs_contract_1_2:
         return []
@@ -491,8 +505,8 @@ def provenance_consumer_reasons(
                     "step_contract_too_old",
                     f"The step '{manifest['name']} {manifest['version']}' of the slot "
                     f"'{decision.slot}' declares contract {version} and cannot read the "
-                    f"run record of this plan, which needs contract 1.2 (slots outside "
-                    f"the plan or implementations chosen by the preset); a version of "
+                    f"run record of this plan, which needs contract 1.2 (a preset or "
+                    f"free plan); a version of "
                     f"the step that declares contract 1.2 is needed.",
                     slot=decision.slot,
                 )

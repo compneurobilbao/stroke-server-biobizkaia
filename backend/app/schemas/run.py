@@ -39,14 +39,24 @@ class RunSlotRead(_Read):
     position: int
     optional: bool
     status: Literal["selected", "skipped", "unavailable"]
-    reason: Literal["condition_false", "upstream_absent", "no_implementation"] | None = None
+    reason: (
+        Literal["condition_false", "upstream_absent", "no_implementation", "not_requested"]
+        | None
+    ) = None
+    # Why the slot is in the run plan (contract 1.2, presets.md 4.1); null for
+    # `condition_false` and `not_requested` slots and for runs without a plan.
+    plan_role: Literal["target", "upstream", "if_available"] | None = None
     implementation_id: Kebab | None = None
     step_name: Kebab | None = None
     step_version: Semver | None = None
     image: str | None = None
     stub: bool | None = None
-    chosen_by: Literal["user", "deployment_default", "pipeline_default"] | None = None
+    chosen_by: (
+        Literal["user", "deployment_default", "pipeline_default", "preset"] | None
+    ) = None
     effective_parameters: dict[str, Any] | None = None
+    # Copy of the step manifest's `upstream` block (external tools, contract 1.2).
+    upstream: dict[str, Any] | None = None
     bundles: list[RunSlotBundleRead] = []
 
 

@@ -10,6 +10,7 @@ data of any person is involved.
 from __future__ import annotations
 
 import copy
+import dataclasses
 import hashlib
 import random
 from collections.abc import Mapping
@@ -408,6 +409,35 @@ def test_refusal_implementation_fixed_by_preset():
     assert ok.slot("report").chosen_by == "preset"
 
 
+def test_fixed_choice_is_only_checked_for_slots_of_the_plan():
+    """A preset that fixes a slot planned only under another input set: a different
+    user choice for it is ignored where the slot does not run."""
+    pipeline = _example()
+    alt = "ct-lesion-to-mni152-no-ventricle-removal"
+    preset = _preset(
+        input_sets=["mni-mask", "ct-and-native-mask"],
+        targets={"required": ["tract-disconnection"]},
+        implementations={"normalisation": {"fixed": "ct-lesion-to-mni152"}},
+    )
+    request = PlanRequest(preset=preset, implementations={"normalisation": alt})
+    ok = plan(pipeline, "mni-mask", request, _all_enabled(pipeline))
+    assert isinstance(ok, Plan)
+    assert ok.slot("normalisation").reason == "condition_false"
+    refused = plan(pipeline, "ct-and-native-mask", request, _all_enabled(pipeline))
+    assert [(r.code, r.slot) for r in refused.reasons] == [
+        ("implementation_fixed_by_preset", "normalisation")
+    ]
+    # Outside the plan (not_requested) it is ignored too.
+    preset = _preset(
+        input_sets=["ct-and-native-mask"],
+        targets={"required": ["lesion-intake"]},
+        implementations={"normalisation": {"fixed": "ct-lesion-to-mni152"}},
+    )
+    request = PlanRequest(preset=preset, implementations={"normalisation": alt})
+    ok = plan(pipeline, "ct-and-native-mask", request, _all_enabled(pipeline))
+    assert ok.slot("normalisation").reason == "not_requested"
+
+
 def test_refusal_implementation_not_enabled():
     pipeline = _example()
     request = PlanRequest(
@@ -487,34 +517,79 @@ def test_refusal_no_implementation_names_the_target_and_every_reason():
     assert (refused.code, refused.slot) == ("no_implementation", "tract-disconnection")
 
 
-def test_refusal_step_contract_too_old():
+OLD_REPORT = {
+    "name": "research-report",
+    "version": "0.2.0",
+    "contract_version": "1.0",
+    "inputs": [{"name": "run_provenance", "type": "run_provenance"}],
+}
+
+
+def _gate(pipeline, result, manifest=OLD_REPORT):
+    return [
+        (r.code, r.slot)
+        for r in provenance_consumer_reasons(pipeline, result, {"report": manifest})
+    ]
+
+
+def test_refusal_step_contract_too_old_for_a_targeted_plan():
+    """Trigger: plan mode preset or free, even with no slot outside the plan and no
+    preset choice (a 1.0 record would read as a full run)."""
     pipeline = _example()
-    preset = _preset(targets={"required": ["report"]})
-    result = plan(
-        pipeline, "mni-mask", PlanRequest(preset=preset), _all_enabled(pipeline)
+    request = PlanRequest(
+        targets=TargetRequest(
+            ("report",), ("functional-disconnection", "cognitive-profile")
+        )
     )
-    assert result.slot("functional-disconnection").reason in (
-        "not_requested",
-        "upstream_absent",
+    enablement = _all_enabled(pipeline)
+    enablement = Enablement(enablement.enabled, defaults=enablement.enabled)
+    result = plan(pipeline, "mni-mask", request, enablement)
+    assert result.mode == "free"
+    assert not any(
+        s.reason == "not_requested" or s.chosen_by == "preset" for s in result.slots
     )
-    old = {
-        "name": "research-report",
-        "version": "0.2.0",
-        "contract_version": "1.0",
-        "inputs": [{"name": "run_provenance", "type": "run_provenance"}],
-    }
-    reasons = provenance_consumer_reasons(pipeline, result, {"report": old})
-    assert [(r.code, r.slot) for r in reasons] == [("step_contract_too_old", "report")]
-    new = dict(old, contract_version="1.2")
-    assert provenance_consumer_reasons(pipeline, result, {"report": new}) == []
+    assert _gate(pipeline, result) == [("step_contract_too_old", "report")]
+    assert _gate(pipeline, result, dict(OLD_REPORT, contract_version="1.2")) == []
     # A step that does not declare the run.provenance input does not read it.
-    assert (
-        provenance_consumer_reasons(pipeline, result, {"report": dict(old, inputs=[])})
-        == []
-    )
-    # The full plan needs no 1.2 value: older steps get the 1.1 form.
+    assert _gate(pipeline, result, dict(OLD_REPORT, inputs=[])) == []
+
+
+def test_refusal_step_contract_too_old_for_not_requested_slots():
+    """Trigger: a slot outside the plan (isolated on a full-mode plan object)."""
+    pipeline = _example()
     full = plan(pipeline, "mni-mask", PlanRequest(), _all_enabled(pipeline))
-    assert provenance_consumer_reasons(pipeline, full, {"report": old}) == []
+    slots = tuple(
+        dataclasses.replace(s, status="skipped", reason="not_requested", plan_role=None)
+        if s.slot == "cognitive-profile"
+        else s
+        for s in full.slots
+    )
+    assert _gate(pipeline, dataclasses.replace(full, slots=slots)) == [
+        ("step_contract_too_old", "report")
+    ]
+
+
+def test_refusal_step_contract_too_old_for_preset_choices():
+    """Trigger: an implementation chosen by a preset (isolated on a full-mode plan
+    object)."""
+    pipeline = _example()
+    full = plan(pipeline, "mni-mask", PlanRequest(), _all_enabled(pipeline))
+    slots = tuple(
+        dataclasses.replace(s, chosen_by="preset") if s.slot == "lesion-intake" else s
+        for s in full.slots
+    )
+    assert _gate(pipeline, dataclasses.replace(full, slots=slots)) == [
+        ("step_contract_too_old", "report")
+    ]
+
+
+def test_full_plan_never_triggers_step_contract_too_old():
+    """The full plan has a truthful older form: a step declaring 1.0 gets the 1.0
+    record (relabelled, without the plan fields)."""
+    pipeline = _example()
+    full = plan(pipeline, "mni-mask", PlanRequest(), _all_enabled(pipeline))
+    assert full.mode == "full" and not full.needs_contract_1_2
+    assert _gate(pipeline, full) == []
 
 
 def test_targets_shape():
@@ -684,3 +759,42 @@ def test_run_record_with_values_that_need_1_2_is_not_altered():
         for s in record["slots"]
     )
     assert run_provenance_for_step(record, {"contract_version": "1.1"}) is record
+
+
+def _full_record() -> dict:
+    record = _record()
+    record["plan"] = {"mode": "full", "preset": None, "targets": {}}
+    for slot in record["slots"]:
+        if slot.get("implementation", {}).get("chosen_by") == "preset":
+            slot["implementation"]["chosen_by"] = "pipeline_default"
+    return record
+
+
+def test_a_1_1_record_is_relabelled_for_a_step_declaring_1_0():
+    """A step always gets the record of the contract it declares, also when the
+    record itself is older than 1.2 (review fix)."""
+    record = _full_record()
+    for item in record["inputs"]:
+        item.pop("origin", None)
+    record.pop("plan")
+    for slot in record["slots"]:
+        slot.pop("plan_role", None)
+        slot.get("implementation", {}).pop("upstream", None)
+    record["contract_version"] = "1.1"
+    assert not v.check_provenance(record) and not v.schema_errors(record, "provenance")
+    older = run_provenance_for_step(record, {"contract_version": "1.0"})
+    assert older["contract_version"] == "1.0"
+    assert {k: val for k, val in older.items() if k != "contract_version"} == {
+        k: val for k, val in record.items() if k != "contract_version"
+    }
+    assert run_provenance_for_step(record, {"contract_version": "1.1"}) is record
+
+
+def test_a_targeted_plan_record_is_not_altered_for_an_older_step():
+    record = _full_record()
+    record["plan"] = {
+        "mode": "free",
+        "preset": None,
+        "targets": {"required": ["report.report_json"]},
+    }
+    assert run_provenance_for_step(record, {"contract_version": "1.0"}) is record
