@@ -1,8 +1,8 @@
 # Versioning and compatibility
 
-Status: normative. Contract version `1.1`.
+Status: normative. Contract version `1.2`.
 
-Five things carry versions: the contract itself (all schemas together), steps, pipelines, bundles and the artefact type registry. Every version except the contract version is a [Semantic Versioning 2.0](https://semver.org/) string `MAJOR.MINOR.PATCH` with an optional pre-release suffix and no build metadata.
+Six things carry versions: the contract itself (all schemas together), steps, pipelines, presets, bundles and the artefact type registry. Every version except the contract version is a [Semantic Versioning 2.0](https://semver.org/) string `MAJOR.MINOR.PATCH` with an optional pre-release suffix and no build metadata.
 
 ## 1. What is breaking
 
@@ -17,7 +17,7 @@ Non-breaking (**additive**) changes add optional fields, enum values or types, w
 
 ## 2. The contract version
 
-1. `contract_version` is `"MAJOR.MINOR"` and is the same for all six schemas (`step`, `pipeline`, `bundle`, `provenance`, `error`, `artefact-types`). Every document carries it. This specification is `1.1`.
+1. `contract_version` is `"MAJOR.MINOR"` and is the same for all seven schemas (`step`, `pipeline`, `bundle`, `provenance`, `error`, `artefact-types` and, from 1.2, `preset`). Every document carries it. This specification is `1.2`.
 2. Schemas live in `contracts/schemas/v<MAJOR>/`. A minor release edits them in place with additive changes only; a major release creates a new directory.
 3. A minor contract change MUST only relax the schemas, so that every document valid under `1.N` is valid under `1.M` for M > N.
 4. **Compatibility rule.** A component that implements contract `X.Y` (orchestrator, SDK, validator) MUST accept a document whose `contract_version` is `X.Z` with Z ≤ Y, and MUST reject, with a message naming both versions, a document with another major version or with Z > Y. (`contracts/validate.py` declares the version it implements in `CONTRACT_MAJOR`/`CONTRACT_MINOR`.)
@@ -25,7 +25,7 @@ Non-breaking (**additive**) changes add optional fields, enum values or types, w
 6. A contract change after F0-10 requires a new ADR (plan section 7). A major change requires a migration note listing the steps and pipelines to update; the platform SHOULD support the previous major version for at least one platform release.
 
 7. There is no patch level: a correction that changes what any component accepts, emits or must do is a minor (or major) version; a text-only correction that changes nothing of that is not versioned.
-8. A document keeps the rules of the minor version it declares. Rules added in a minor version that would reject documents valid under an earlier one apply only to documents declaring that minor version or later (in 1.1: reserved-code categories and empty outputs on failure, [step-contract.md](step-contract.md#44-reserved-error-codes)).
+8. A document keeps the rules of the minor version it declares. Rules added in a minor version that would reject documents valid under an earlier one apply only to documents declaring that minor version or later (in 1.1: reserved-code categories and empty outputs on failure, [step-contract.md](step-contract.md#44-reserved-error-codes); in 1.2: the `Preset` document, the plan fields and values of `RunProvenance` and declared input origins, [provenance.md](provenance.md#3-runprovenance), and the `upstream` block of a step manifest, [step-contract.md](step-contract.md#18-external-tools-the-upstream-block)). A document that uses a field or value added in a minor version MUST declare that version or later.
 
 *Rationale for one version for all schemas:* the documents reference each other (a pipeline embeds step identities, provenance embeds errors and bundle records); a single number makes "which contract does this step implement" one answer.
 
@@ -35,6 +35,7 @@ Non-breaking (**additive**) changes add optional fields, enum values or types, w
 |---|---|---|
 | `1.0` | First release. | [ADR-0001](../adr/0001-step-contract.md) |
 | `1.1` | Reserved error codes `input_missing`, `input_format_invalid`, `invalid_parameters`, `terminated`; parameters of rejected and failed records not checked against the schema; empty `outputs` and no output files on exit 10; `SIGTERM` exit code and report; optional `reference_test.generator` for generated fixtures; `software[]` stated to be free-form. | [ADR-0017](../adr/0017-contract-1-1-sdk-gaps.md) |
+| `1.2` | New `Preset` document and schema, rules P1-P8 and the static plan closure ([presets.md](presets.md)); `RunProvenance.plan`, slot reason `not_requested`, `chosen_by: preset`, slot `plan_role` and `implementation.upstream`, declared `inputs[].origin`; optional `upstream` block in `step.yaml`. All additive; 1.0 and 1.1 documents stay valid. | [ADR-0018](../adr/0018-presets-free-mode-external-tools.md) |
 
 ## 3. Steps
 
@@ -58,6 +59,8 @@ Pipelines pin exact step versions and digests, so a new step version reaches use
 
 A run records the pipeline `id`, `version` and the SHA-256 of the exact file. Deployment configuration (what is enabled) is not versioned with the pipeline and is recorded per run through the slot records.
 
+Presets are versioned on their own ([presets.md §6](presets.md#6-versions)); adding or changing a preset does not change the pipeline's version or SHA-256.
+
 ## 5. Bundles
 
 | Bump | When |
@@ -78,17 +81,17 @@ Step requirements SHOULD use ranges that accept minor updates (`^1.0.0`). Result
 
 ## 7. Version ranges
 
-Bundle requirements use a comma-separated list of comparators, all of which must hold: `==`, `>=`, `>`, `<=`, `<`, and `^` (same major, greater or equal). Example: `">=1.2.0, <2.0.0"`. A pre-release version satisfies a range only if it compares within it under SemVer precedence (so `1.0.0-rc.1` does not satisfy `>=1.0.0`).
+Bundle requirements and the pipeline range of a preset use a comma-separated list of comparators, all of which must hold: `==`, `>=`, `>`, `<=`, `<`, and `^` (same major, greater or equal). Example: `">=1.2.0, <2.0.0"`. A pre-release version satisfies a range only if it compares within it under SemVer precedence (so `1.0.0-rc.1` does not satisfy `>=1.0.0`).
 
 ## 8. Checks performed by the orchestrator
 
 When loading a pipeline and when registering or enabling an implementation, the orchestrator MUST, in this order:
 
-1. check `contract_version` of every document (rule 2.4);
+1. check `contract_version` of every document (rule 2.4), and that fields and values added in a minor version are used only by documents declaring it (rule 2.8);
 2. validate every document against its schema;
-3. run the single-document rules of the specification (parameter defaults, wiring, acyclicity, static availability, bundle digest formula);
+3. run the single-document rules of the specification (parameter defaults, wiring, acyclicity, static availability, bundle digest formula, preset rules P1 and P7);
 4. check every artefact type against the loaded registry;
-5. check every implementation against its manifest (matching rules M1–M5 in [pipeline.md](pipeline.md#41-matching-a-step-to-a-slot)), its literal parameters and bindings against the parameter schema, and its bundle pins against the requirement ranges and the registered bundles' types;
+5. check every implementation against its manifest (matching rules M1–M5 in [pipeline.md](pipeline.md#41-matching-a-step-to-a-slot)), its literal parameters and bindings against the parameter schema, and its bundle pins against the requirement ranges and the registered bundles' types; check every preset against each pipeline version it attaches to (rules P2–P8 in [presets.md](presets.md#3-validation-rules));
 6. refuse anything that fails, with the validator's message.
 
 `contracts/validate.py` implements checks 1–5 for files given on one command line, and is the reference for the orchestrator's implementation.

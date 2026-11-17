@@ -1,4 +1,4 @@
-"""Tests for the step-contract schemas, examples and validator (card F0-10)."""
+"""Tests for the step-contract schemas, examples and validator (cards F0-10, F1-17)."""
 
 from __future__ import annotations
 
@@ -25,11 +25,22 @@ INVALID_LAYER = {
     "error-reserved-code-wrong-category.json": "semantic",
     "pipeline-image-by-tag.yaml": "schema",
     "pipeline-type-mismatch.yaml": "semantic",
+    "preset-contract-1-1.yaml": "semantic",
+    "preset-default-and-fixed.yaml": "schema",
     "provenance-bad-hash.json": "schema",
+    "provenance-origin-free-text.json": "schema",
     "provenance-rejected-with-outputs.json": "semantic",
+    "provenance-run-plan-contract-1-1.json": "semantic",
     "step-newer-contract.yaml": "semantic",
     "step-parameter-without-default.yaml": "schema",
     "step-tagged-image-bad-version.yaml": "schema",
+    "step-upstream-contract-1-1.yaml": "semantic",
+}
+# Valid examples that use fields or values added in contract 1.2 (ADR-0018).
+EXAMPLES_1_2 = {
+    "preset-mni-mask-analysis.yaml",
+    "provenance-run-plan.json",
+    "step-lesion-segmenter-wrapper.yaml",
 }
 
 
@@ -342,6 +353,8 @@ def test_contract_version_window():
     assert v.check_contract_version(doc) == []
     doc.data["contract_version"] = "1.1"
     assert v.check_contract_version(doc) == []
+    doc.data["contract_version"] = "1.2"
+    assert v.check_contract_version(doc) == []
     doc.data["contract_version"] = f"1.{v.CONTRACT_MINOR + 1}"
     assert v.check_contract_version(doc)
 
@@ -394,12 +407,13 @@ def _rejected_provenance(version="1.1"):
     return data
 
 
-def test_contract_version_is_1_1_everywhere():
-    assert v.CONTRACT_VERSION == "1.1"
+def test_contract_version_is_1_2_and_examples_declare_their_version():
+    assert v.CONTRACT_VERSION == "1.2"
     for path in VALID:
-        assert v.load_file(path)["contract_version"] == "1.1", path.name
+        expected = "1.2" if path.name in EXAMPLES_1_2 else "1.1"
+        assert v.load_file(path)["contract_version"] == expected, path.name
     sdk = (ROOT / "steps/sdk/src/stroke_step_sdk/contracts.py").read_text("utf-8")
-    assert 'SUPPORTED_CONTRACT_VERSION = "1.1"' in sdk
+    assert 'SUPPORTED_CONTRACT_VERSION = "1.2"' in sdk
 
 
 def test_contract_1_0_documents_are_still_accepted(tmp_path):
@@ -407,6 +421,8 @@ def test_contract_1_0_documents_are_still_accepted(tmp_path):
     for path in VALID:
         if path.name == "error-invalid-parameters.json":
             continue  # an undeclared reserved code is valid only from 1.1 (gap 1)
+        if path.name in EXAMPLES_1_2:
+            continue  # covered by test_contract_1_1_documents_are_still_accepted
         data = v.load_file(path)
         data["contract_version"] = "1.0"
         if path.name == "provenance-run.json":
@@ -578,3 +594,1272 @@ def test_software_entries_are_free_form(software):
     prov["software"] = software
     assert v.schema_errors(prov, "provenance") == []
     assert _cross_errors(("step.yaml", _step()), ("provenance.json", prov)) == []
+
+
+# ----------------------------------------------------------------- contract 1.2 (ADR-0018)
+
+
+def _pipeline(version="0.1.0"):
+    """The worked pipeline; 0.2.0 makes the report's tract table optional (card F1-26)."""
+    data = _load("pipeline-stroke-lnm.yaml")
+    if version != "0.1.0":
+        data["version"] = version
+        report = next(s for s in data["slots"] if s["name"] == "report")
+        port = next(c for c in report["consumes"] if c["port"] == "tract_disconnection")
+        port["optional"] = True
+        assert v.check_pipeline(data, _types()) == []
+    return data
+
+
+def _preset(**changes):
+    data = _load("preset-mni-mask-analysis.yaml")
+    data.update(changes)
+    return data
+
+
+def _plan_record():
+    return _load("provenance-run-plan.json")
+
+
+def _slot(record, name):
+    return next(s for s in record["slots"] if s["slot"] == name)
+
+
+def _strip_1_2(data):
+    """A copy of a 1.2 example without the 1.2 fields, declaring 1.1."""
+    data = copy.deepcopy(data)
+    data["contract_version"] = "1.1"
+    data.pop("upstream", None)
+    data.pop("plan", None)
+    for i in data.get("inputs", []):
+        if isinstance(i, dict):
+            i.pop("origin", None)
+    for s in data.get("slots", []):
+        s.pop("plan_role", None)
+        impl = s.get("implementation")
+        if impl:
+            impl.pop("upstream", None)
+            if impl["chosen_by"] == "preset":
+                impl["chosen_by"] = "pipeline_default"
+    return data
+
+
+def test_contract_1_1_documents_are_still_accepted(tmp_path):
+    """Every 1.1 example validates unchanged, and the 1.2 examples without their 1.2
+    fields are valid 1.1 documents: 1.2 only adds."""
+    old = [p for p in VALID if p.name not in EXAMPLES_1_2]
+    assert _errors(v.validate_files(old)) == []
+    paths = []
+    for name in ("provenance-run-plan.json", "step-lesion-segmenter-wrapper.yaml"):
+        target = tmp_path / (Path(name).stem + ".json")
+        target.write_text(json.dumps(_strip_1_2(_load(name))), encoding="utf-8")
+        paths.append(target)
+    assert [str(i) for i in _errors(v.validate_files(paths))] == []
+
+
+@pytest.mark.parametrize(
+    ("change", "expected"),
+    [
+        (lambda r: r.pop("plan"), "plan requires"),
+        (lambda r: r["inputs"][0].pop("origin"), "origin requires"),
+        (lambda r: _slot(r, "report").pop("plan_role"), "plan_role requires"),
+    ],
+)
+def test_1_2_run_fields_require_contract_1_2(change, expected):
+    record = _plan_record()
+    record["contract_version"] = "1.1"
+    assert any(expected in e for e in v.check_provenance(record))
+    change(record)  # the other 1.2 fields are still reported
+    assert v.check_provenance(record)
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["not_requested", "chosen_by_preset", "upstream", "plan_role"],
+)
+def test_each_1_2_slot_value_requires_contract_1_2(field):
+    record = _strip_1_2(_plan_record())
+    assert v.check_provenance(record) == []
+    if field == "not_requested":
+        record["slots"][4] = {
+            "slot": "cognitive-profile",
+            "status": "skipped",
+            "reason": "not_requested",
+        }
+    elif field == "chosen_by_preset":
+        _slot(record, "report")["implementation"]["chosen_by"] = "preset"
+    elif field == "upstream":
+        _slot(record, "report")["implementation"]["upstream"] = _load(
+            "step-lesion-segmenter-wrapper.yaml"
+        )["upstream"]
+    else:
+        _slot(record, "report")["plan_role"] = "target"
+    assert v.schema_errors(record, "provenance") == []
+    assert any("requires contract_version 1.2" in e for e in v.check_provenance(record))
+
+
+def test_step_upstream_block():
+    step = _load("step-lesion-segmenter-wrapper.yaml")
+    assert v.check_step(step, _types()) == []
+    step["licence"]["third_party"][0]["spdx"] = "MIT"
+    assert any("licence.third_party" in e for e in v.check_step(step, _types()))
+    step = _load("step-lesion-segmenter-wrapper.yaml")
+    step["contract_version"] = "1.1"
+    assert any(
+        "requires contract_version 1.2" in e for e in v.check_step(step, _types())
+    )
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("image", "docker.io/example/segmenter:2.1.0"),  # pinned by digest only
+        ("homepage", "http://example.org/example-segmenter"),
+        ("unknown", "x"),
+    ],
+)
+def test_step_upstream_block_schema(key, value):
+    step = _load("step-lesion-segmenter-wrapper.yaml")
+    step["upstream"][key] = value
+    assert v.schema_errors(step, "step")
+
+
+def test_step_upstream_block_requires_name_version_homepage_image_licence():
+    for key in ("name", "version", "homepage", "image", "licence"):
+        step = _load("step-lesion-segmenter-wrapper.yaml")
+        del step["upstream"][key]
+        assert v.schema_errors(step, "step"), key
+    step = _load("step-lesion-segmenter-wrapper.yaml")
+    del step["upstream"]["citation"]
+    assert v.schema_errors(step, "step") == []
+
+
+# Declared input origins.
+
+
+@pytest.mark.parametrize(
+    ("origin", "ok"),
+    [
+        ({"kind": "manual"}, True),
+        (
+            {
+                "kind": "external-tool",
+                "tool": "example-segmenter",
+                "version": "2.1.0+cu12",
+            },
+            True,
+        ),
+        ({"kind": "external-tool", "tool": "example-segmenter"}, False),
+        ({"kind": "manual", "tool": "pen"}, False),
+        (
+            {"kind": "external-tool", "tool": "tool name with spaces", "version": "1"},
+            False,
+        ),
+        ({"kind": "external-tool", "tool": "t", "version": "x" * 65}, False),
+        # Reusing artefacts of earlier runs is deferred (owner decision 6).
+        (
+            {"kind": "platform-run", "run_id": "0b7e9d52-6a14-4f3c-8e2d-91c5a7b3f604"},
+            False,
+        ),
+    ],
+)
+def test_declared_input_origin(origin, ok):
+    record = _plan_record()
+    record["inputs"][0]["origin"] = origin
+    assert (v.schema_errors(record, "provenance") == []) is ok
+
+
+# Plan records in RunProvenance.
+
+
+def _plan_errors(record):
+    assert v.schema_errors(record, "provenance") == []
+    return v.check_provenance(record)
+
+
+def test_plan_record_example_is_consistent():
+    assert _plan_errors(_plan_record()) == []
+
+
+def test_not_requested_slot():
+    record = _plan_record()
+    record["slots"][4] = {
+        "slot": "cognitive-profile",
+        "status": "skipped",
+        "reason": "not_requested",
+    }
+    record["plan"]["targets"].pop("if_available")
+    assert _plan_errors(record) == []
+    _slot(record, "cognitive-profile")["status"] = "unavailable"
+    assert any("requires status 'skipped'" in e for e in _plan_errors(record))
+    _slot(record, "cognitive-profile")["status"] = "skipped"
+    _slot(record, "cognitive-profile")["plan_role"] = "if_available"
+    assert any("has no plan_role" in e for e in _plan_errors(record))
+
+
+def test_not_requested_needs_a_preset_or_free_plan():
+    record = _plan_record()
+    record["slots"][4] = {
+        "slot": "cognitive-profile",
+        "status": "skipped",
+        "reason": "not_requested",
+    }
+    for slot in record["slots"]:
+        if slot.get("implementation", {}).get("chosen_by") == "preset":
+            slot["implementation"]["chosen_by"] = "pipeline_default"
+    record["plan"] = {"mode": "full", "preset": None, "targets": {}}
+    assert any("not_requested" in e for e in _plan_errors(record))
+    del record["plan"]
+    for slot in record["slots"]:
+        slot.pop("plan_role", None)
+    assert any("not_requested" in e for e in _plan_errors(record))
+
+
+def test_full_plan_record():
+    record = _plan_record()
+    for slot in record["slots"]:
+        if slot.get("implementation", {}).get("chosen_by") == "preset":
+            slot["implementation"]["chosen_by"] = "pipeline_default"
+    record["plan"] = {"mode": "full", "preset": None, "targets": {}}
+    assert _plan_errors(record) == []
+    record["plan"]["targets"] = {"required": ["report.report_pdf"]}
+    assert any("full plan has no targets" in e for e in _plan_errors(record))
+
+
+@pytest.mark.parametrize(
+    ("mode", "preset", "message"),
+    [
+        ("preset", None, "exactly when mode is 'preset'"),
+        ("free", {"id": "x", "version": "1.0.0", "sha256": "0" * 64}, "exactly when"),
+    ],
+)
+def test_plan_preset_matches_mode(mode, preset, message):
+    record = _plan_record()
+    record["plan"].update(mode=mode, preset=preset)
+    assert any(message in e for e in _plan_errors(record))
+
+
+def test_chosen_by_preset_needs_a_preset_plan():
+    record = _plan_record()
+    record["plan"].update(mode="free", preset=None)
+    assert any("chosen_by 'preset'" in e for e in _plan_errors(record))
+
+
+def test_free_plan_needs_targets():
+    record = _plan_record()
+    for slot in record["slots"]:
+        if slot.get("implementation", {}).get("chosen_by") == "preset":
+            slot["implementation"]["chosen_by"] = "user"
+    record["plan"].update(mode="free", preset=None)
+    assert _plan_errors(record) == []
+    record["plan"]["targets"] = {}
+    assert any("at least one target" in e for e in _plan_errors(record))
+
+
+def test_plan_roles_of_slots():
+    record = _plan_record()
+    _slot(record, "report").pop("plan_role")
+    assert any("needs plan_role" in e for e in _plan_errors(record))
+    record = _plan_record()
+    _slot(record, "cognitive-profile")["plan_role"] = "upstream"
+    assert any("only an 'if_available' slot" in e for e in _plan_errors(record))
+    record = _plan_record()
+    _slot(record, "normalisation")["plan_role"] = "upstream"
+    assert any("has no plan_role" in e for e in _plan_errors(record))
+
+
+def test_target_both_required_and_if_available():
+    record = _plan_record()
+    record["plan"]["targets"]["if_available"].append("report.report_pdf")
+    assert any("both required and if_available" in e for e in _plan_errors(record))
+
+
+def test_plan_targets_are_checked_against_the_pipeline():
+    record = _plan_record()
+    assert _cross_errors(("pipeline.yaml", _pipeline()), ("p.json", record)) == []
+    record["plan"]["targets"]["required"].append("report.summary_pdf")
+    _slot(record, "functional-disconnection")["plan_role"] = "upstream"
+    errors = _cross_errors(("pipeline.yaml", _pipeline()), ("p.json", record))
+    assert any("'report.summary_pdf' is not a port" in e for e in errors)
+    assert any("must have plan_role 'target'" in e for e in errors)
+
+
+def _segmenter_pipeline():
+    """The worked pipeline plus a segmentation slot filled by the wrapper example."""
+    pipeline = _pipeline()
+    pipeline["slots"].insert(
+        0,
+        {
+            "name": "segmentation",
+            "optional": True,
+            "consumes": [{"port": "ct", "type": "ct_native", "from": "inputs.ct"}],
+            "produces": [{"port": "lesion_mask_native", "type": "lesion_mask_native"}],
+            "implementations": {
+                "allowed": [
+                    {
+                        "id": "example-segmenter",
+                        "step": {
+                            "name": "lesion-segmenter-wrapper",
+                            "version": "0.1.0",
+                        },
+                        "image": "docker.io/compneurobilbaolab/step-lesion-segmenter-wrapper@sha256:"
+                        + "1" * 64,
+                    }
+                ]
+            },
+        },
+    )
+    return pipeline
+
+
+def test_slot_record_upstream_is_a_copy_of_the_manifest_block():
+    step = _load("step-lesion-segmenter-wrapper.yaml")
+    pipeline = _segmenter_pipeline()
+    impl = pipeline["slots"][0]["implementations"]["allowed"][0]
+    record = _plan_record()
+    record["slots"].insert(
+        0,
+        {
+            "slot": "segmentation",
+            "status": "selected",
+            "plan_role": "if_available",
+            "implementation": {
+                **impl,
+                "stub": False,
+                "chosen_by": "user",
+                "upstream": copy.deepcopy(step["upstream"]),
+            },
+            "bundles": [],
+        },
+    )
+    docs = [("step.yaml", step), ("pipeline.yaml", pipeline), ("p.json", record)]
+    assert _cross_errors(*docs) == []
+    record["slots"][0]["implementation"]["upstream"]["version"] = "2.2.0"
+    assert any("differs from the step manifest" in e for e in _cross_errors(*docs))
+    del record["slots"][0]["implementation"]["upstream"]
+    assert any("must copy" in e for e in _cross_errors(*docs))
+
+
+# Presets: single-document rules.
+
+
+def test_preset_schema_is_registered():
+    assert v.SCHEMA_FILES["preset"] == "preset.schema.json"
+    assert v.detect_schema(_preset(), Path("anything.yaml")) == "preset"
+
+
+@pytest.mark.parametrize(
+    ("change", "ok"),
+    [
+        ({"input_sets": []}, False),
+        ({"input_sets": ["mni-mask", "mni-mask"]}, False),
+        ({"targets": {"if_available": ["report"]}}, False),  # required is required
+        ({"targets": {"required": []}}, False),
+        ({"targets": {"required": ["Report"]}}, False),
+        ({"targets": {"required": ["report.report_pdf", "lesion_qc"]}}, True),
+        ({"targets": {"required": ["report.report-pdf"]}}, False),
+        ({"pipeline": {"id": "stroke-lnm", "versions": ">=0.1.0 <0.2.0"}}, False),
+        ({"pipeline": {"id": "stroke-lnm", "versions": "^0.1.0"}}, True),
+        ({"implementations": {"report": {}}}, False),
+        ({"implementations": {"report": {"preferred": "research-report"}}}, False),
+        ({"slots": []}, False),  # no slot or wiring in a preset
+    ],
+)
+def test_preset_schema(change, ok):
+    assert (v.schema_errors(_preset(**change), "preset") == []) is ok
+
+
+def test_preset_rule_p1_contract_version():
+    assert v.check_preset(_preset()) == []
+    for version in ("1.0", "1.1"):
+        assert any(
+            "(P1)" in e for e in v.check_preset(_preset(contract_version=version))
+        )
+
+
+def test_preset_rule_p7_literal_targets():
+    preset = _preset()
+    preset["targets"]["if_available"].append("report")
+    assert any("(P7)" in e for e in v.check_preset(preset))
+
+
+# Presets against a pipeline.
+
+
+def _preset_errors(preset, pipeline=None, manifests=None):
+    return v.preset_errors(preset, pipeline or _pipeline(), manifests)
+
+
+def test_preset_example_is_valid_against_the_pipeline():
+    assert _preset_errors(_preset()) == []
+
+
+def test_preset_rule_p2_attachment(tmp_path):
+    def errors(*pipelines, strict=False, preset=None):
+        docs = [("preset.yaml", preset or _preset())]
+        docs += [(f"pipeline-{p['version']}.yaml", p) for p in pipelines]
+        found = [v.Document(Path(n), d, v.detect_schema(d, Path(n))) for n, d in docs]
+        return v.cross_check(found, strict=strict)
+
+    # Attached to 0.1.0 only; 0.2.0 is outside ">=0.1.0, <0.2.0" and not checked.
+    broken = _pipeline("0.2.0")
+    broken["input_sets"] = [s for s in broken["input_sets"] if s["name"] != "mni-mask"]
+    assert _errors(errors(_pipeline(), broken)) == []
+    # Inside the range, each version is validated separately.
+    wide = _preset()
+    wide["pipeline"]["versions"] = ">=0.1.0, <1.0.0"
+    found = _errors(errors(_pipeline(), broken, preset=wide))
+    assert found and all("pipeline stroke-lnm 0.2.0" in i.message for i in found)
+    # No supplied version in the range: a note, an error with --strict.
+    issues = errors(broken)
+    assert not _errors(issues) and any("P2-P7 not checked" in i.message for i in issues)
+    assert _errors(errors(broken, strict=True))
+    assert any("not checked" in i.message for i in errors())
+
+
+def test_preset_rule_p3_input_sets():
+    errors = _preset_errors(_preset(input_sets=["mni-mask", "t1w-only"]))
+    assert any("'t1w-only' is not an input set" in e and "(P3)" in e for e in errors)
+
+
+@pytest.mark.parametrize(
+    ("required", "code"),
+    [
+        (["segmentation"], "unknown_target"),
+        (["report.summary_pdf"], "unknown_target"),
+        (["qc_figure"], "ambiguous_target"),
+        (["normalisation"], "target_not_applicable"),
+        (["lesion-intake.qc_figure"], "target_not_guaranteed"),
+    ],
+)
+def test_preset_rule_p4_targets_resolve(required, code):
+    preset = _preset(targets={"required": required})
+    preset.pop("implementations")
+    errors = _preset_errors(preset)
+    assert any(f"[{code}]" in e and "(P4)" in e for e in errors), errors
+
+
+def test_preset_rule_p4_if_available_target_must_apply():
+    preset = _preset(
+        targets={"required": ["report"], "if_available": ["normalisation"]}
+    )
+    errors = _preset_errors(preset)
+    assert any("if-available target 'normalisation'" in e for e in errors)
+    # Not guaranteed is fine as if-available.
+    preset["targets"]["if_available"] = ["lesion-intake.qc_figure"]
+    assert _preset_errors(preset) == []
+
+
+def test_preset_rule_p5_feasibility():
+    pipeline = _unreachable_pipeline()
+    preset = _preset(targets={"required": ["cognitive-profile"]})
+    preset.pop("implementations")
+    errors = _preset_errors(preset, pipeline)
+    assert any("[target_unreachable]" in e and "(P5)" in e for e in errors)
+
+
+def test_preset_rule_p5_assumes_every_allowed_implementation_enabled():
+    pipeline = _pipeline()
+    fd = next(s for s in pipeline["slots"] if s["name"] == "functional-disconnection")
+    assert "default" not in fd["implementations"]  # no default, still feasible
+    assert _preset_errors(_preset(), pipeline) == []
+
+
+@pytest.mark.parametrize(
+    ("implementations", "message"),
+    [
+        ({"segmentation": {"default": "x"}}, "not a slot of the pipeline"),
+        ({"normalisation": {"default": "ct-lesion-to-mni152"}}, "not in the plan"),
+        ({"report": {"fixed": "another-report"}}, "not an allowed implementation"),
+    ],
+)
+def test_preset_rule_p6_implementations(implementations, message):
+    errors = _preset_errors(_preset(implementations=implementations))
+    assert any(message in e and "(P6)" in e for e in errors), errors
+
+
+def test_preset_rule_p6_fixed_stub():
+    stub = _load("step-fdisconnection-stub.yaml")
+    preset = _preset(
+        implementations={"functional-disconnection": {"fixed": "fdisconnection-stub"}}
+    )
+    manifests = {("fdisconnection-stub", "0.1.0"): stub}
+    assert any(
+        "stub cannot be a fixed choice" in e
+        for e in _preset_errors(preset, None, manifests)
+    )
+    preset["implementations"]["functional-disconnection"] = {
+        "default": "fdisconnection-stub"
+    }
+    assert _preset_errors(preset, None, manifests) == []
+    # Without the manifest the cross-check says so (an error with --strict).
+    preset["implementations"]["functional-disconnection"] = {
+        "fixed": "fdisconnection-stub"
+    }
+    docs = [
+        v.Document(Path("preset.yaml"), preset, "preset"),
+        v.Document(Path("pipeline.yaml"), _pipeline(), "pipeline"),
+    ]
+    issues = v.cross_check(docs, strict=False)
+    assert any("stub not checked" in i.message for i in issues) and not _errors(issues)
+    assert _errors(v.cross_check(docs, strict=True))
+
+
+def test_preset_rule_p7_resolved_slots():
+    preset = _preset(
+        targets={
+            "required": ["report.report_pdf"],
+            "if_available": ["report.report_json"],
+        }
+    )
+    assert v.check_preset(preset) == []  # different strings, same slot
+    assert any("(P7)" in e for e in _preset_errors(preset))
+
+
+def test_preset_rule_p8_one_file_per_version(tmp_path):
+    text = (EXAMPLES / "preset-mni-mask-analysis.yaml").read_text(encoding="utf-8")
+    a, b, c = tmp_path / "a.yaml", tmp_path / "b.yaml", tmp_path / "c.yaml"
+    a.write_text(text, encoding="utf-8")
+    b.write_text(text, encoding="utf-8")
+    c.write_text(
+        text.replace("title: Disconnection", "title: Changed"), encoding="utf-8"
+    )
+    pipeline = EXAMPLES / "pipeline-stroke-lnm.yaml"
+    assert _errors(v.validate_files([a, pipeline])) == []
+    same = [i.message for i in _errors(v.validate_files([a, b, pipeline]))]
+    assert any("(P8)" in m and "different content" not in m for m in same)
+    changed = [i.message for i in _errors(v.validate_files([a, c, pipeline]))]
+    assert any("(P8)" in m and "different content" in m for m in changed)
+    # Another version of the same preset is fine.
+    c.write_text(text.replace("version: 1.0.0", "version: 1.1.0"), encoding="utf-8")
+    assert _errors(v.validate_files([a, c, pipeline])) == []
+    assert v.preset_sha256(a.read_bytes()) == v.preset_sha256(b.read_bytes())
+
+
+# Static plan closure: refusal codes.
+
+
+def _unreachable_pipeline():
+    """A pipeline that fails the static check: cognitive-profile reads a port that
+    no slot can produce under mni-mask. Only for the pure closure function."""
+    pipeline = _pipeline()
+    cp = next(s for s in pipeline["slots"] if s["name"] == "cognitive-profile")
+    cp["consumes"].append(
+        {"port": "ct_mni", "type": "ct_mni", "from": "normalisation.ct_mni"}
+    )
+    cp["when"] = {"inputs_present": ["lesion_mni"]}
+    return pipeline
+
+
+def _codes(plan):
+    return [r.code for r in plan.reasons]
+
+
+@pytest.mark.parametrize(
+    ("required", "if_available", "code"),
+    [
+        (["segmentation"], None, "unknown_target"),
+        (None, ["segmentation"], "unknown_target"),
+        (["normalisation.ct_native"], None, "unknown_target"),
+        (["qc_figure"], None, "ambiguous_target"),
+        (None, ["qc_figure"], "ambiguous_target"),
+        (["normalisation"], None, "target_not_applicable"),
+        (["normalisation.lesion_mask_mni"], None, "target_not_applicable"),
+        (["lesion-intake.qc_figure"], None, "target_not_guaranteed"),
+    ],
+)
+def test_closure_resolution_refusals(required, if_available, code):
+    plan = v.plan_closure(_pipeline(), "mni-mask", required, if_available)
+    assert not plan.feasible and _codes(plan) == [code]
+    assert plan.reasons[0].message and plan.reasons[0].target
+
+
+def test_ambiguous_target_lists_candidates():
+    plan = v.plan_closure(_pipeline(), "mni-mask", ["qc_figure"])
+    assert "lesion-intake.qc_figure" in plan.reasons[0].message
+    assert "cognitive-profile.qc_figure" in plan.reasons[0].message
+
+
+def test_artefact_type_target_with_one_candidate():
+    plan = v.plan_closure(_pipeline(), "mni-mask", ["tract_disconnection"])
+    assert plan.feasible
+    assert plan.targets == {"required": ["tract-disconnection.tract_disconnection"]}
+    # Under mni-mask only intake produces the MNI mask; normalisation is never run.
+    plan = v.plan_closure(_pipeline(), "mni-mask", ["lesion_mask_mni"])
+    assert plan.targets == {"required": ["lesion-intake.lesion_mask_mni"]}
+
+
+def test_slot_name_that_is_also_an_artefact_type_is_ambiguous():
+    pipeline = _pipeline()
+    pipeline["slots"][0]["name"] = "lesion"
+    for slot in pipeline["slots"]:
+        for c in slot["consumes"]:
+            sources = c["from"] if isinstance(c["from"], list) else [c["from"]]
+            c["from"] = [s.replace("lesion-intake.", "lesion.") for s in sources]
+    pipeline["slots"][0]["produces"].append(
+        {"port": "extra", "type": "lesion", "optional": True}
+    )
+    types = {**_types(), "lesion": _types()["lesion_qc"]}
+    assert v.check_pipeline(pipeline, types) == []
+    plan = v.plan_closure(pipeline, "mni-mask", ["lesion"])
+    assert _codes(plan) == ["ambiguous_target"]
+
+
+def test_closure_target_unreachable():
+    plan = v.plan_closure(_unreachable_pipeline(), "mni-mask", ["cognitive-profile"])
+    assert _codes(plan) == ["target_unreachable"]
+    reason = plan.reasons[0]
+    assert (reason.target, reason.slot, reason.port) == (
+        "cognitive-profile",
+        "cognitive-profile",
+        "ct_mni",
+    )
+    # As if-available it does not refuse: the slot is skipped.
+    plan = v.plan_closure(
+        _unreachable_pipeline(), "mni-mask", ["report"], ["cognitive-profile"]
+    )
+    assert plan.feasible
+    assert plan.slot("cognitive-profile").reason == "upstream_absent"
+
+
+def test_closure_no_implementation_names_the_target_that_needed_it():
+    enabled = {"lesion-intake": ["lesion-qc"], "report": ["research-report"]}
+    plan = v.plan_closure(_pipeline(), "mni-mask", ["report"], None, enabled)
+    assert _codes(plan) == ["no_implementation"]
+    reason = plan.reasons[0]
+    assert (reason.slot, reason.required_by, reason.target) == (
+        "tract-disconnection",
+        "report",
+        "report",
+    )
+    assert plan.slot("tract-disconnection").status == "unavailable"
+
+
+def test_closure_collects_every_reason():
+    plan = v.plan_closure(
+        _pipeline(), "mni-mask", ["normalisation", "segmentation", "report"], None, {}
+    )
+    assert sorted(set(_codes(plan))) == [
+        "no_implementation",
+        "target_not_applicable",
+        "unknown_target",
+    ]
+    assert _codes(plan).count("no_implementation") == 3  # report, intake, tract
+
+
+def test_closure_unknown_input_set():
+    with pytest.raises(ValueError):
+        v.plan_closure(_pipeline(), "t1w-only")
+
+
+# Static plan closure: plans.
+
+
+def _statuses(plan):
+    return {s.slot: (s.status, s.reason, s.plan_role) for s in plan.slots}
+
+
+ALL = None  # every allowed implementation enabled
+
+
+def test_r0_reproduces_the_run_resolution_of_pipeline_md_6():
+    plan = v.plan_closure(_pipeline(), "mni-mask")
+    assert plan.feasible and plan.targets == {}
+    assert _statuses(plan) == {
+        "lesion-intake": ("planned", None, "target"),
+        "normalisation": ("skipped", "condition_false", None),
+        "functional-disconnection": ("planned", None, "if_available"),
+        "tract-disconnection": ("planned", None, "target"),
+        "cognitive-profile": ("planned", None, "if_available"),
+        "report": ("planned", None, "target"),
+    }
+    # An optional slot without an enabled implementation is unavailable and the
+    # optional slots that need it are skipped; the run is not refused.
+    enabled = {
+        "lesion-intake": ["lesion-qc"],
+        "tract-disconnection": ["lnm-tracts"],
+        "cognitive-profile": ["cognet-stroke"],
+        "report": ["research-report"],
+    }
+    plan = v.plan_closure(_pipeline(), "mni-mask", enabled=enabled)
+    assert plan.feasible
+    assert plan.slot("functional-disconnection").reason == "no_implementation"
+    assert plan.slot("cognitive-profile").reason == "upstream_absent"
+    # A non-optional slot without one refuses the run.
+    del enabled["tract-disconnection"]
+    assert _codes(v.plan_closure(_pipeline(), "mni-mask", enabled=enabled)) == [
+        "no_implementation"
+    ]
+
+
+def test_first_qualifying_source_is_used():
+    plan = v.plan_closure(_pipeline(), "ct-and-native-mask", ["tract-disconnection"])
+    assert plan.planned() == {
+        "normalisation": "upstream",
+        "tract-disconnection": "target",
+    }
+    assert plan.slot("lesion-intake").reason == "not_requested"
+    plan = v.plan_closure(_pipeline(), "mni-mask", ["tract-disconnection"])
+    assert plan.planned() == {
+        "lesion-intake": "upstream",
+        "tract-disconnection": "target",
+    }
+
+
+def test_optional_consumed_ports_never_pull_slots_in():
+    plan = v.plan_closure(_pipeline("0.2.0"), "mni-mask", ["report"])
+    assert plan.planned() == {"lesion-intake": "upstream", "report": "target"}
+    assert plan.slot("tract-disconnection").reason == "not_requested"
+
+
+def test_required_target_on_an_optional_slot_makes_it_required():
+    plan = v.plan_closure(_pipeline(), "mni-mask", ["cognitive-profile"])
+    assert plan.planned() == {
+        "lesion-intake": "upstream",
+        "functional-disconnection": "upstream",
+        "cognitive-profile": "target",
+    }
+    enabled = {"lesion-intake": ["lesion-qc"], "cognitive-profile": ["cognet-stroke"]}
+    plan = v.plan_closure(_pipeline(), "mni-mask", ["cognitive-profile"], None, enabled)
+    assert _codes(plan) == ["no_implementation"]
+    assert plan.reasons[0].required_by == "cognitive-profile"
+
+
+def test_plan_closure_is_pure():
+    pipeline = _pipeline()
+    before = copy.deepcopy(pipeline)
+    required, optional = ["report"], ["cognitive-profile"]
+    first = v.plan_closure(pipeline, "mni-mask", required, optional)
+    assert v.plan_closure(pipeline, "mni-mask", required, optional) == first
+    assert pipeline == before and required == ["report"]
+
+
+# The four stroke-lnm presets of design run-plans.md 2.5 (written for the worked pipeline,
+# whose COGNET slot is named cognitive-profile).
+
+STROKE_LNM_PRESETS = {
+    "full": {
+        "input_sets": ["ct-and-native-mask", "mni-mask"],
+        "versions": ">=0.1.0, <1.0.0",
+        "targets": {
+            "required": ["tract-disconnection", "report"],
+            "if_available": ["functional-disconnection", "cognitive-profile"],
+        },
+    },
+    "mni-mask-analysis": {
+        "input_sets": ["mni-mask"],
+        "versions": ">=0.1.0, <0.2.0",
+        "targets": {
+            "required": ["tract-disconnection", "functional-disconnection", "report"],
+            "if_available": ["cognitive-profile"],
+        },
+    },
+    "ct-normalisation": {
+        "input_sets": ["ct-and-native-mask"],
+        "versions": ">=0.1.0, <1.0.0",
+        "targets": {"required": ["lesion-intake", "normalisation"]},
+    },
+    "lesion-qc-report": {
+        "input_sets": ["ct-and-native-mask", "mni-mask"],
+        "versions": ">=0.2.0, <0.3.0",
+        "targets": {"required": ["lesion-intake", "report"]},
+    },
+}
+
+U, T, OPT = "upstream", "target", "if_available"
+NR, CF = "not_requested", "condition_false"
+SLOT_ORDER = [
+    "lesion-intake",
+    "normalisation",
+    "functional-disconnection",
+    "tract-disconnection",
+    "cognitive-profile",
+    "report",
+]
+
+
+def _row(*cells):
+    """Expected (status, reason, plan_role) per slot, in pipeline order."""
+    out = {}
+    for name, cell in zip(SLOT_ORDER, cells):
+        out[name] = (
+            ("skipped", cell, None) if cell in (NR, CF) else ("planned", None, cell)
+        )
+    return out
+
+
+EXPECTED_PLANS = {
+    ("full", "0.1.0", "mni-mask"): _row(U, CF, OPT, T, OPT, T),
+    ("full", "0.1.0", "ct-and-native-mask"): _row(U, U, OPT, T, OPT, T),
+    ("full", "0.2.0", "mni-mask"): _row(U, CF, OPT, T, OPT, T),
+    ("full", "0.2.0", "ct-and-native-mask"): _row(U, U, OPT, T, OPT, T),
+    ("mni-mask-analysis", "0.1.0", "mni-mask"): _row(U, CF, T, T, OPT, T),
+    ("ct-normalisation", "0.1.0", "ct-and-native-mask"): _row(T, T, NR, NR, NR, NR),
+    # In 0.1.0 the report still needs the tract table (no preset attaches there; the
+    # closure shows why the pipeline change of card F1-26 is needed).
+    ("lesion-qc-report", "0.1.0", "mni-mask"): _row(T, CF, NR, U, NR, T),
+    ("lesion-qc-report", "0.1.0", "ct-and-native-mask"): _row(T, U, NR, U, NR, T),
+    ("lesion-qc-report", "0.2.0", "mni-mask"): _row(T, CF, NR, NR, NR, T),
+    ("lesion-qc-report", "0.2.0", "ct-and-native-mask"): _row(T, U, NR, NR, NR, T),
+}
+
+
+def _stroke_lnm_preset(name):
+    spec = STROKE_LNM_PRESETS[name]
+    return {
+        "contract_version": "1.2",
+        "kind": "Preset",
+        "id": name,
+        "version": "1.0.0",
+        "title": name,
+        "pipeline": {"id": "stroke-lnm", "versions": spec["versions"]},
+        "input_sets": spec["input_sets"],
+        "targets": spec["targets"],
+    }
+
+
+@pytest.mark.parametrize("key", sorted(EXPECTED_PLANS), ids="-".join)
+def test_stroke_lnm_presets_give_the_plans_of_the_design(key):
+    name, version, input_set = key
+    preset = _stroke_lnm_preset(name)
+    assert v.schema_errors(preset, "preset") == [] and v.check_preset(preset) == []
+    targets = preset["targets"]
+    plan = v.plan_closure(
+        _pipeline(version), input_set, targets["required"], targets.get("if_available")
+    )
+    assert plan.feasible, plan.reasons
+    assert _statuses(plan) == EXPECTED_PLANS[key]
+
+
+@pytest.mark.parametrize("name", sorted(STROKE_LNM_PRESETS))
+def test_stroke_lnm_presets_are_valid_for_the_versions_they_attach_to(name):
+    preset = _stroke_lnm_preset(name)
+    docs = [v.Document(Path(f"{name}.yaml"), preset, "preset")]
+    for version in ("0.1.0", "0.2.0"):
+        docs.append(
+            v.Document(Path(f"p-{version}.yaml"), _pipeline(version), "pipeline")
+        )
+    issues = v.cross_check(docs, strict=False)
+    assert _errors(issues) == []
+    assert not any("P2-P7 not checked" in i.message for i in issues)
+
+
+def _same_statuses(pipeline, required, optional):
+    deployment = {
+        "lesion-intake": ["lesion-qc"],
+        "normalisation": ["ct-lesion-to-mni152"],
+        "tract-disconnection": ["lnm-tracts"],
+        "report": ["research-report"],
+    }
+    for input_set in ("ct-and-native-mask", "mni-mask"):
+        for enabled in (ALL, deployment):
+            full = v.plan_closure(pipeline, input_set, enabled=enabled)
+            preset = v.plan_closure(pipeline, input_set, required, optional, enabled)
+            assert full.feasible and preset.feasible
+            if [(s.slot, s.status, s.reason) for s in full.slots] != [
+                (s.slot, s.status, s.reason) for s in preset.slots
+            ]:
+                return False
+    return True
+
+
+def test_full_preset_equals_the_full_plan_except_roles():
+    targets = STROKE_LNM_PRESETS["full"]["targets"]
+    required, optional = targets["required"], targets["if_available"]
+    for version in ("0.1.0", "0.2.0"):
+        assert _same_statuses(_pipeline(version), required, optional)
+    # Once the report's tract table is optional (0.2.0), "report" alone no longer pulls
+    # tract disconnection in, which is why `full` names it (run-plans.md 2.5).
+    assert _same_statuses(_pipeline("0.1.0"), ["report"], optional)
+    assert not _same_statuses(_pipeline("0.2.0"), ["report"], optional)
+
+
+def test_presets_refused_or_unavailable_in_a_deployment():
+    # ct-normalisation is offered as unavailable while normalisation is not enabled.
+    enabled = {
+        "lesion-intake": ["lesion-qc"],
+        "report": ["research-report"],
+        "tract-disconnection": ["lnm-tracts"],
+    }
+    targets = STROKE_LNM_PRESETS["ct-normalisation"]["targets"]
+    plan = v.plan_closure(
+        _pipeline(), "ct-and-native-mask", targets["required"], None, enabled
+    )
+    assert [(r.code, r.slot) for r in plan.reasons] == [
+        ("no_implementation", "normalisation")
+    ]
+    # mni-mask-analysis is refused without functional disconnection, unlike full.
+    targets = STROKE_LNM_PRESETS["mni-mask-analysis"]["targets"]
+    plan = v.plan_closure(
+        _pipeline(), "mni-mask", targets["required"], targets["if_available"], enabled
+    )
+    assert [(r.code, r.slot) for r in plan.reasons] == [
+        ("no_implementation", "functional-disconnection")
+    ]
+    targets = STROKE_LNM_PRESETS["full"]["targets"]
+    plan = v.plan_closure(
+        _pipeline(), "mni-mask", targets["required"], targets["if_available"], enabled
+    )
+    assert plan.feasible
+    assert plan.slot("functional-disconnection").status == "unavailable"
+
+
+def test_worked_examples_agree():
+    """The plan record example is the plan of the preset example (cognitive-profile
+    has no enabled implementation in that deployment)."""
+    preset, record = _preset(), _plan_record()
+    enabled = {
+        s["slot"]: [s["implementation"]["id"]]
+        for s in record["slots"]
+        if s["status"] == "selected"
+    }
+    plan = v.plan_closure(
+        _pipeline(),
+        record["input_set"],
+        preset["targets"]["required"],
+        preset["targets"]["if_available"],
+        enabled,
+    )
+    assert plan.feasible
+    assert plan.targets == record["plan"]["targets"]
+    for slot in record["slots"]:
+        planned = plan.slot(slot["slot"])
+        assert planned.plan_role == slot.get("plan_role"), slot["slot"]
+        assert planned.reason == slot.get("reason"), slot["slot"]
+    assert record["plan"]["preset"]["id"] == preset["id"]
+    assert record["plan"]["preset"]["version"] == preset["version"]
+
+
+def test_normative_text_lists_every_rule_and_code():
+    text = (ROOT / "docs/contracts/presets.md").read_text(encoding="utf-8")
+    for rule in ("P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8"):
+        assert f"| {rule} |" in text, rule
+    for code in v.RESOLUTION_CODES + v.REQUEST_CODES + v.CLOSURE_CODES:
+        assert f"`{code}`" in text, code
+    history = (ROOT / "docs/contracts/versioning.md").read_text(encoding="utf-8")
+    assert (
+        "| `1.2` |" in history and "0018-presets-free-mode-external-tools.md" in history
+    )
+
+
+# Review fixes: R0 equals the orchestrator's run resolution; every feasible plan gives
+# a plan record that the 1.2 rules accept.
+
+
+def _synthetic(order=("o1", "o2"), fallback_input=False):
+    """Two optional producers of one port, feeding an optional slot y and a
+    non-optional slot z through ``from: [<first>.m, <second>.m]``. Without the input
+    fallback the pipeline fails the static check (z needs a port that may be absent);
+    the run resolution and the closure are still defined on it."""
+
+    def slot(name, consumes, produces, optional=False):
+        return {
+            "name": name,
+            "optional": optional,
+            "consumes": consumes,
+            "produces": produces,
+            "implementations": {
+                "allowed": [
+                    {
+                        "id": f"{name}-impl",
+                        "step": {"name": f"{name}-step", "version": "1.0.0"},
+                        "image": f"docker.io/compneurobilbaolab/{name}@sha256:"
+                        + "a" * 64,
+                    }
+                ]
+            },
+        }
+
+    mask = {
+        "port": "lesion_mni",
+        "type": "lesion_mask_mni_any",
+        "from": "inputs.lesion_mni",
+    }
+    sources = [f"{order[0]}.m", f"{order[1]}.m"] + (
+        ["inputs.mask"] if fallback_input else []
+    )
+    m = {"port": "m", "type": "lesion_mask_mni", "from": sources}
+    inputs = [{"name": "lesion_mni", "type": "lesion_mask_mni_any"}]
+    if fallback_input:
+        inputs.append({"name": "mask", "type": "lesion_mask_mni"})
+    return {
+        "contract_version": "1.2",
+        "kind": "Pipeline",
+        "id": "synthetic",
+        "version": "1.0.0",
+        "title": "Synthetic multi-source pipeline",
+        "inputs": inputs,
+        "input_sets": [{"name": "mni", "inputs": [i["name"] for i in inputs]}],
+        "slots": [
+            slot("o1", [mask], [{"port": "m", "type": "lesion_mask_mni"}], True),
+            slot("o2", [mask], [{"port": "m", "type": "lesion_mask_mni"}], True),
+            slot("y", [m], [{"port": "fd", "type": "fdisconnection_map"}], True),
+            slot("z", [m], [{"port": "td", "type": "tract_disconnection"}]),
+        ],
+    }
+
+
+def _current_resolution(pipeline, present, usable):
+    """Statuses of orchestrator.resolution.create_run (pipeline.md 6) for the slots
+    whose implementation choice succeeds (``usable``), or None if it refuses."""
+    from orchestrator.pipeline import condition_holds
+    from orchestrator.resolution import _required_ports_available
+
+    slots = {s["name"]: s for s in pipeline["slots"]}
+    selected, out = {}, {}
+    for name in v.topological_order(pipeline):
+        slot, optional = slots[name], slots[name].get("optional", False)
+        if not condition_holds(slot.get("when"), present):
+            out[name] = ("skipped", "condition_false")
+        elif not _required_ports_available(slot, present, selected):
+            if not optional:
+                return None
+            out[name] = ("skipped", "upstream_absent")
+        elif name not in usable:
+            if not optional:
+                return None
+            out[name] = ("unavailable", "no_implementation")
+        else:
+            out[name] = ("selected", None)
+            selected[name] = slot
+    return out
+
+
+def _repository_pipelines():
+    found = [_pipeline("0.1.0"), _pipeline("0.2.0")]
+    for path in sorted((ROOT / "pipelines").glob("*/pipeline.yaml")):
+        found.append(v.load_file(path))
+    for order in (("o1", "o2"), ("o2", "o1")):
+        for fallback in (False, True):
+            found.append(_synthetic(order, fallback))
+    return found
+
+
+def _r0_matches_current(pipeline):
+    names = [s["name"] for s in pipeline["slots"]]
+    for input_set in pipeline["input_sets"]:
+        present = set(input_set["inputs"])
+        for mask in range(2 ** len(names)):
+            usable = {n for i, n in enumerate(names) if mask >> i & 1}
+            enabled = {
+                n: [s["implementations"]["allowed"][0]["id"]]
+                for s in pipeline["slots"]
+                for n in [s["name"]]
+                if n in usable
+            }
+            plan = v.plan_closure(pipeline, input_set["name"], enabled=enabled)
+            current = _current_resolution(pipeline, present, usable)
+            assert plan.feasible == (current is not None), (
+                pipeline["id"],
+                input_set["name"],
+                sorted(usable),
+                plan.reasons,
+            )
+            if current is None:
+                continue
+            got = {
+                s.slot: ("selected" if s.status == "planned" else s.status, s.reason)
+                for s in plan.slots
+            }
+            assert got == current, (pipeline["id"], input_set["name"], sorted(usable))
+
+
+@pytest.mark.parametrize("index", range(len(_repository_pipelines())))
+def test_r0_equals_the_current_run_resolution(index):
+    """Property: for every pipeline in the repository and the synthetic multi-source
+    pipelines, every input set and every set of usable implementations, the full plan
+    has the statuses of orchestrator.resolution and refuses exactly when it does."""
+    _r0_matches_current(_repository_pipelines()[index])
+
+
+def test_multi_source_falls_back_to_an_implemented_producer():
+    """o1 and o2 both feed y and z; o1 has no implementation: today o2, y and z are
+    selected, and so are they in the full plan."""
+    pipeline = _synthetic()
+    enabled = {"o2": ["o2-impl"], "y": ["y-impl"], "z": ["z-impl"]}
+    plan = v.plan_closure(pipeline, "mni", enabled=enabled)
+    assert plan.feasible, plan.reasons
+    assert _statuses(plan) == {
+        "o1": ("unavailable", "no_implementation", "if_available"),
+        "o2": ("planned", None, "upstream"),
+        "y": ("planned", None, "if_available"),
+        "z": ("planned", None, "target"),
+    }
+    assert _current_resolution(pipeline, {"lesion_mni"}, set(enabled)) == {
+        "o1": ("unavailable", "no_implementation"),
+        "o2": ("selected", None),
+        "y": ("selected", None),
+        "z": ("selected", None),
+    }
+    # A free plan for z alone pulls in the producer that can run.
+    plan = v.plan_closure(pipeline, "mni", ["z"], None, enabled)
+    assert plan.planned() == {"o2": "upstream", "z": "target"}
+    # With neither producer implemented the run is refused, naming z.
+    plan = v.plan_closure(pipeline, "mni", ["z"], None, {"z": ["z-impl"]})
+    assert [(r.code, r.slot, r.required_by) for r in plan.reasons] == [
+        ("no_implementation", "o1", "z")
+    ]
+
+
+def test_multi_source_skips_a_producer_that_cannot_run():
+    """With ``from: [o2.m, o1.m]`` and o2 implemented but blocked (it reads o0,
+    which has no implementation), z falls back to o1, as the run resolution does."""
+    pipeline = _synthetic(("o2", "o1"))
+    o0 = copy.deepcopy(pipeline["slots"][0])
+    o0["name"] = "o0"
+    o0["implementations"]["allowed"][0]["id"] = "o0-impl"
+    pipeline["slots"].insert(0, o0)
+    o2 = next(s for s in pipeline["slots"] if s["name"] == "o2")
+    o2["consumes"] = [{"port": "m0", "type": "lesion_mask_mni", "from": "o0.m"}]
+    enabled = {"o1": ["o1-impl"], "o2": ["o2-impl"], "z": ["z-impl"]}
+    plan = v.plan_closure(pipeline, "mni", ["z"], None, enabled)
+    assert plan.feasible and plan.planned() == {"o1": "upstream", "z": "target"}
+    plan = v.plan_closure(pipeline, "mni", enabled=enabled)
+    assert plan.feasible
+    assert _current_resolution(pipeline, {"lesion_mni"}, set(enabled)) == {
+        s.slot: ("selected" if s.status == "planned" else s.status, s.reason)
+        for s in plan.slots
+    }
+    enabled.pop("o1")
+    plan = v.plan_closure(pipeline, "mni", ["z"], None, enabled)
+    assert not plan.feasible
+    assert _current_resolution(pipeline, {"lesion_mni"}, set(enabled)) is None
+
+
+@pytest.mark.parametrize(
+    ("required", "if_available"),
+    [([], None), ([], []), (None, []), (None, ["normalisation"])],
+)
+def test_empty_request_is_refused(required, if_available):
+    plan = v.plan_closure(_pipeline(), "mni-mask", required, if_available)
+    assert _codes(plan) == ["empty_request"]
+    # No preset and no targets at all is the full plan, not an empty request.
+    assert v.plan_closure(_pipeline(), "mni-mask").feasible
+
+
+@pytest.mark.parametrize(
+    ("required", "if_available"),
+    [
+        (["report.report_pdf"], ["report"]),
+        (["report"], ["report.report_json"]),
+        (["tract_disconnection"], ["tract-disconnection"]),
+        (["tract-disconnection.tract_disconnection"], ["tract_disconnection"]),
+    ],
+)
+def test_same_slot_required_and_if_available_is_refused(required, if_available):
+    plan = v.plan_closure(_pipeline(), "mni-mask", required, if_available)
+    assert _codes(plan) == ["conflicting_targets"]
+
+
+def _no_guaranteed_cognet():
+    pipeline = _pipeline()
+    cp = next(s for s in pipeline["slots"] if s["name"] == "cognitive-profile")
+    cp["produces"][0]["optional"] = True
+    assert v.check_pipeline(pipeline, _types()) == []
+    return pipeline
+
+
+def test_slot_target_without_a_guaranteed_port():
+    pipeline = _no_guaranteed_cognet()
+    plan = v.plan_closure(pipeline, "mni-mask", ["cognitive-profile"])
+    assert _codes(plan) == ["target_not_guaranteed"]
+    plan = v.plan_closure(pipeline, "mni-mask", ["report"], ["cognitive-profile"])
+    assert plan.feasible
+    assert plan.targets["if_available"] == [
+        "cognitive-profile.cognet_profile",
+        "cognitive-profile.qc_figure",
+    ]
+
+
+def _record_from(plan, pipeline, mode):
+    record = _plan_record()
+    record["input_set"] = plan.input_set
+    record["plan"] = {"mode": mode, "preset": None, "targets": plan.targets}
+    if mode == "preset":
+        record["plan"]["preset"] = {"id": "p", "version": "1.0.0", "sha256": "0" * 64}
+    slots = {s["name"]: s for s in pipeline["slots"]}
+    record["slots"] = []
+    for s in plan.slots:
+        rec = {"slot": s.slot}
+        if s.status == "planned":
+            impl = slots[s.slot]["implementations"]["allowed"][0]
+            rec.update(
+                status="selected",
+                implementation={
+                    "id": impl["id"],
+                    "step": impl["step"],
+                    "image": impl["image"],
+                    "stub": False,
+                    "chosen_by": "pipeline_default",
+                },
+                bundles=[],
+            )
+        else:
+            rec.update(status=s.status, reason=s.reason)
+        if s.plan_role:
+            rec["plan_role"] = s.plan_role
+        record["slots"].append(rec)
+    record["steps"] = []
+    return record
+
+
+def _target_candidates(pipeline):
+    out = []
+    for s in pipeline["slots"]:
+        out.append(s["name"])
+        out.extend(f"{s['name']}.{p['port']}" for p in s["produces"])
+    types = sorted({p["type"] for s in pipeline["slots"] for p in s["produces"]})
+    return out + types + ["unknown-slot"]
+
+
+@pytest.mark.parametrize(
+    "pipeline",
+    [_pipeline("0.1.0"), _pipeline("0.2.0"), _no_guaranteed_cognet(), _synthetic()],
+    ids=["0.1.0", "0.2.0", "optional-cognet", "synthetic"],
+)
+def test_every_feasible_plan_gives_an_accepted_plan_record(pipeline):
+    import itertools
+
+    candidates = _target_candidates(pipeline)
+    requests = [(None, None)]
+    sample = candidates[:: max(1, len(candidates) // 6)]
+    pairs = [[a] for a in candidates] + [
+        list(c) for c in itertools.combinations(candidates[::2], 2)
+    ]
+    for req in pairs:
+        requests.append((req, None))
+        for opt in sample:
+            requests.append((req, [opt]))
+    requests += [([], [opt]) for opt in candidates]
+    feasible = 0
+    for input_set in pipeline["input_sets"]:
+        for required, optional in requests:
+            for enabled in (None, {}):
+                plan = v.plan_closure(
+                    pipeline, input_set["name"], required, optional, enabled
+                )
+                if not plan.feasible:
+                    continue
+                feasible += 1
+                mode = "full" if required is None and optional is None else "free"
+                record = _record_from(plan, pipeline, mode)
+                assert v.schema_errors(record, "provenance") == [], (required, optional)
+                assert v.check_provenance(record) == [], (required, optional)
+                assert v._run_vs_pipeline(record, pipeline) == [], (required, optional)
+                if mode == "free" and plan.targets.get("required"):
+                    record["plan"]["mode"] = "preset"
+                    record["plan"]["preset"] = {
+                        "id": "p",
+                        "version": "1.0.0",
+                        "sha256": "0" * 64,
+                    }
+                    assert v.check_provenance(record) == []
+                # A required target is never lost from the record.
+                kept = {p.split(".")[0] for p in plan.targets.get("required", [])}
+                for target in required or []:
+                    slot = target.split(".")[0] if "." in target else None
+                    if slot is not None or target in {
+                        s["name"] for s in pipeline["slots"]
+                    }:
+                        assert (slot or target) in kept, (target, plan.targets)
+    assert feasible > 20

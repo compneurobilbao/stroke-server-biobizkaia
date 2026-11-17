@@ -1,0 +1,21 @@
+# Worked example (contract 1.2, ADR-0018): a preset over the worked pipeline
+# example pipeline-stroke-lnm.yaml. Normative text: docs/contracts/presets.md.
+# Card F1-20 owns the real presets under pipelines/stroke-lnm/presets/.
+contract_version: "1.2"
+kind: Preset
+id: mni-mask-analysis
+version: 1.0.0
+title: Disconnection analysis of an MNI lesion mask
+description: >-
+  Functional and tract-wise disconnection, the research report and, where
+  available, the COGNET-STROKE profile, for a lesion mask already in MNI space.
+pipeline:
+  id: stroke-lnm
+  versions: ">=0.1.0, <0.2.0"
+input_sets: [mni-mask]
+targets:
+  required: [tract-disconnection, functional-disconnection, report]
+  if_available: [cognitive-profile]
+implementations:
+  tract-disconnection: {default: lnm-tracts}   # preset default; the user may change it
+  report: {fixed: research-report}             # fixed: the user may not change it

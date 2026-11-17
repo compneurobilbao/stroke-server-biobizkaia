@@ -1,0 +1,28 @@
+# Schema-valid but rejected by validate.py: the upstream block was added in
+# contract 1.2, so a manifest declaring 1.1 may not use it.
+contract_version: "1.1"
+kind: Step
+name: lesion-segmenter-wrapper
+version: 0.1.0
+title: Lesion segmentation (external tool)
+provides: segmentation
+image: {repository: docker.io/compneurobilbaolab/step-lesion-segmenter-wrapper}
+licence:
+  spdx: MIT
+  third_party:
+    - {name: example-segmenter, version: 2.1.0, spdx: Apache-2.0}
+upstream:
+  name: example-segmenter
+  version: 2.1.0
+  homepage: https://example.org/example-segmenter
+  image: docker.io/example/segmenter@sha256:5b1e4c8f0a2d9e7b3c6a1f4e8d2b7c9a0e5f3d1b6c8a2e4f7d9b0c3a5e1f8d2b
+  licence: Apache-2.0
+inputs:
+  - {name: ct, type: ct_native}
+outputs:
+  - {name: lesion_mask_native, type: lesion_mask_native}
+parameters:
+  type: object
+  additionalProperties: false
+  properties: {}
+resources: {cpus: 1, memory_mb: 512, wall_time_minutes: 5}

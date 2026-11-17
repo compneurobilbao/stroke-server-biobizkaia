@@ -1,6 +1,6 @@
 # compneuro-step-sdk
 
-Python implementation of the step side of the [step contract 1.1](../../docs/contracts/step-contract.md) (manifests declaring 1.0 are also accepted and keep the 1.0 rules).
+Python implementation of the step side of the [step contract 1.2](../../docs/contracts/step-contract.md) (manifests declaring 1.0 or 1.1 are also accepted and keep their rules; 1.2 adds nothing the SDK must do, only the optional `upstream` block that the manifest validation accepts).
 A step author writes one function, `run(ctx)`; the SDK does everything the contract requires around it.
 
 ```python

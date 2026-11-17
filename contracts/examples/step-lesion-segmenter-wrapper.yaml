@@ -1,0 +1,60 @@
+# Worked example (contract 1.2, ADR-0018): a step that wraps an external tool
+# and declares it in the optional upstream block (step-contract.md 1.8). The
+# upstream project, its image and its digest are illustrative.
+contract_version: "1.2"
+kind: Step
+name: lesion-segmenter-wrapper
+version: 0.1.0
+title: Lesion segmentation (external tool)
+description: >-
+  Adapter around an external lesion segmenter: stages the CT in the tool's
+  layout, runs it with the weights from the model bundle and writes the
+  binary mask with the artefact type's constraints. The tool's algorithm is
+  not modified.
+provides: segmentation
+image:
+  repository: docker.io/compneurobilbaolab/step-lesion-segmenter-wrapper
+source_url: https://github.com/compneurobilbao/stroke-server-biobizkaia
+licence:
+  spdx: MIT
+  third_party:
+    - {name: example-segmenter, version: 2.1.0, spdx: Apache-2.0}
+
+upstream:
+  name: example-segmenter
+  version: 2.1.0
+  homepage: https://example.org/example-segmenter
+  image: docker.io/example/segmenter@sha256:5b1e4c8f0a2d9e7b3c6a1f4e8d2b7c9a0e5f3d1b6c8a2e4f7d9b0c3a5e1f8d2b
+  licence: Apache-2.0
+  citation: "Example Authors. Example segmenter, version 2.1.0. 2026."
+
+inputs:
+  - name: ct
+    type: ct_native
+
+outputs:
+  - name: lesion_mask_native
+    type: lesion_mask_native
+
+parameters:
+  type: object
+  additionalProperties: false
+  properties:
+    threshold:
+      description: Probability threshold applied to the tool's output map.
+      type: number
+      minimum: 0
+      maximum: 1
+      default: 0.5
+
+bundles:
+  - name: model
+    type: segmentation-model
+    version: "^2.1.0"
+    description: Weights of the upstream release, as a bundle (no download at run time).
+
+resources:
+  cpus: 4
+  memory_mb: 8192
+  wall_time_minutes: 30
+  gpu: {mode: optional}

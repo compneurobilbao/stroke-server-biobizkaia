@@ -1,0 +1,13 @@
+# Rejected by the schema (rule P6): a slot has a default or a fixed
+# implementation, not both.
+contract_version: "1.2"
+kind: Preset
+id: full
+version: 1.0.0
+title: Full lesion network mapping
+pipeline: {id: stroke-lnm, versions: ">=0.1.0, <1.0.0"}
+input_sets: [ct-and-native-mask, mni-mask]
+targets:
+  required: [report]
+implementations:
+  report: {default: research-report, fixed: research-report}

@@ -118,6 +118,70 @@
         "warnings": { "type": "array", "items": { "$ref": "#/$defs/warning" } }
       }
     },
+    "slot_port": {
+      "description": "A produced port of a pipeline slot, <slot>.<port>.",
+      "type": "string",
+      "maxLength": 129,
+      "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*\\.[a-z][a-z0-9]*(_[a-z0-9]+)*$"
+    },
+    "plan": {
+      "description": "Contract 1.2: the plan request of the run as resolved (provenance.md 3, presets.md).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "preset", "targets"],
+      "properties": {
+        "mode": { "enum": ["full", "preset", "free"] },
+        "preset": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "version", "sha256"],
+              "properties": {
+                "id": { "$ref": "#/$defs/kebab_id" },
+                "version": { "$ref": "#/$defs/semver" },
+                "sha256": { "$ref": "#/$defs/sha256_hex" }
+              }
+            }
+          ]
+        },
+        "targets": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "required": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/slot_port" } },
+            "if_available": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/slot_port" } }
+          }
+        }
+      }
+    },
+    "origin_token": {
+      "description": "Tool names and versions in declared origins: no free text.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._+-]{1,64}$"
+    },
+    "input_origin": {
+      "description": "Contract 1.2: origin of a supplied run input as declared by the user; not verified by the platform.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": { "kind": { "const": "manual" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "tool", "version"],
+          "properties": {
+            "kind": { "const": "external-tool" },
+            "tool": { "$ref": "#/$defs/origin_token" },
+            "version": { "$ref": "#/$defs/origin_token" }
+          }
+        }
+      ]
+    },
     "accounting": {
       "type": "object",
       "additionalProperties": false,
@@ -186,7 +250,14 @@
       "properties": {
         "slot": { "$ref": "#/$defs/kebab_id" },
         "status": { "enum": ["selected", "skipped", "unavailable"] },
-        "reason": { "enum": ["condition_false", "upstream_absent", "no_implementation"] },
+        "reason": {
+          "description": "not_requested: contract 1.2 (slot outside the run plan).",
+          "enum": ["condition_false", "upstream_absent", "no_implementation", "not_requested"]
+        },
+        "plan_role": {
+          "description": "Contract 1.2: why the slot is in the run plan (provenance.md 3.1).",
+          "enum": ["target", "upstream", "if_available"]
+        },
         "implementation": {
           "type": "object",
           "additionalProperties": false,
@@ -196,7 +267,14 @@
             "step": { "$ref": "#/$defs/step_ref" },
             "image": { "$ref": "#/$defs/image_digest_ref" },
             "stub": { "type": "boolean" },
-            "chosen_by": { "enum": ["user", "deployment_default", "pipeline_default"] }
+            "chosen_by": {
+              "description": "preset: contract 1.2.",
+              "enum": ["user", "deployment_default", "pipeline_default", "preset"]
+            },
+            "upstream": {
+              "description": "Contract 1.2: copy of the step manifest's upstream block.",
+              "$ref": "step.schema.json#/$defs/upstream"
+            }
           }
         },
         "bundles": { "type": "array", "items": { "$ref": "#/$defs/bundle_record" } }
@@ -267,10 +345,12 @@
               "name": { "$ref": "#/$defs/snake_id" },
               "type": { "$ref": "#/$defs/snake_id" },
               "sha256": { "$ref": "#/$defs/sha256_hex" },
-              "size_bytes": { "type": "integer", "minimum": 0 }
+              "size_bytes": { "type": "integer", "minimum": 0 },
+              "origin": { "$ref": "#/$defs/input_origin" }
             }
           }
         },
+        "plan": { "$ref": "#/$defs/plan" },
         "accounting": { "$ref": "#/$defs/accounting" },
         "slots": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/slot_record" } },
         "steps": {
