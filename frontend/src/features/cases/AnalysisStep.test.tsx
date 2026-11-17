@@ -13,7 +13,6 @@ import {
   makeSlots,
   mockApi,
   type Call,
-  type MockOptions,
 } from '../../test/casesMock';
 import { TOKEN_KEY } from '../auth/AuthContext';
 
