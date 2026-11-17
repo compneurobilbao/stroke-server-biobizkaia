@@ -10,6 +10,8 @@ workflow sets them after building the steps):
 ``STROKE_LNM_PIPELINES_DIR``         output of ``registry.py materialize`` (contains stroke-lnm/)
 ``STROKE_LNM_STEP_MANIFESTS_DIR``    step.yaml files read from the built images
 ``STROKE_LNM_BUNDLES_DIR``           directories of the bundles to register (one per bundle)
+``STROKE_LNM_CT_REFERENCE_DIR``      the CT reference case built by ci/ct_reference.sh (ct.nii.gz,
+                                     lesion_mask_native.nii.gz, lesion_mask_mni.nii.gz)
 ``STROKE_LNM_OUT_DIR``               optional: run provenance records are copied here
 """
 
@@ -44,7 +46,8 @@ PIPELINES_DIR = os.environ.get("STROKE_LNM_PIPELINES_DIR")
 MANIFESTS_DIR = os.environ.get("STROKE_LNM_STEP_MANIFESTS_DIR")
 BUNDLES_DIR = os.environ.get("STROKE_LNM_BUNDLES_DIR")
 OUT_DIR = os.environ.get("STROKE_LNM_OUT_DIR")
-E2E = all((PROXY, PIPELINES_DIR, MANIFESTS_DIR, BUNDLES_DIR))
+CT_DIR = os.environ.get("STROKE_LNM_CT_REFERENCE_DIR")
+E2E = all((PROXY, PIPELINES_DIR, MANIFESTS_DIR, BUNDLES_DIR, CT_DIR))
 needs_e2e = pytest.mark.skipif(not E2E, reason="needs the e2e-stroke-lnm environment")
 
 FIXTURES = REPO / "fixtures" / "data"
@@ -89,15 +92,18 @@ def test_committed_digests_are_placeholders():
             assert entry["image"].endswith(registry_tool.PLACEHOLDER)
 
 
-def test_deployment_profile_leaves_stub_and_planned_slots_unmounted():
+def test_deployment_profile_enables_real_entries_only():
     _pipeline, registry = registry_tool.load(HERE)
     rows = registry_tool.enabled_settings(registry, "deployment")
     enabled = {(r["slot"], r["implementation_id"]) for r in rows if r["enabled"]}
-    assert "normalisation" not in {s for s, _ in enabled}
+    # the real CT step is mounted and is the default of the normalisation slot
+    assert ("normalisation", "ct-lesion-to-mni152") in enabled
+    assert registry["implementations"]["normalisation"]["ct-lesion-to-mni152"]["kind"] == "real"
     assert ("functional-disconnection", "flnm-fast") in enabled
     assert ("functional-disconnection", "fdisconnection-stub") not in enabled
     defaults = {r["slot"]: r["implementation_id"] for r in rows if r["is_default"]}
     assert defaults["functional-disconnection"] == "flnm-fast"
+    assert defaults["normalisation"] == "ct-lesion-to-mni152"
     ci = registry_tool.enabled_settings(registry, "ci")
     ci_enabled = {(r["slot"], r["implementation_id"]) for r in ci if r["enabled"]}
     # both are enabled in ci; the stub stays the ci default (the real-stack UI specs assert it)
@@ -105,9 +111,20 @@ def test_deployment_profile_leaves_stub_and_planned_slots_unmounted():
         ("functional-disconnection", "flnm-fast"),
         ("functional-disconnection", "fdisconnection-stub"),
     } <= ci_enabled
-    assert {r["slot"]: r["implementation_id"] for r in ci if r["is_default"]}[
-        "functional-disconnection"
-    ] == "fdisconnection-stub"
+    ci_defaults = {r["slot"]: r["implementation_id"] for r in ci if r["is_default"]}
+    assert ci_defaults["functional-disconnection"] == "fdisconnection-stub"
+    assert ci_defaults["normalisation"] == "ct-lesion-to-mni152"
+    assert ("normalisation", "ct-lesion-to-mni152") in ci_enabled
+
+
+def test_ct_step_is_pinned_to_a_commit_of_the_step_repository():
+    _pipeline, registry = registry_tool.load(HERE)
+    entry = registry["implementations"]["normalisation"]["ct-lesion-to-mni152"]
+    assert entry["source"] == {
+        "repository": "compneurobilbao/CTLesion2MNI152",
+        "commit": "07702382b588f430b52005b61e71a9b48f5fcd15",
+        "dockerfile": "step/Dockerfile",
+    }
 
 
 def test_tract_atlas_fixture_has_the_layout_of_the_lnm_step():
@@ -300,15 +317,19 @@ def artifact_path(stack, run_id, slot, port) -> Path:
 
 
 def assert_complete_record(
-    stack, record: dict, fdisconnection: str = "fdisconnection-stub"
+    stack,
+    record: dict,
+    fdisconnection: str = "fdisconnection-stub",
+    ct_mode: bool = False,
 ) -> dict[str, dict]:
     _pipeline, registry = registry_tool.load(Path(PIPELINES_DIR) / "stroke-lnm")
     slots = {s["slot"]: s for s in record["slots"]}
     assert list(slots) == SLOTS, "the record lists every slot of the pipeline"
-    assert slots["normalisation"]["status"] == "skipped"
-    assert slots["normalisation"]["reason"] == "condition_false"
+    if not ct_mode:
+        assert slots["normalisation"]["status"] == "skipped"
+        assert slots["normalisation"]["reason"] == "condition_false"
     for name in SLOTS:
-        if name == "normalisation":
+        if name == "normalisation" and not ct_mode:
             continue
         slot = slots[name]
         assert slot["status"] == "selected", slot
@@ -335,7 +356,7 @@ def assert_complete_record(
             assert bundle["content_digest"].startswith("sha256:")
     ran = {s["slot"]: s["execution"]["image"] for s in record["steps"]}
     assert ran == {n: slots[n]["implementation"]["image"] for n in ran}
-    assert set(ran) == set(SLOTS) - {"normalisation"}
+    assert set(ran) == set(SLOTS) - (set() if ct_mode else {"normalisation"})
     return slots
 
 
@@ -438,12 +459,98 @@ def test_run_with_a_non_default_implementation_in_one_slot(stack, mni_case, tmp_
     assert step["provenance"]["parameters"]["language"] == "es"
 
 
+CT_REFERENCE_DICE_FLOOR = 0.40
+
+
+def _dice(a, b) -> float:
+    import numpy as np
+
+    a, b = np.asarray(a) > 0, np.asarray(b) > 0
+    return float(2 * (a & b).sum() / (a.sum() + b.sum()))
+
+
+def _ct_case(stack):
+    ref = Path(CT_DIR)
+    return stack.case({"ct": ref / "ct.nii.gz", "lesion_native": ref / "lesion_mask_native.nii.gz"})
+
+
 @needs_e2e
-def test_ct_mode_is_refused_while_normalisation_is_unmounted(stack):
+def test_ct_mode_runs_with_the_real_normalisation_step(stack, tmp_path):
+    """CT plus native lesion mask: the real ct-lesion-to-mni152 step feeds the rest of the pipeline."""
+    import nibabel as nib
+    import numpy as np
+
+    ref = Path(CT_DIR)
+    run_id = stack.create(_ct_case(stack))
+    stack.drive(run_id)
+    record = run_record(stack, run_id)
+    validate_record(record, tmp_path)
+    slots = assert_complete_record(stack, record, ct_mode=True)
+    chosen = slots["normalisation"]["implementation"]
+    assert (chosen["id"], chosen["chosen_by"], chosen["stub"]) == (
+        "ct-lesion-to-mni152",
+        "deployment_default",
+        False,
+    )
+
+    # The step ran with the age band of the case (ventricle template of that band removed).
+    step = next(s for s in record["steps"] if s["slot"] == "normalisation")
+    assert step["provenance"]["parameters"]["age_band"] == CASE_AGE_BAND
+
+    # Regression floor of the step on the reference case (known lesion shrinkage in its B-spline
+    # stage, accepted for now): Dice of the registered mask against the ground truth on the 2 mm
+    # grid. Not an accuracy claim.
+    mask = nib.load(str(artifact_path(stack, run_id, "normalisation", "lesion_mask_mni")))
+    truth = nib.load(str(ref / "lesion_mask_mni.nii.gz"))
+    assert mask.shape == truth.shape
+    assert np.allclose(mask.affine, truth.affine)
+    dice = _dice(mask.dataobj, truth.dataobj)
+    print(f"normalisation Dice on the reference case: {dice:.4f}")
+    assert dice >= CT_REFERENCE_DICE_FLOOR
+    for port in ("ct_mni", "qc_figure"):
+        assert artifact_path(stack, run_id, "normalisation", port).stat().st_size > 0
+
+    # Downstream slots consumed the normalised mask: the tract table equals the reference
+    # computed on the fixture atlas from the registered lesion.
+    sys.path.insert(0, str(REPO))
+    from fixtures import generate as gen
+
+    table = artifact_path(stack, run_id, "tract-disconnection", "tract_disconnection")
+    rows = list(csv.DictReader(table.read_text().splitlines(), delimiter="\t"))
+    expected = gen.tract_disconnection(
+        FIXTURES / "bundles" / "toy-tract-atlas" / "1.0.0", np.asarray(mask.dataobj)
+    )
+    assert {r["tract"]: float(r["disconnection"]) for r in rows} == pytest.approx(
+        expected, abs=1e-6
+    )
+    assert artifact_path(stack, run_id, "report", "report_pdf").stat().st_size > 0
+
+
+@needs_e2e
+def test_ct_mode_is_refused_when_a_deployment_leaves_normalisation_unmounted(stack):
+    """A deployment without the CT step still refuses the CT input set (`no_implementation`)."""
+    from app.models import SlotImplementationSetting
     from orchestrator.resolution import RunRefused
 
-    case_id = stack.case({"ct": MNI_MASK, "lesion_native": MNI_MASK})
-    with pytest.raises(RunRefused) as refused:
-        stack.create(case_id)
+    case_id = _ct_case(stack)
+
+    def set_enabled(value: bool) -> None:
+        with stack.Session() as db:
+            for row in db.scalars(
+                select(SlotImplementationSetting).where(
+                    SlotImplementationSetting.pipeline_id == "stroke-lnm",
+                    SlotImplementationSetting.slot == "normalisation",
+                )
+            ):
+                row.enabled = value
+                row.is_default = value and row.implementation_id == "ct-lesion-to-mni152"
+            db.commit()
+
+    set_enabled(False)
+    try:
+        with pytest.raises(RunRefused) as refused:
+            stack.create(case_id)
+    finally:
+        set_enabled(True)
     assert refused.value.code == "no_implementation"
     assert refused.value.slot == "normalisation"

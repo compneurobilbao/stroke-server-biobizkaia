@@ -7,11 +7,15 @@
  *
  * - MNI-mask mode runs the real steps (lesion QC, tract disconnection, COGNET-STROKE, report)
  *   and the functional-disconnection stub to a finished run.
- * - CT mode cannot start: the normalisation step is not merged (card F0-33), so the slot is
- *   unavailable and the wizard blocks Start. The test asserts that, not a completed run.
+ * - CT mode runs the real normalisation step (ct-lesion-to-mni152) on a reference case that the
+ *   workflow builds from a public head CT template (pipelines/stroke-lnm/ci/ct_reference.sh;
+ *   downloaded in CI only, never committed) and then the same steps as above to a finished run.
+ *   The synthetic CT under `fixtures/data/` is too coarse for that step (it is rejected), so it
+ *   is not used here.
  *
  * Environment: PLAYWRIGHT_BASE_URL (config), E2E_USER_EMAIL, E2E_USER_PASSWORD (a researcher
- * created by scripts/e2e/real_stack.sh; never committed).
+ * created by scripts/e2e/real_stack.sh; never committed), E2E_CT_REFERENCE_DIR (directory with
+ * ct.nii.gz and lesion_mask_native.nii.gz of the CT reference case).
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -21,8 +25,12 @@ const fixture = (...parts: string[]) =>
   fileURLToPath(new URL(['..', '..', '..', 'fixtures', 'data', ...parts].join('/'), import.meta.url));
 
 const MNI_MASK = fixture('mni_masks', 'lesion_left_medium.nii.gz');
-const CT = fixture('cases', 'case-01', 'ct.nii.gz');
-const NATIVE_MASK = fixture('cases', 'case-01', 'lesion_mask_native.nii.gz');
+
+function ctReference(): { ct: string; mask: string } {
+  const dir = process.env.E2E_CT_REFERENCE_DIR;
+  if (!dir) throw new Error('E2E_CT_REFERENCE_DIR must be set');
+  return { ct: `${dir}/ct.nii.gz`, mask: `${dir}/lesion_mask_native.nii.gz` };
+}
 
 /** Upper bound for a run of the real steps; the test fails earlier as soon as the run fails. */
 const RUN_TIMEOUT_MS = 12 * 60_000;
@@ -106,9 +114,15 @@ async function waitForRunSuccess(page: Page) {
 
 const timeline = (page: Page) => page.getByRole('list', { name: 'Step timeline' });
 
-async function expectStepsSucceeded(page: Page) {
+async function expectStepsSucceeded(page: Page, mode: 'mni' | 'ct' = 'mni') {
   const slot = (name: string) => timeline(page).locator(`[data-slot="${name}"]`);
-  await expect(slot('normalisation')).toHaveAttribute('data-state', 'skipped');
+  if (mode === 'ct') {
+    await expect(slot('normalisation')).toHaveAttribute('data-state', 'succeeded');
+    await expect(slot('normalisation')).toContainText('ct-lesion-to-mni152');
+    await expect(slot('normalisation')).not.toContainText('(stub)');
+  } else {
+    await expect(slot('normalisation')).toHaveAttribute('data-state', 'skipped');
+  }
   for (const name of ['lesion-intake', 'functional-disconnection', 'tract-disconnection', 'cognet-profile', 'report']) {
     await expect(slot(name), `slot ${name}`).toHaveAttribute('data-state', 'succeeded');
   }
@@ -120,8 +134,12 @@ async function expectStepsSucceeded(page: Page) {
   await expect(page.getByRole('button', { name: 'Cancel run' })).toHaveCount(0);
 }
 
-async function expectOutputs(page: Page) {
+async function expectOutputs(page: Page, mode: 'mni' | 'ct' = 'mni') {
   const artefacts = page.locator('section', { has: page.getByRole('heading', { name: 'Artefacts' }) });
+  if (mode === 'ct') {
+    await expect(artefacts.getByRole('row', { name: /ct_mni/ }).first()).toBeVisible();
+    await expect(artefacts.getByRole('row', { name: /lesion_mask_mni/ }).first()).toBeVisible();
+  }
   await expect(artefacts.getByRole('row', { name: /tract_disconnection/ })).toBeVisible();
   await expect(artefacts.getByRole('row', { name: /fdisconnection_map/ })).toContainText('synthetic');
   await expect(artefacts.getByRole('row', { name: /report_pdf/ })).toBeVisible();
@@ -143,7 +161,7 @@ async function expectPdfDownload(page: Page) {
  * in the real browser. MNI-mask mode has no CT in MNI space, so there is no background and the
  * page says so. Requests to other origins would mean a CDN asset: none are allowed.
  */
-async function expectViewer(page: Page) {
+async function expectViewer(page: Page, mode: 'mni' | 'ct' = 'mni') {
   const baseOrigin = new URL(page.url()).origin;
   const external: string[] = [];
   page.on('request', (request) => {
@@ -154,8 +172,14 @@ async function expectViewer(page: Page) {
   await expect(page).toHaveURL(/\/runs\/[0-9a-f-]{36}\/view$/);
   const viewer = page.locator('.viewer-layout');
   await expect(viewer).toHaveAttribute('data-state', 'ready', { timeout: 60_000 });
-  await expect(viewer).toHaveAttribute('data-layers', 'lesion,disconnection');
-  await expect(page.getByTestId('no-template')).toBeVisible();
+  if (mode === 'ct') {
+    // the registered CT of the normalisation step is the background
+    await expect(viewer).toHaveAttribute('data-layers', 'template,lesion,disconnection');
+    await expect(page.getByTestId('no-template')).toHaveCount(0);
+  } else {
+    await expect(viewer).toHaveAttribute('data-layers', 'lesion,disconnection');
+    await expect(page.getByTestId('no-template')).toBeVisible();
+  }
   await expect(page.getByRole('group', { name: /Disconnection map/ })).toContainText('synthetic');
   const box = await page.getByRole('img', { name: /Three-plane view/ }).boundingBox();
   expect(box?.width ?? 0).toBeGreaterThan(200);
@@ -215,25 +239,36 @@ test.describe('case creation wizard (real stack)', () => {
     await expectPdfDownload(page);
   });
 
-  test('CT and lesion mask: the normalisation slot is unavailable and the run cannot start', async ({ page }) => {
+  test('CT and lesion mask: the real normalisation step and the rest run to success', async ({ page }) => {
+    test.setTimeout(RUN_TIMEOUT_MS + 120_000);
+    const { ct, mask } = ctReference();
     await openWizard(page);
-    await page.getByRole('button', { name: 'Next' }).click(); // CT mode is the default
-    await page.getByLabel('CT scan (.nii.gz)').setInputFiles(CT);
-    await page.getByLabel('Lesion mask on the CT (.nii.gz)').setInputFiles(NATIVE_MASK);
+    // CT mode is the default; the age band is bound to the normalisation parameter
+    await page.getByLabel('Age band (optional)').selectOption('60-64');
+    await page.getByRole('button', { name: 'Next' }).click();
+    await page.getByLabel('CT scan (.nii.gz)').setInputFiles(ct);
+    await page.getByLabel('Lesion mask on the CT (.nii.gz)').setInputFiles(mask);
     await page.getByRole('button', { name: 'Next' }).click();
 
     const normalisation = page.locator('[data-slot="normalisation"]');
-    await expect(normalisation).toHaveAttribute('data-state', 'unavailable');
-    await expect(normalisation).toContainText('Unavailable');
-    await expect(normalisation).toContainText('A run that needs this step cannot start');
-    await expect(page.getByRole('combobox', { name: 'CT lesion to MNI152', exact: true })).toHaveCount(0);
-    // The other slots are still offered with their defaults.
-    await expect(page.getByRole('combobox', { name: 'Lesion intake and QC', exact: true })).toHaveValue('lesion-qc');
-
-    await expect(page.getByRole('alert').filter({ hasText: 'required step is unavailable' })).toContainText(
-      'CT lesion to MNI152',
+    await expect(normalisation).not.toHaveAttribute('data-state', 'unavailable');
+    await expect(page.getByRole('combobox', { name: 'CT lesion to MNI152', exact: true })).toHaveValue(
+      'ct-lesion-to-mni152',
     );
-    await expect(page.getByRole('button', { name: 'Create case and start run' })).toBeDisabled();
-    await expect(page).toHaveURL(/\/cases\/new$/);
+    await expect(page.getByRole('combobox', { name: 'Lesion intake and QC', exact: true })).toHaveValue('lesion-qc');
+    await expect(page.getByRole('alert').filter({ hasText: 'required step is unavailable' })).toHaveCount(0);
+
+    const body = await startRun(page);
+    expect(body).toMatchObject({
+      pipeline_id: 'stroke-lnm',
+      input_roles: expect.arrayContaining(['ct', 'lesion_native']),
+      implementations: {},
+    });
+
+    await waitForRunSuccess(page);
+    await expectStepsSucceeded(page, 'ct');
+    await expectOutputs(page, 'ct');
+    await expectPdfDownload(page);
+    await expectViewer(page, 'ct');
   });
 });

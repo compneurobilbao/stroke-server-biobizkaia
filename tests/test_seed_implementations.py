@@ -82,7 +82,7 @@ def test_deployment_enables_real_entries_only(factory, capsys):
     assert got[("report", "research-report-es")] == (True, False)
     assert got[("functional-disconnection", "flnm-fast")] == (True, True)
     assert got[("functional-disconnection", "fdisconnection-stub")] == (False, False)
-    assert got[("normalisation", "ct-lesion-to-mni152")] == (False, False)
+    assert got[("normalisation", "ct-lesion-to-mni152")] == (True, True)
     out = capsys.readouterr().out
     assert "placeholder" in out  # digests are not published yet
     assert "insert" in out and "committed" in out
@@ -93,7 +93,7 @@ def test_ci_profile_enables_the_stub(factory):
     got = rows(factory)
     assert got[("functional-disconnection", "fdisconnection-stub")] == (True, True)
     assert got[("functional-disconnection", "flnm-fast")] == (True, False)
-    assert got[("normalisation", "ct-lesion-to-mni152")] == (False, False)
+    assert got[("normalisation", "ct-lesion-to-mni152")] == (True, True)
 
 
 def test_seeding_is_idempotent(factory, capsys):
@@ -177,18 +177,25 @@ def pipelines_copy(tmp_path):
     return target
 
 
+def _mark_ct_step_planned(doc):
+    """No entry of the committed registry is planned any more: make the CT step one."""
+    doc["implementations"]["normalisation"]["ct-lesion-to-mni152"]["kind"] = "planned"
+
+
 @pytest.mark.parametrize(
-    ("slot", "impl"),
+    ("slot", "impl", "planned"),
     [
-        ("functional-disconnection", "fdisconnection-stub"),  # stub
-        ("normalisation", "ct-lesion-to-mni152"),  # planned
+        ("functional-disconnection", "fdisconnection-stub", False),  # stub
+        ("normalisation", "ct-lesion-to-mni152", True),  # planned
     ],
 )
 def test_deployment_profile_with_stub_or_planned_is_refused(
-    factory, pipelines_copy, capsys, slot, impl
+    factory, pipelines_copy, capsys, slot, impl, planned
 ):
     path = pipelines_copy / "stroke-lnm" / "registry.yaml"
     doc = yaml.safe_load(path.read_text())
+    if planned:
+        _mark_ct_step_planned(doc)
     doc["profiles"]["deployment"]["enabled"][slot] = [impl]
     path.write_text(yaml.safe_dump(doc, sort_keys=False))
     assert run(factory, "--profile", "deployment", pipelines=pipelines_copy) == 1
@@ -199,7 +206,7 @@ def test_deployment_profile_with_stub_or_planned_is_refused(
 def test_planned_is_refused_in_ci_too(factory, pipelines_copy):
     path = pipelines_copy / "stroke-lnm" / "registry.yaml"
     doc = yaml.safe_load(path.read_text())
-    doc["profiles"]["ci"]["enabled"]["normalisation"] = ["ct-lesion-to-mni152"]
+    _mark_ct_step_planned(doc)
     path.write_text(yaml.safe_dump(doc, sort_keys=False))
     assert run(factory, "--profile", "ci", pipelines=pipelines_copy) == 1
 

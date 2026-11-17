@@ -23,9 +23,12 @@ implementations:
   normalisation:
     ct-lesion-to-mni152:
       step: {name: ct-lesion-to-mni152, version: 1.0.0}
-      kind: planned
+      kind: real
       image: docker.io/compneurobilbaolab/step-ct-lesion-to-mni152@sha256:0000000000000000000000000000000000000000000000000000000000000000
-      source: {repository: compneurobilbao/CTLesion2MNI152, note: "pending review; not built by CI"}
+      source:
+        repository: compneurobilbao/CTLesion2MNI152
+        commit: 07702382b588f430b52005b61e71a9b48f5fcd15
+        dockerfile: step/Dockerfile
   functional-disconnection:
     flnm-fast:
       step: {name: flnm-fast, version: 1.0.0}
@@ -71,19 +74,22 @@ implementations:
       source: {repository: this, dockerfile: steps/report/Dockerfile}
 
 profiles:
-  # What a deployment enables. Slots absent from `enabled` are left unmounted: normalisation
-  # is not merged. Stubs and planned entries are never enabled here. The functional
-  # disconnection step needs the normative-fc bundle installed locally (docs/reference-data.md)
-  # and the sex and age band on the case.
+  # What a deployment enables. Slots absent from `enabled` are left unmounted (the CT
+  # input set is then refused). Stubs and planned entries are never enabled here. The
+  # functional disconnection step needs the normative-fc bundle installed locally
+  # (docs/reference-data.md) and the sex and age band on the case; normalisation needs
+  # no bundle (its small templates ship inside the image) and uses the age band when given.
   deployment:
     enabled:
       lesion-intake: [lesion-qc]
+      normalisation: [ct-lesion-to-mni152]
       functional-disconnection: [flnm-fast]
       tract-disconnection: [lnm-tracts]
       cognet-profile: [cognet-stroke]
       report: [research-report, research-report-es]
     default:
       lesion-intake: lesion-qc
+      normalisation: ct-lesion-to-mni152
       functional-disconnection: flnm-fast
       tract-disconnection: lnm-tracts
       cognet-profile: cognet-stroke
@@ -93,17 +99,19 @@ profiles:
   # where a light one exists. Functional disconnection enables both: the real flnm-fast step
   # (runs on a small synthetic normative-fc bundle, requested explicitly by the end-to-end
   # test) and the stub, which stays the default because the real-stack UI specs
-  # (frontend/e2e/real) assert it. Normalisation stays unmounted (the CT step is not merged),
-  # so CI runs the MNI-mask input set only.
+  # (frontend/e2e/real) assert it. Normalisation runs the real CT step on a reference case
+  # built in CI from a public head CT template (never committed), so CI runs both input sets.
   ci:
     enabled:
       lesion-intake: [lesion-qc]
+      normalisation: [ct-lesion-to-mni152]
       functional-disconnection: [flnm-fast, fdisconnection-stub]
       tract-disconnection: [lnm-tracts]
       cognet-profile: [cognet-stroke]
       report: [research-report, research-report-es]
     default:
       lesion-intake: lesion-qc
+      normalisation: ct-lesion-to-mni152
       functional-disconnection: fdisconnection-stub
       tract-disconnection: lnm-tracts
       cognet-profile: cognet-stroke
