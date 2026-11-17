@@ -10,6 +10,7 @@ from app.models.pipeline_run import (
     RunStatus,
     StepRun,
 )
+from app.models.preset_setting import PresetSetting
 from app.models.processing_job import ProcessingJob
 from app.models.reference_bundle import ReferenceBundle, SlotImplementationSetting
 from app.models.share_link import ShareLink
@@ -23,6 +24,7 @@ __all__ = [
     "InputFile",
     "Notification",
     "PipelineRun",
+    "PresetSetting",
     "ProcessingJob",
     "ReferenceBundle",
     "Report",

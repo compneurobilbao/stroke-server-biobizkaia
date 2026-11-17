@@ -14,7 +14,7 @@ class ShareLink(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     # Nullable since migration 0012 (legacy cut-over): links of cases that have no
-    # legacy study have none. Dropped by migration 0013.
+    # legacy study have none. Dropped by migration 0014.
     study_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("studies.id"), index=True
     )

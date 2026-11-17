@@ -124,7 +124,7 @@ if executor.poll(handle).finished:
 
 ## Pipeline Orchestrator
 
-`orchestrator/` runs declarative pipelines (`pipeline.yaml`, [docs/contracts/pipeline.md](contracts/pipeline.md), [ADR-0002](adr/0002-declarative-pipelines-own-orchestrator.md)) over the run tables of [docs/data-model.md](data-model.md) (`pipeline_runs`, `run_slots`, `run_slot_bundles`, `step_runs`, `artifacts`, `reports`). Two kinds of run exist side by side until the legacy aliases are removed (migration 0013):
+`orchestrator/` runs declarative pipelines (`pipeline.yaml`, [docs/contracts/pipeline.md](contracts/pipeline.md), [ADR-0002](adr/0002-declarative-pipelines-own-orchestrator.md)) over the run tables of [docs/data-model.md](data-model.md) (`pipeline_runs`, `run_slots`, `run_slot_bundles`, `step_runs`, `artifacts`, `reports`). Two kinds of run exist side by side until the legacy aliases are removed (migration 0014):
 
 | Run | Created by | Driven by | Worker task |
 |---|---|---|---|

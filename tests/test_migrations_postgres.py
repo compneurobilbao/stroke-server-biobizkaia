@@ -8,6 +8,7 @@ Add further PostgreSQL migration tests here and mark them with `pytest.mark.post
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 import uuid
@@ -1112,7 +1113,13 @@ def test_0011_schema_matches_the_orm_models(pg_engine):
 
     alembic("upgrade", "head")
     inspector = inspect(pg_engine)
-    tables = NEW_TABLES | {"users", "audit_events", "notifications", "share_links"}
+    tables = NEW_TABLES | {
+        "users",
+        "audit_events",
+        "notifications",
+        "share_links",
+        "preset_settings",  # added by 0013
+    }
     for name in sorted(tables):
         table = Base.metadata.tables[name]
         db_cols = {c["name"]: c for c in inspector.get_columns(name)}
@@ -1141,6 +1148,14 @@ def test_0011_schema_matches_the_orm_models(pg_engine):
     # every regex format CHECK of the migration targets an existing column
     migration = load_migration_module()
     for table, column, _pattern in migration.FORMAT_CHECKS:
+        assert column in Base.metadata.tables[table].columns
+        names = {c["name"] for c in inspector.get_check_constraints(table)}
+        assert f"ck_{table}_{column}_format" in names
+    path = BACKEND_DIR / "alembic" / "versions" / "0013_run_plans.py"
+    spec = importlib.util.spec_from_file_location("migration_0013", path)
+    plans = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(plans)
+    for table, column, _pattern in plans.FORMAT_CHECKS:
         assert column in Base.metadata.tables[table].columns
         names = {c["name"] for c in inspector.get_check_constraints(table)}
         assert f"ck_{table}_{column}_format" in names
@@ -1635,3 +1650,491 @@ def test_0012_fills_sizes_of_backfilled_legacy_artefacts(pg_engine, seeded):
         )["size_bytes"]
         == 100
     )
+
+
+# ---------------------------------------------------------------------------------------
+# Migration 0013 (run plans and preset settings): additive; existing rows keep their
+# meaning; the plan role of existing runs is back-filled; the downgrade refuses to lose
+# plan data (docs/design/run-plans.md 3.7).
+# ---------------------------------------------------------------------------------------
+
+REV_PLANS = "0013_run_plans"
+PRESET_SHA = "c" * 64
+RUN_IMAGE = "registry.example.org/team/step@sha256:" + "b" * 64
+PIPELINE_CASE = uuid.UUID("cccccccc-0000-4000-8000-000000000001")
+SECOND_CASE = uuid.UUID("cccccccc-0000-4000-8000-000000000002")
+PIPELINE_RUN = uuid.UUID("dddddddd-0000-4000-8000-000000000001")
+FAILED_RUN = uuid.UUID("dddddddd-0000-4000-8000-000000000002")
+PLAN_TABLES = ("pipeline_runs", "run_slots", "input_files")
+
+
+def _table_columns(engine, table: str) -> list[str]:
+    return [c["name"] for c in inspect(engine).get_columns(table)]
+
+
+def _check_names(engine, table: str) -> set[str]:
+    return {c["name"] for c in inspect(engine).get_check_constraints(table)}
+
+
+def _snapshot(engine, columns: dict[str, list[str]]) -> dict[str, list[tuple]]:
+    """Rows of the given columns, as they are before and after the migration."""
+    out = {}
+    with engine.connect() as conn:
+        for table, cols in columns.items():
+            sql = f"SELECT {', '.join(cols)} FROM {table} ORDER BY {', '.join(cols[:2])}"
+            out[table] = [tuple(r) for r in conn.execute(text(sql)).all()]
+    return out
+
+
+def _insert_case(conn, case_id) -> None:
+    conn.execute(
+        text(
+            "INSERT INTO cases (id, owner_user_id, subject_label, deployment_profile,"
+            " created_at, updated_at) VALUES (:i, :u, :l, 'research-public', now(), now())"
+        ),
+        {"i": case_id, "u": OWNER_A, "l": case_id.hex[-12:]},
+    )
+
+
+def _insert_plan_run(conn, run_id, case_id, status="succeeded") -> None:
+    finished = status in ("succeeded", "failed", "canceled")
+    conn.execute(
+        text(
+            "INSERT INTO pipeline_runs (id, case_id, created_by_user_id, pipeline_id,"
+            " pipeline_version, pipeline_sha256, platform_version, artefact_types_version,"
+            " input_set, seed, status, requested_implementations, accounting_submitted_by,"
+            " accounting_submit_as, created_at, updated_at, finished_at) VALUES (:i, :c,"
+            " :u, 'stroke-lnm', '0.1.0', :sha, '1.0', '1.0', 'ct-and-lesion', 7, :s,"
+            " '{}'::jsonb, 'user:x', 'service-account', now(), now(), "
+            + ("now()" if finished else "NULL")
+            + ")"
+        ),
+        {"i": run_id, "c": case_id, "u": OWNER_A, "sha": "a" * 64, "s": status},
+    )
+
+
+def _insert_slot(conn, run_id, slot, position, optional, kind, **extra) -> None:
+    """kind: 'selected', or a reason (condition_false, not_requested, ...)."""
+    values = {
+        "id": uuid.uuid4(),
+        "pipeline_run_id": run_id,
+        "slot": slot,
+        "position": position,
+        "optional": optional,
+    }
+    marks = {k: f":{k}" for k in values}
+    if kind == "selected":
+        values.update(
+            status="selected",
+            implementation_id="synthetic-stub",
+            step_name="step-a",
+            step_version="1.0.0",
+            image=RUN_IMAGE,
+            stub=True,
+            chosen_by="pipeline_default",
+        )
+        marks = {k: f":{k}" for k in values}
+        marks["effective_parameters"] = "CAST('{}' AS jsonb)"
+    else:
+        values.update(
+            status="unavailable" if kind == "no_implementation" else "skipped",
+            reason=kind,
+        )
+        marks = {k: f":{k}" for k in values}
+    for key, value in extra.items():
+        values[key] = value
+        marks[key] = f"CAST(:{key} AS jsonb)" if key == "upstream" else f":{key}"
+    conn.execute(
+        text(
+            f"INSERT INTO run_slots ({', '.join(marks)}) VALUES ({', '.join(marks.values())})"
+        ),
+        values,
+    )
+
+
+class _Reported(str):
+    """The constraint a violation names. ``name in reported`` is an exact comparison, so
+    that ``ck_run_slots_plan_role`` does not match ``ck_run_slots_plan_role_reason``."""
+
+    def __contains__(self, other) -> bool:
+        return str.__eq__(self, other)
+
+
+def _violation(engine, sql: str, **params) -> str:
+    with pytest.raises(IntegrityError) as err:
+        with engine.begin() as conn:
+            conn.execute(text(sql), params)
+    message = str(err.value)
+    match = re.search(r'constraint "(\w+)"', message)
+    return _Reported(match.group(1)) if match else message
+
+
+@pytest.fixture()
+def at_0012(pg_engine, seeded):
+    """A 0012 database: the legacy seed (cut over) plus pipeline runs of every slot kind."""
+    alembic("upgrade", REV_CUTOVER, STORAGE_ROOT=str(seeded))
+    with pg_engine.begin() as conn:
+        _insert_case(conn, PIPELINE_CASE)
+        conn.execute(
+            text(
+                "INSERT INTO input_files (id, case_id, role, artefact_type, storage_path,"
+                " sha256, size_bytes, uploaded_by_user_id, created_at) VALUES (:i, :c,"
+                " 'ct', 'ct_native', 'sub-x/ct.nii.gz', :sha, 10, :u, now())"
+            ),
+            {"i": uuid.uuid4(), "c": PIPELINE_CASE, "sha": "e" * 64, "u": OWNER_A},
+        )
+        _insert_plan_run(conn, PIPELINE_RUN, PIPELINE_CASE)
+        _insert_slot(conn, PIPELINE_RUN, "lesion-intake", 0, False, "selected")
+        _insert_slot(conn, PIPELINE_RUN, "qc-report", 1, True, "selected")
+        _insert_slot(conn, PIPELINE_RUN, "mni-only", 2, False, "condition_false")
+        _insert_slot(conn, PIPELINE_RUN, "optional-a", 3, True, "upstream_absent")
+        _insert_slot(conn, PIPELINE_RUN, "optional-b", 4, True, "no_implementation")
+        # a failed run of a second case: a slot chosen by the user
+        _insert_case(conn, SECOND_CASE)
+        _insert_plan_run(conn, FAILED_RUN, SECOND_CASE, status="failed")
+        _insert_slot(
+            conn, FAILED_RUN, "lesion-intake", 0, False, "selected", chosen_by="user"
+        )
+    return seeded
+
+
+def _plan_roles(engine) -> dict[tuple[str, str], str | None]:
+    return {
+        (str(r["pipeline_run_id"]), r["slot"]): r["plan_role"]
+        for r in rows(engine, "SELECT pipeline_run_id, slot, plan_role FROM run_slots")
+    }
+
+
+def test_0013_is_additive_and_backfills_plan_roles(pg_engine, at_0012):
+    old_columns = {t: _table_columns(pg_engine, t) for t in PLAN_TABLES}
+    old_tables = user_tables(pg_engine)
+    before = _snapshot(pg_engine, old_columns)
+    assert before["pipeline_runs"] and before["run_slots"] and before["input_files"]
+    other = sorted(set(NEW_TABLES) - set(PLAN_TABLES)) + LINKED_TABLES
+    reference = dump(pg_engine, other)
+
+    alembic("upgrade", REV_PLANS, STORAGE_ROOT=str(at_0012))
+    assert version(pg_engine) == REV_PLANS
+
+    # nothing that existed changed: same tables (plus one), same values in the old columns
+    assert user_tables(pg_engine) == old_tables | {"preset_settings"}
+    assert _snapshot(pg_engine, old_columns) == before
+    assert dump(pg_engine, other) == reference
+
+    # every existing run is a full-plan run with no preset and no targets
+    runs = rows(pg_engine, "SELECT * FROM pipeline_runs")
+    assert len(runs) == len(before["pipeline_runs"])
+    for run in runs:
+        assert run["plan_mode"] == "full"
+        assert run["preset_id"] is None and run["preset_version"] is None
+        assert run["preset_sha256"] is None
+        assert run["targets"] == {}
+    assert rows(pg_engine, "SELECT 1 FROM input_files WHERE origin IS NOT NULL") == []
+    assert rows(pg_engine, "SELECT 1 FROM run_slots WHERE upstream IS NOT NULL") == []
+    assert rows(pg_engine, "SELECT 1 FROM preset_settings") == []
+
+    # plan roles: non-optional applicable -> target; optional or not selected ->
+    # if_available; condition_false and legacy rows stay NULL
+    roles = _plan_roles(pg_engine)
+    run = str(PIPELINE_RUN)
+    assert roles[(run, "lesion-intake")] == "target"
+    assert roles[(run, "qc-report")] == "if_available"
+    assert roles[(run, "mni-only")] is None
+    assert roles[(run, "optional-a")] == "if_available"
+    assert roles[(run, "optional-b")] == "if_available"
+    assert roles[(str(FAILED_RUN), "lesion-intake")] == "target"
+    legacy = rows(
+        pg_engine,
+        "SELECT s.plan_role FROM run_slots s JOIN pipeline_runs r ON r.id = s.pipeline_run_id"
+        " WHERE r.pipeline_id = 'legacy'",
+    )
+    assert legacy and all(r["plan_role"] is None for r in legacy)
+
+
+def test_0013_new_constraints(pg_engine, at_0012):
+    alembic("upgrade", REV_PLANS, STORAGE_ROOT=str(at_0012))
+    base_cols = (
+        "id, case_id, created_by_user_id, pipeline_id, pipeline_version, pipeline_sha256,"
+        " platform_version, artefact_types_version, input_set, seed, status,"
+        " requested_implementations, accounting_submitted_by, accounting_submit_as,"
+        " created_at, updated_at, finished_at"
+    )
+    base_vals = (
+        ":i, :c, :u, 'stroke-lnm', '0.1.0', :sha, '1.0', '1.0', 'ct-and-lesion', 7,"
+        " 'succeeded', '{}'::jsonb, 'user:x', 'service-account', now(), now(), now()"
+    )
+
+    def run_sql(extra_cols: str, extra_vals: str) -> str:
+        return (
+            f"INSERT INTO pipeline_runs ({base_cols}, {extra_cols})"
+            f" VALUES ({base_vals}, {extra_vals})"
+        )
+
+    def params(**kw):
+        return {
+            "i": uuid.uuid4(),
+            "c": PIPELINE_CASE,
+            "u": OWNER_A,
+            "sha": "a" * 64,
+            "pid": "mni-mask-analysis",
+            "pv": "1.0.0",
+            "ps": PRESET_SHA,
+            **kw,
+        }
+
+    cols = "plan_mode, preset_id, preset_version, preset_sha256, targets"
+    ok_preset = run_sql(cols, "'preset', :pid, :pv, :ps, CAST(:t AS jsonb)")
+    targets = json.dumps({"required": ["a.b"], "if_available": []})
+    with pg_engine.begin() as conn:  # a preset run and a free run are accepted
+        conn.execute(text(ok_preset), params(t=targets))
+        conn.execute(
+            text(run_sql("plan_mode, targets", "'free', CAST(:t AS jsonb)")),
+            params(t=targets),
+        )
+    stored = one(pg_engine, "SELECT targets FROM pipeline_runs WHERE plan_mode = 'preset'")
+    assert stored["targets"] == {"required": ["a.b"], "if_available": []}
+
+    assert "ck_pipeline_runs_plan_mode" in _violation(
+        pg_engine, run_sql("plan_mode", "'custom'"), **params()
+    )
+    # preset mode needs the preset, and the preset columns only go with preset mode
+    assert "ck_pipeline_runs_preset_mode" in _violation(
+        pg_engine, run_sql("plan_mode", "'preset'"), **params()
+    )
+    assert "ck_pipeline_runs_preset_mode" in _violation(
+        pg_engine,
+        run_sql(cols, "'free', :pid, :pv, :ps, CAST(:t AS jsonb)"),
+        **params(t=targets),
+    )
+    assert "ck_pipeline_runs_preset_mode" in _violation(
+        pg_engine,
+        run_sql("preset_id, preset_version, preset_sha256", ":pid, :pv, :ps"),
+        **params(),
+    )
+    # the three preset columns are all null or all set
+    for values in (":pid, NULL, :ps", ":pid, :pv, NULL", ":pid, NULL, NULL"):
+        assert "ck_pipeline_runs_preset_all_or_none" in _violation(
+            pg_engine,
+            run_sql(
+                "plan_mode, preset_id, preset_version, preset_sha256",
+                f"'preset', {values}",
+            ),
+            **params(),
+        )
+    # formats
+    assert "ck_pipeline_runs_preset_id_format" in _violation(
+        pg_engine, ok_preset, **params(pid="Not Kebab", t=targets)
+    )
+    assert "ck_pipeline_runs_preset_version_format" in _violation(
+        pg_engine, ok_preset, **params(pv="v1", t=targets)
+    )
+    assert "ck_pipeline_runs_preset_sha256_format" in _violation(
+        pg_engine, ok_preset, **params(ps="C" * 64, t=targets)
+    )
+    # targets is never NULL
+    assert "targets" in _violation(pg_engine, run_sql("targets", "NULL"), **params())
+
+    # run slots: the new values are accepted, unknown ones are not
+    run = PIPELINE_RUN
+    with pg_engine.begin() as conn:
+        _insert_slot(
+            conn,
+            run,
+            "preset-chosen",
+            10,
+            False,
+            "selected",
+            chosen_by="preset",
+            plan_role="upstream",
+        )
+        _insert_slot(conn, run, "outside-plan", 11, False, "not_requested")
+        _insert_slot(
+            conn,
+            run,
+            "external",
+            12,
+            True,
+            "selected",
+            plan_role="if_available",
+            upstream=json.dumps({"tool": "x"}),
+        )
+
+    def skipped(reason: str, role: str = "NULL", chosen_by: str = "NULL") -> str:
+        return (
+            "INSERT INTO run_slots (id, pipeline_run_id, slot, position, optional, status,"
+            " reason, plan_role, chosen_by) VALUES (gen_random_uuid(), :r, :s, :p, true,"
+            f" 'skipped', {reason}, {role}, {chosen_by})"
+        )
+
+    assert "ck_run_slots_reason" in _violation(
+        pg_engine, skipped("'nope'"), r=run, s="s1", p=20
+    )
+    assert "ck_run_slots_plan_role" in _violation(
+        pg_engine, skipped("'upstream_absent'", "'sidecar'"), r=run, s="s3", p=22
+    )
+    # not_requested and condition_false rows have no plan role
+    assert "ck_run_slots_plan_role_reason" in _violation(
+        pg_engine, skipped("'not_requested'", "'target'"), r=run, s="s4", p=23
+    )
+    assert "ck_run_slots_plan_role_reason" in _violation(
+        pg_engine, skipped("'condition_false'", "'if_available'"), r=run, s="s5", p=24
+    )
+    # chosen_by accepts preset and nothing else new; ck_run_slots_selected still applies
+    with pytest.raises(IntegrityError) as err:  # a selected row: only chosen_by can fire
+        with pg_engine.begin() as conn:
+            _insert_slot(conn, run, "s2", 21, False, "selected", chosen_by="admin")
+    assert 'constraint "ck_run_slots_chosen_by"' in str(err.value)
+    assert "ck_run_slots_selected" in _violation(
+        pg_engine,
+        skipped("'not_requested'", "NULL", "'preset'"),
+        r=run,
+        s="s6",
+        p=25,
+    )
+
+    # preset settings: same rules as slot_implementation_settings
+    def setting(pipeline: str, preset: str, enabled: str, default: str) -> str:
+        return (
+            "INSERT INTO preset_settings (id, pipeline_id, preset_id, enabled, is_default,"
+            f" updated_at) VALUES (gen_random_uuid(), '{pipeline}', '{preset}', {enabled},"
+            f" {default}, now())"
+        )
+
+    with pg_engine.begin() as conn:
+        conn.execute(text(setting("stroke-lnm", "full-lnm", "true", "true")))
+        conn.execute(text(setting("stroke-lnm", "ct-only", "true", "false")))
+        conn.execute(text(setting("other-pipeline", "full-lnm", "true", "true")))
+    assert "uq_preset_settings_default" in _violation(
+        pg_engine, setting("stroke-lnm", "qc-only", "true", "true")
+    )
+    assert "ck_preset_settings_default_enabled" in _violation(
+        pg_engine, setting("stroke-lnm", "qc-only", "false", "true")
+    )
+    assert "uq_preset_settings" in _violation(
+        pg_engine, setting("stroke-lnm", "ct-only", "true", "false")
+    )
+    assert "ck_preset_settings_preset_id_format" in _violation(
+        pg_engine, setting("stroke-lnm", "Bad_Id", "true", "false")
+    )
+    assert "ck_preset_settings_pipeline_id_format" in _violation(
+        pg_engine, setting("Bad Id", "ct-only", "true", "false")
+    )
+
+    # input files: the declared origin is stored as given
+    origin = {"kind": "external-tool", "tool": "some-tool", "version": "1.2"}
+    with pg_engine.begin() as conn:
+        conn.execute(
+            text("UPDATE input_files SET origin = CAST(:o AS jsonb) WHERE case_id = :c"),
+            {"o": json.dumps(origin), "c": PIPELINE_CASE},
+        )
+    stored = one(pg_engine, "SELECT origin FROM input_files WHERE case_id = :c", c=PIPELINE_CASE)
+    assert stored["origin"] == origin
+
+
+def test_0013_downgrade_restores_the_0012_schema_and_data(pg_engine, at_0012):
+    columns = {t: _table_columns(pg_engine, t) for t in PLAN_TABLES}
+    checks = {t: _check_names(pg_engine, t) for t in PLAN_TABLES}
+    before = _snapshot(pg_engine, columns)
+    alembic("upgrade", REV_PLANS, STORAGE_ROOT=str(at_0012))
+    # preset settings are the only new data a downgrade drops (with a warning)
+    with pg_engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO preset_settings (id, pipeline_id, preset_id, enabled,"
+                " is_default, updated_at) VALUES (gen_random_uuid(), 'stroke-lnm',"
+                " 'ct-only', true, false, now())"
+            )
+        )
+
+    alembic("downgrade", REV_CUTOVER, STORAGE_ROOT=str(at_0012))
+    assert version(pg_engine) == REV_CUTOVER
+    assert "preset_settings" not in user_tables(pg_engine)
+    for table, cols in columns.items():
+        assert _table_columns(pg_engine, table) == cols, table
+        assert _check_names(pg_engine, table) == checks[table], table
+    assert _snapshot(pg_engine, columns) == before
+    # the old value lists are back: the 1.2 values are refused again
+    insert = (
+        "INSERT INTO run_slots (id, pipeline_run_id, slot, position, optional, status,"
+        " reason, chosen_by) VALUES (gen_random_uuid(), :r, 'x', 30, true, 'skipped',"
+        " :reason, :chosen)"
+    )
+    assert "ck_run_slots_reason" in _violation(
+        pg_engine, insert, r=PIPELINE_RUN, reason="not_requested", chosen=None
+    )
+    with pytest.raises(IntegrityError) as err:  # a selected row chosen by a preset
+        with pg_engine.begin() as conn:
+            _insert_slot(
+                conn, PIPELINE_RUN, "x", 31, False, "selected", chosen_by="preset"
+            )
+    assert 'constraint "ck_run_slots_chosen_by"' in str(err.value)
+    for column in ("plan_mode", "targets", "preset_id"):
+        assert column not in _table_columns(pg_engine, "pipeline_runs")
+
+    # and the upgrade can be applied again, with the same back-fill
+    alembic("upgrade", REV_PLANS, STORAGE_ROOT=str(at_0012))
+    assert _plan_roles(pg_engine)[(str(PIPELINE_RUN), "lesion-intake")] == "target"
+
+
+@pytest.mark.parametrize(
+    "statement, message",
+    [
+        (
+            "UPDATE pipeline_runs SET plan_mode = 'free' WHERE id = :r",
+            "plan mode other than full",
+        ),
+        (
+            "UPDATE run_slots SET status = 'skipped', reason = 'not_requested',"
+            " implementation_id = NULL, step_name = NULL, step_version = NULL, image = NULL,"
+            " stub = NULL, chosen_by = NULL, effective_parameters = NULL, plan_role = NULL"
+            " WHERE slot = 'qc-report' AND pipeline_run_id = :r",
+            "reason not_requested",
+        ),
+        (
+            "UPDATE run_slots SET chosen_by = 'preset' WHERE slot = 'lesion-intake'"
+            " AND pipeline_run_id = :r",
+            "chosen by a preset",
+        ),
+        (
+            "UPDATE run_slots SET upstream = CAST('{\"tool\": \"x\"}' AS jsonb)"
+            " WHERE slot = 'qc-report' AND pipeline_run_id = :r",
+            "run slots with an upstream block",
+        ),
+        (
+            "UPDATE input_files SET origin = CAST('{\"kind\": \"manual\"}' AS jsonb)"
+            " WHERE case_id IN (SELECT case_id FROM pipeline_runs WHERE id = :r)",
+            "input files with a declared origin",
+        ),
+    ],
+)
+def test_0013_downgrade_refuses_when_plan_values_are_in_use(
+    pg_engine, at_0012, statement, message
+):
+    alembic("upgrade", REV_PLANS, STORAGE_ROOT=str(at_0012))
+    with pg_engine.begin() as conn:
+        conn.execute(text(statement), {"r": PIPELINE_RUN})
+    refused = alembic_run("downgrade", REV_CUTOVER, STORAGE_ROOT=str(at_0012))
+    assert refused.returncode != 0
+    assert message in refused.stderr
+    assert "remove that data deliberately" in refused.stderr
+    # nothing was changed: still at 0013, run and slot rows intact
+    assert version(pg_engine) == REV_PLANS
+    count = one(pg_engine, "SELECT count(*) AS n FROM run_slots WHERE pipeline_run_id = :r", r=PIPELINE_RUN)
+    assert count["n"] == 5
+    assert "plan_mode" in _table_columns(pg_engine, "pipeline_runs")
+
+
+def test_0013_on_an_empty_database(pg_engine):
+    alembic("upgrade", "head")
+    assert "preset_settings" in user_tables(pg_engine)
+    alembic("downgrade", REV_CUTOVER)
+    assert version(pg_engine) == REV_CUTOVER
+    assert "preset_settings" not in user_tables(pg_engine)
+    assert "plan_mode" not in _table_columns(pg_engine, "pipeline_runs")
+    assert "plan_role" not in _table_columns(pg_engine, "run_slots")
+    assert "origin" not in _table_columns(pg_engine, "input_files")
+    assert "ck_run_slots_plan_role" not in _check_names(pg_engine, "run_slots")
+    alembic("upgrade", "head")
+    assert version(pg_engine) == REV_PLANS
+    assert "plan_mode" in _table_columns(pg_engine, "pipeline_runs")
+    assert "ck_run_slots_plan_role_reason" in _check_names(pg_engine, "run_slots")
