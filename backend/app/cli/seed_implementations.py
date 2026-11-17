@@ -1,4 +1,5 @@
-"""Seed ``slot_implementation_settings`` from ``<PIPELINES_DIR>/<id>/registry.yaml`` (card F0-30a).
+"""Seed ``slot_implementation_settings`` and ``preset_settings`` from
+``<PIPELINES_DIR>/<id>/registry.yaml`` (cards F0-30a and F1-21).
 
     python -m app.cli.seed_implementations --profile deployment|ci [--dry-run] [--reset]
 
@@ -12,9 +13,15 @@ chosen profile (enabled or not, default or not). Defaults:
 * A profile that enables a planned implementation is refused, and so is any profile other
   than ``ci`` that enables a stub (the same rules as ``pipelines/stroke-lnm/registry.py check``).
 * ``--dry-run`` reports what would change and rolls back.
+* Presets follow the same rules. One ``preset_settings`` row per preset file in
+  ``<id>/presets/`` is written from ``profiles.<profile>.presets`` (``enabled`` ids and
+  the ``default``); existing rows are left to the admin endpoints
+  (``/api/v1/admin/presets``) unless ``--reset``. A profile that enables a preset
+  without a file, or defaults to one that is not enabled, is refused.
 
-The row computation (``profile_settings``) generalises ``enabled_settings`` of
-``pipelines/stroke-lnm/registry.py``; a test keeps the two identical.
+The row computation (``profile_settings``, ``preset_profile_settings``) generalises
+``enabled_settings`` and ``enabled_preset_settings`` of
+``pipelines/stroke-lnm/registry.py``; a test keeps them identical.
 """
 
 from __future__ import annotations
@@ -30,6 +37,7 @@ import yaml
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.models.preset_setting import PresetSetting
 from app.models.reference_bundle import SlotImplementationSetting
 
 PLACEHOLDER_DIGEST = "@sha256:" + "0" * 64
@@ -78,6 +86,41 @@ def profile_settings(registry: dict[str, Any], profile: str) -> list[dict[str, A
     ]
 
 
+def preset_profile_settings(
+    registry: dict[str, Any], profile: str, preset_ids: list[str] | None = None
+) -> list[dict[str, Any]]:
+    """One row per preset: preset_id, enabled, is_default. ``preset_ids`` are the presets
+    of the pipeline (default: those the profile enables)."""
+    profile_settings(registry, profile)  # unknown profile -> SeedError
+    spec = registry["profiles"][profile].get("presets", {})
+    enabled = spec.get("enabled", [])
+    ids = list(enabled) if preset_ids is None else list(preset_ids)
+    return [
+        {
+            "preset_id": preset_id,
+            "enabled": preset_id in enabled,
+            "is_default": spec.get("default") == preset_id,
+        }
+        for preset_id in ids
+    ]
+
+
+def preset_profile_errors(
+    registry: dict[str, Any], profile: str, preset_ids: list[str]
+) -> list[str]:
+    errors: list[str] = []
+    profile_settings(registry, profile)  # unknown profile -> SeedError
+    spec = registry["profiles"][profile].get("presets", {})
+    enabled = spec.get("enabled", [])
+    errors += [
+        f"enabled preset {p!r} has no file" for p in enabled if p not in preset_ids
+    ]
+    default = spec.get("default")
+    if default is not None and default not in enabled:
+        errors.append(f"default preset {default!r} is not enabled")
+    return errors
+
+
 def profile_errors(registry: dict[str, Any], profile: str) -> list[str]:
     """Rules a profile must satisfy before it may be written to the database."""
     errors: list[str] = []
@@ -106,22 +149,42 @@ def profile_errors(registry: dict[str, Any], profile: str) -> list[str]:
 def find_registries(
     pipelines_dir: Path, only: str | None = None
 ) -> list[dict[str, Any]]:
+    return [doc for _path, doc in find_registry_files(pipelines_dir, only)]
+
+
+def find_registry_files(
+    pipelines_dir: Path, only: str | None = None
+) -> list[tuple[Path, dict[str, Any]]]:
     found = []
     for path in sorted(pipelines_dir.glob("*/registry.yaml")):
         doc = yaml.safe_load(path.read_text(encoding="utf-8"))
         if not isinstance(doc, dict) or "pipeline" not in doc:
             raise SeedError(f"{path}: not a pipeline registry")
         if only is None or doc["pipeline"]["id"] == only:
-            found.append(doc)
+            found.append((path, doc))
     return found
 
 
+def preset_ids_of(registry_path: Path) -> list[str]:
+    """Ids (file stems) of the preset files next to a registry, sorted."""
+    return sorted(p.stem for p in (registry_path.parent / "presets").glob("*.yaml"))
+
+
 def seed_registry(
-    db: Session, registry: dict[str, Any], profile: str, *, reset: bool = False
+    db: Session,
+    registry: dict[str, Any],
+    profile: str,
+    *,
+    reset: bool = False,
+    preset_ids: list[str] | None = None,
 ) -> list[Change]:
-    """Write the rows of one registry; the caller commits or rolls back."""
+    """Write the rows of one registry (implementations, then presets); the caller commits
+    or rolls back. ``preset_ids`` are the preset files of the pipeline (default: the
+    presets the profile enables)."""
     pid = registry["pipeline"]["id"]
     errors = profile_errors(registry, profile)
+    if preset_ids is not None:
+        errors += preset_profile_errors(registry, profile, preset_ids)
     if errors:
         raise SeedError(f"{pid}: profile {profile!r} refused: " + "; ".join(errors))
     rows = {
@@ -204,6 +267,70 @@ def seed_registry(
                     )
                 )
     db.flush()
+    changes += _seed_presets(db, registry, profile, reset, preset_ids)
+    return changes
+
+
+def _seed_presets(
+    db: Session,
+    registry: dict[str, Any],
+    profile: str,
+    reset: bool,
+    preset_ids: list[str] | None,
+) -> list[Change]:
+    pid = registry["pipeline"]["id"]
+    rows = {
+        r.preset_id: r
+        for r in db.scalars(
+            select(PresetSetting).where(PresetSetting.pipeline_id == pid)
+        )
+    }
+    before = {key: (r.enabled, r.is_default) for key, r in rows.items()}
+    changes: list[Change] = []
+    if reset:
+        # Free the one-default-per-pipeline index before rows are rewritten.
+        for row in rows.values():
+            row.is_default = False
+        db.flush()
+    taken = any(r.is_default for r in rows.values())
+    for want in preset_profile_settings(registry, profile, preset_ids):
+        key = want["preset_id"]
+        row = rows.get(key)
+        if row is None:
+            is_default = want["is_default"] and not taken
+            detail = f"enabled={want['enabled']} default={is_default}"
+            if want["is_default"] and not is_default:
+                detail += " (pipeline already has another default; kept)"
+            taken = taken or is_default
+            db.add(
+                PresetSetting(
+                    pipeline_id=pid,
+                    preset_id=key,
+                    enabled=want["enabled"],
+                    is_default=is_default,
+                )
+            )
+            changes.append(Change("insert", pid, "preset", key, detail))
+        elif not reset:
+            changes.append(Change("unchanged", pid, "preset", key))
+        else:
+            taken = taken or want["is_default"]
+            old = before[key]
+            new = (want["enabled"], want["is_default"])
+            row.enabled, row.is_default = new
+            if old == new:
+                changes.append(Change("unchanged", pid, "preset", key))
+            else:
+                changes.append(
+                    Change(
+                        "update",
+                        pid,
+                        "preset",
+                        key,
+                        f"enabled {old[0]}->{new[0]}, default {old[1]}->{new[1]}",
+                    )
+                )
+    db.flush()
     return changes
 
 
@@ -231,14 +358,22 @@ def main(argv: list[str] | None = None, session_factory=None) -> int:
 
     root = Path(args.pipelines_dir)
     try:
-        registries = find_registries(root, args.pipeline) if root.is_dir() else []
+        registries = (
+            find_registry_files(root, args.pipeline) if root.is_dir() else []
+        )
         if not registries:
             raise SeedError(f"no registry.yaml found under {root}")
         db = session_factory()
         try:
             changes: list[Change] = []
-            for registry in registries:
-                changes += seed_registry(db, registry, args.profile, reset=args.reset)
+            for path, registry in registries:
+                changes += seed_registry(
+                    db,
+                    registry,
+                    args.profile,
+                    reset=args.reset,
+                    preset_ids=preset_ids_of(path),
+                )
             if args.dry_run:
                 db.rollback()
             else:

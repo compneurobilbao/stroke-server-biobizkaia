@@ -29,9 +29,10 @@ from app.api.v1.deps import (
     load_case,
     load_run,
     lock_case,
+    require_free_mode,
     storage_for,
 )
-from app.api.v1.errors import V1Error, v1_error
+from app.api.v1.errors import V1Error, refusal_status, v1_error
 from app.api.v1.pipelines import find_pipeline
 from app.api.v1.quota import storage_used
 from app.core.config import Settings, get_settings
@@ -46,26 +47,19 @@ from app.schemas.api_v1 import (
     RunActionResponse,
     RunCreate,
     RunDetailRead,
+    RunPlanRead,
     StepAttemptRead,
 )
 from app.schemas.run import PipelineRunRead
 from app.services.auth import client_ip, get_current_user
 from orchestrator.actions import ActionRefused, cancel_run, resume_run
 from orchestrator.executors.base import Accounting
+from orchestrator.planning import PresetRef, TargetRequest, reason_dict
 from orchestrator.resolution import RunRefused, create_run
 
 log = logging.getLogger(__name__)
 router = APIRouter(tags=["runs"])
 
-_UNPROCESSABLE = {
-    "unknown_slot",
-    "implementation_not_enabled",
-    "input_type_mismatch",
-    "no_matching_input_set",
-    "input_not_in_case",
-    "invalid_parameters",
-    "implementation_invalid",
-}
 _ACTION_STATUS = {"run_not_found": 404, "legacy_run": 404}
 
 
@@ -90,10 +84,31 @@ def _detail_read(db: Session, run: PipelineRun) -> RunDetailRead:
     base = PipelineRunRead.model_validate(run).model_dump()
     return RunDetailRead(
         **base,
+        plan=_plan_read(run),
         cancel_requested=run.cancel_requested_at is not None,
         inputs=[{"role": i.role, "input_file_id": i.input_file_id} for i in run.inputs],
         slots=[_slot(s) for s in run.slots],
         steps=[_attempt(a, names[a.run_slot_id]) for a in attempts],
+    )
+
+
+def _plan_read(run: PipelineRun) -> RunPlanRead:
+    targets = run.targets or {}
+    return RunPlanRead(
+        mode=run.plan_mode,
+        preset=(
+            {
+                "id": run.preset_id,
+                "version": run.preset_version,
+                "sha256": run.preset_sha256,
+            }
+            if run.preset_id
+            else None
+        ),
+        targets={
+            "required": targets.get("required", []),
+            "if_available": targets.get("if_available", []),
+        },
     )
 
 
@@ -127,8 +142,15 @@ def create_case_run(
     queue: RunQueue = Depends(get_run_queue),
 ) -> RunDetailRead:
     """Resolve the pipeline against the case's inputs, validate the per-slot choices
-    (422 when a choice is not enabled), store the run as ``queued`` and enqueue it."""
+    (422 when a choice is not enabled), store the run as ``queued`` and enqueue it.
+
+    Without ``preset`` and ``targets`` the run gets the full plan; ``preset`` runs a
+    reviewed preset; ``targets`` (free mode, 403 unless the deployment's
+    ``RUN_PLAN_POLICY`` allows it to the caller) builds a plan from the outputs wanted.
+    Refusals carry every reason in ``reasons`` (run-plans.md 3.3)."""
     load_case(db, case_id, current_user, "run.create")
+    if body.targets is not None:
+        require_free_mode(current_user)
     # Serialise with input changes and deletion of the case, then read the inputs.
     case = lock_case(db, case_id)
     pipeline = find_pipeline(orch, body.pipeline_id, body.pipeline_version)
@@ -173,18 +195,41 @@ def create_case_run(
             platform_version=orch.platform_version,
             requested_implementations=body.implementations,
             seed=body.seed,
+            preset=(
+                PresetRef(body.preset.id, body.preset.version) if body.preset is not None else None
+            ),
+            targets=(
+                TargetRequest(
+                    tuple(body.targets.required), tuple(body.targets.if_available)
+                )
+                if body.targets is not None
+                else None
+            ),
+            presets=orch.presets,
         )
     except RunRefused as exc:
         db.rollback()
-        status = 422 if exc.code in _UNPROCESSABLE else 409
-        raise V1Error(status, exc.code, str(exc), exc.slot) from None
+        raise V1Error(
+            refusal_status(exc.code),
+            exc.code,
+            str(exc),
+            exc.slot,
+            [reason_dict(r) for r in exc.reasons],
+        ) from None
     audit_event(
         db,
         "run_created",
         current_user,
         case_id=case.id,
         run_id=run.id,
-        details={"pipeline_id": pipeline.id, "pipeline_version": pipeline.version},
+        details={
+            "pipeline_id": pipeline.id,
+            "pipeline_version": pipeline.version,
+            "plan_mode": run.plan_mode,
+            "preset": run.preset_id,
+            "preset_version": run.preset_version,
+            "targets": run.targets,
+        },
         ip_address=client_ip(request),
     )
     try:

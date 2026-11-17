@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from functools import lru_cache
 from typing import Protocol
@@ -31,7 +31,7 @@ from app.api.v1.errors import (
     permission_denied,
     run_not_found,
 )
-from app.core.config import Settings
+from app.core.config import Settings, free_mode_allowed, run_plan_policy
 from app.models.audit_event import AuditEvent
 from app.models.case import Case, DeploymentProfile
 from app.models.pipeline_run import LEGACY_PIPELINE_ID, PipelineRun
@@ -41,8 +41,11 @@ from pathlib import Path
 from orchestrator.bundle_resolver import BundleResolver, RegistryBundleResolver
 from orchestrator.catalog import (
     DirectoryPipelineRegistry,
+    DirectoryPresetRegistry,
     DirectoryStepCatalog,
     PipelineRegistry,
+    PresetRegistry,
+    StaticPresetRegistry,
     StepCatalog,
 )
 
@@ -76,6 +79,7 @@ ACTIONS: dict[str, dict[str, Scope]] = {
     "artifact.download": {_ADMIN: _A, _RES: _O, _REV: _G, _COORD: _G},
     "report.download": {_ADMIN: _A, _RES: _O, _REV: _G, _COORD: _G},
     "implementation.manage": {_ADMIN: _A},
+    "preset.manage": {_ADMIN: _A},
 }
 
 
@@ -167,6 +171,29 @@ def deployment_profile() -> str:
     return value
 
 
+def effective_run_plan_policy() -> str:
+    """``RUN_PLAN_POLICY`` of this deployment (run-plans.md 3.5), read from the
+    environment on each call like ``deployment_profile``. Raises ``RuntimeError`` for an
+    unknown value and for any value other than ``presets_only`` on a public profile."""
+    return run_plan_policy(deployment_profile())
+
+
+def may_use_free_mode(user: User) -> bool:
+    """Whether ``user`` may start runs with targets under this deployment's policy."""
+    return free_mode_allowed(effective_run_plan_policy(), user.role)
+
+
+def require_free_mode(user: User) -> None:
+    """403 ``free_mode_not_allowed`` unless the policy lets ``user`` use free mode."""
+    if not may_use_free_mode(user):
+        raise V1Error(
+            403,
+            "free_mode_not_allowed",
+            "Free mode (a run with targets) is not allowed for you in this "
+            "deployment; choose a preset or the full plan.",
+        )
+
+
 # ------------------------------------------------------------ service providers
 
 
@@ -178,20 +205,34 @@ class Orchestration:
     steps: StepCatalog
     bundles: BundleResolver
     platform_version: str
+    presets: PresetRegistry = field(default_factory=StaticPresetRegistry)
 
 
 @lru_cache(maxsize=1)
 def _default_orchestration() -> Orchestration:
     from app.db.session import SessionLocal
+    from orchestrator.resolution import recorded_preset_digests
 
     env = os.environ
+    pipelines_dir = env.get("PIPELINES_DIR", "/app/pipelines")
+    pipelines = DirectoryPipelineRegistry(pipelines_dir)
+    steps = DirectoryStepCatalog(env.get("STEP_MANIFESTS_DIR", "/app/steps"))
+    presets_dir = env.get("PRESETS_DIR") or pipelines_dir
+    # Rule P8: a preset file that differs from the one earlier runs recorded for the
+    # same version is not offered (a changed preset needs a new version). The database
+    # is read only when there are preset files to check.
+    recorded = {}
+    if any(Path(presets_dir).rglob("presets/*.yaml")):
+        with SessionLocal() as db:
+            recorded = recorded_preset_digests(db)
     return Orchestration(
-        pipelines=DirectoryPipelineRegistry(env.get("PIPELINES_DIR", "/app/pipelines")),
-        steps=DirectoryStepCatalog(env.get("STEP_MANIFESTS_DIR", "/app/steps")),
+        pipelines=pipelines,
+        steps=steps,
         bundles=RegistryBundleResolver(
             env.get("BUNDLE_ROOT", "/app/data/bundles"), SessionLocal
         ),
         platform_version=env.get("PLATFORM_VERSION", "0.0.0-dev"),
+        presets=DirectoryPresetRegistry(presets_dir, pipelines, steps, recorded),
     )
 
 

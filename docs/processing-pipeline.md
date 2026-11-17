@@ -271,7 +271,7 @@ Legacy runs are never driven by the orchestrator engine and the v1 run actions r
 | `ct-normalisation` | `ct-and-native-mask` | `lesion-intake`, `normalisation` | none | Intake and normalisation only; the other four slots are `not_requested`. Refused with `no_implementation` (slot `normalisation`) in a deployment that leaves normalisation unmounted, which the preset listing shows as unavailable. |
 | `lesion-qc-report` | both | `lesion-intake`, `report` | none | Intake and report (plus `normalisation` in CT mode, which the report needs for `lesion_mask_mni`); no analysis slot. |
 
-`registry.yaml` enables presets per profile (`profiles.<p>.presets: {enabled: [...], default: <id>}`; both profiles enable all four and default to `full`); `enabled_preset_settings(registry, profile, preset_ids)` gives the rows for `preset_settings` (seeding them is the admin endpoints' job, card F1-21). Since `research-report` 0.3.0 declares contract 1.2 (card F1-25), every preset runs, including those that plan the report (`full`, `mni-mask-analysis`, `lesion-qc-report`; see [Run plans](#run-plans)).
+`registry.yaml` enables presets per profile (`profiles.<p>.presets: {enabled: [...], default: <id>}`; both profiles enable all four and default to `full`); `enabled_preset_settings(registry, profile, preset_ids)` gives the rows for `preset_settings` (`python -m app.cli.seed_implementations` writes them with the implementation rows, one per file in `presets/`; administrators change them afterwards with `PUT /api/v1/admin/presets/...`, card F1-21). Since `research-report` 0.3.0 declares contract 1.2 (card F1-25), every preset runs, including those that plan the report (`full`, `mni-mask-analysis`, `lesion-qc-report`; see [Run plans](#run-plans)).
 
 Files:
 

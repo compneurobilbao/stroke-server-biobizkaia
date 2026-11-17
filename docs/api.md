@@ -187,15 +187,18 @@ All endpoints need `Authorization: Bearer <token>` (same login as the legacy API
 | `GET /pipelines` | Loaded pipelines (id, version, inputs, input sets). |
 | `GET /pipelines/{id}/versions/{version}` | One pipeline with its slots. |
 | `GET /pipelines/{id}/versions/{version}/slots` | Slots with their **enabled** implementations, the deployment default and the pipeline default (`include_disabled=true`: administrators). |
+| `GET /pipelines/{id}/versions/{version}/presets` | Presets attached to this version and **enabled** in the deployment: id, version, SHA-256, title, accepted input sets, targets, fixed or default implementations, `is_default`, and per input set the plan (slots with status, reason, `plan_role`, `required_by`, implementation) with `available` and the `reasons` when the deployment cannot run it now (for example a slot without an enabled implementation, or `step_contract_too_old`). Top-level `available` is true when at least one accepted input set can run. |
+| `POST /pipelines/{id}/versions/{version}/plan` | Dry run of run creation, nothing written. Body: `input_roles`, optional `preset {id, version?}` or `targets {required[], if_available[]}` (exclusive), `implementations`. Returns `{feasible, mode, input_set, preset, targets, slots[], reasons[]}` for the plan the request would get (the same as `POST /cases/{id}/runs` for the same request). A refused plan is a 200 with `feasible: false` and every reason; 403 `free_mode_not_allowed` for targets when the policy does not allow it; 422 for a malformed request. |
+| `GET /config` | The deployment profile, its run-plan policy and `free_mode_allowed` for the caller, so that a client offers free mode only when it can be used. |
 | `POST /cases` | Create a case (`sex`, `age_band` only). |
 | `GET /cases`, `GET /cases/{id}` | List and read cases (with their input list). |
 | `PATCH /cases/{id}` | Edit `sex` and `age_band` (`null` clears); `keep_forever` for administrators. Existing runs keep the values frozen at their creation. |
 | `DELETE /cases/{id}` | Soft delete and remove files; refused (409) while a run is active or when `keep_forever` is set. |
 | `PUT /cases/{id}/inputs/{role}` | Upload (201) or replace (200) the input of a role, multipart field `file`. Roles come from the loaded pipelines, for example `ct`, `lesion_native`, `lesion_mni`. Allowed until the first run is created. |
 | `GET /cases/{id}/inputs`, `GET .../inputs/{role}/download`, `DELETE .../inputs/{role}` | List, download, remove an input. |
-| `POST /cases/{id}/runs` | Start a run: `pipeline_id`, optional `pipeline_version` (default: highest), `implementations` (slot to implementation id), `input_roles` (subset), `seed`. Returns the queued run (201) and enqueues `worker.tasks.run_pipeline`. |
+| `POST /cases/{id}/runs` | Start a run: `pipeline_id`, optional `pipeline_version` (default: highest), `implementations` (slot to implementation id), `input_roles` (subset), `seed`, and optionally `preset {id, version?}` (a reviewed preset; default: its highest version) or `targets {required[], if_available[]}` (free mode; exclusive with `preset`; a target is a slot, `slot.port` or an artefact type). Without either, the run gets the full plan as before. Returns the queued run (201) and enqueues `worker.tasks.run_pipeline`. |
 | `GET /cases/{id}/runs` | Runs of a case, newest first. |
-| `GET /runs/{id}` | Status, slot choices (implementation, digest, parameters, bundles) and the step timeline (one entry per attempt). |
+| `GET /runs/{id}` | Status, `plan` (`mode` full, preset or free; the preset id, version and SHA-256; the resolved `targets`), slot choices (`plan_role`, implementation, digest, parameters, bundles, `upstream`) and the step timeline (one entry per attempt). |
 | `GET /runs/{id}/steps` | The step timeline alone. |
 | `GET /runs/{id}/steps/{step_run_id}/log` | Last `tail_bytes` of an attempt log (`X-Log-Truncated`). |
 | `GET /runs/{id}/provenance` | The run provenance record. |
@@ -205,10 +208,22 @@ All endpoints need `Authorization: Bearer <token>` (same login as the legacy API
 | `POST /runs/{id}/resume` (alias `/retry`) | Resume a failed or canceled run from the failed step: 202 when queued, 200 when already active. |
 | `GET /admin/implementations` | Administrators: every allowed implementation with its setting (no setting means disabled). |
 | `PUT /admin/implementations/{pipeline_id}/{slot}/{implementation_id}` | Administrators: `{"enabled": bool, "is_default": bool}`; a default must be enabled and replaces the slot's previous default. |
+| `GET /admin/presets` | Administrators: every preset offered by a loaded pipeline version with its setting (no setting means disabled), the preset versions and the pipeline versions that offer it. |
+| `PUT /admin/presets/{pipeline_id}/{preset_id}` | Administrators: `{"enabled": bool, "is_default": bool}`, same semantics as for implementations (at most one default per pipeline id, it must be enabled and replaces the previous one); 404 `preset_not_found` for a preset no loaded version offers; audit event `preset_setting_changed`. Disabling hides a preset from new runs only: runs keep their plan and can be resumed. |
 
 ### Permissions
 
-Matrix: [data-model.md section 9](data-model.md). Phase 0 enforces `admin` and `researcher`. Order of checks: 401 without a valid token; 403 when the role has no right to the action; 404 for a case or run the user cannot see (not theirs, deleted, or a legacy case), so that existence is not revealed. A researcher acts on their own cases; an administrator on all. `reviewer` and `coordinator` act on granted cases only and no grants exist before F1-03, so they see no case; `service` is refused everywhere. Only administrators set `keep_forever` and manage implementations.
+Matrix: [data-model.md section 9](data-model.md). Phase 0 enforces `admin` and `researcher`. Order of checks: 401 without a valid token; 403 when the role has no right to the action; 404 for a case or run the user cannot see (not theirs, deleted, or a legacy case), so that existence is not revealed. A researcher acts on their own cases; an administrator on all. `reviewer` and `coordinator` act on granted cases only and no grants exist before F1-03, so they see no case; `service` is refused everywhere. Only administrators set `keep_forever` and manage implementations and presets.
+
+**Free mode** (a run request with `targets`) depends on the deployment's run-plan policy (`RUN_PLAN_POLICY`, [design 3.5](design/run-plans.md#35-permissions-and-deployment-policy)) in addition to the role. Presets and the full plan need only the right to create runs.
+
+| `RUN_PLAN_POLICY` | Free mode for |
+|---|---|
+| `presets_only` | nobody |
+| `free_for_admins` | `admin` |
+| `free_for_researchers` | `admin`, `researcher` |
+
+Everyone else, and everyone under `presets_only`, gets 403 `free_mode_not_allowed` before the request is looked at any further (the same check for run creation and for the preview; a case the user cannot see is still 404 first). On `research-public` and `mask-only` the policy is `presets_only` and a configuration that sets another value makes the application refuse to start; on `on-premise` an unset value means `free_for_researchers`. Presets are not created through the API: they are files added by reviewed pull requests next to their pipeline, and administrators only enable them.
 
 ### Quota
 
@@ -218,10 +233,15 @@ The storage quota of the case owner counts legacy uploads, input files and store
 
 | Status | Codes |
 |---|---|
-| 404 | `pipeline_not_found`, `case_not_found`, `run_not_found`, `input_not_found`, `artifact_not_found`, `report_not_found`, `step_run_not_found`, `log_not_available`, `provenance_not_available`, `file_missing_in_storage` |
-| 422 | `unknown_slot`, `implementation_not_enabled` (a user choice that is not allowed or not enabled; body names the slot), `no_matching_input_set`, `input_type_mismatch`, `invalid_parameters`, `implementation_invalid`, `unknown_input_role`, `ambiguous_input_role`, `file_extension_not_allowed`, `invalid_input_file` |
-| 409 | `no_implementation` (a required slot has no enabled implementation; names the slot), `no_inputs`, `active_run_exists`, `case_has_runs`, `case_has_active_run`, `case_keep_forever`; resume and cancel: `run_not_active`, `run_succeeded`, `cancel_in_progress`, `input_rejected`, `pipeline_unavailable`, `implementation_disabled`, `bundle_unavailable`; resolution: `slot_unsatisfiable`, `manifest_unavailable`, `bundle_unavailable`; `input_conflict` (an input was changed by a concurrent request) |
+| 403 | `free_mode_not_allowed` (targets given and the run-plan policy does not allow free mode to this user; also on the plan preview) |
+| 404 | `preset_not_found` (unknown preset id or version for this pipeline version; also in the `reasons` of a preview), `pipeline_not_found`, `case_not_found`, `run_not_found`, `input_not_found`, `artifact_not_found`, `report_not_found`, `step_run_not_found`, `log_not_available`, `provenance_not_available`, `file_missing_in_storage` |
+| 422 | `unknown_slot`, `implementation_not_enabled` (a user choice that is not allowed or not enabled; body names the slot), `no_matching_input_set`, `input_type_mismatch`, `invalid_parameters`, `implementation_invalid`, plan refusals: `preset_not_enabled`, `preset_input_set_mismatch`, `preset_and_targets`, `unknown_target`, `ambiguous_target`, `target_not_applicable`, `target_not_guaranteed`, `target_unreachable`, `conflicting_targets`, `empty_request`, `implementation_fixed_by_preset`; `unknown_input_role`, `ambiguous_input_role`, `file_extension_not_allowed`, `invalid_input_file` |
+| 409 | `no_implementation` (a required slot has no enabled implementation; names the slot), `no_inputs`, `active_run_exists`, `case_has_runs`, `case_has_active_run`, `case_keep_forever`; resume and cancel: `run_not_active`, `run_succeeded`, `cancel_in_progress`, `input_rejected`, `pipeline_unavailable`, `implementation_disabled`, `bundle_unavailable`; resolution: `slot_unsatisfiable`, `manifest_unavailable`, `bundle_unavailable`, `step_contract_too_old` (a preset or free plan selects a step that reads the run record but declares a contract older than 1.2; the full plan is never affected); `input_conflict` (an input was changed by a concurrent request) |
 | 413 | `upload_too_large`, `storage_quota_exceeded` |
+
+Refusals of a plan carry every reason found, not only the first: the body is `{detail, code, slot?, reasons: [{code, message, target?, slot?, port?, required_by?}]}`, where `code` and `slot` are those of the first reason and the status follows `code`. Errors that are not about a plan (for example `invalid_parameters`) have no `reasons`. The preview shows the same `reasons` for the same request. What the preview cannot know, because it depends on the case or on the step images, is checked at creation only: effective parameters, bundles and missing manifests (`invalid_parameters`, `bundle_unavailable`, `manifest_unavailable`).
+
+Audit event `run_created` records `plan_mode` (`full`, `preset`, `free`), `preset` and `preset_version` (null unless a preset was used) and the resolved `targets`, besides the pipeline id and version.
 
 ### Concurrency
 
@@ -234,6 +254,8 @@ Input changes, run creation and case deletion take the case row lock (`SELECT ..
 | `PIPELINES_DIR`, `STEP_MANIFESTS_DIR`, `BUNDLE_ROOT` | as in [processing-pipeline.md](processing-pipeline.md) | Read by the API process too (loaded once at start). |
 | `PLATFORM_VERSION` | `0.0.0-dev` | Recorded on new runs. |
 | `DEPLOYMENT_PROFILE` | `research-public` | Profile stored on new cases (`research-public`, `mask-only`, `on-premise`). |
+| `RUN_PLAN_POLICY` | per profile | Who may use free mode: `presets_only`, `free_for_admins`, `free_for_researchers`. Empty or unset: `presets_only` on `research-public` and `mask-only` (the only value they accept; the application refuses to start with another), `free_for_researchers` on `on-premise`. |
+| `PRESETS_DIR` | the value of `PIPELINES_DIR` | Tree scanned for `presets/<id>.yaml` files, attached to the loaded pipeline versions (loaded once at start; a preset whose file differs from the SHA-256 recorded by earlier runs for the same version is not offered, rule P8). |
 
 ### Privacy
 
