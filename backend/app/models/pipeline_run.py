@@ -69,12 +69,30 @@ class SlotReason(str, enum.Enum):
     condition_false = "condition_false"
     upstream_absent = "upstream_absent"
     no_implementation = "no_implementation"
+    not_requested = "not_requested"  # outside the run plan (contract 1.2, F1-18)
 
 
 class ChosenBy(str, enum.Enum):
     user = "user"
     deployment_default = "deployment_default"
     pipeline_default = "pipeline_default"
+    preset = "preset"  # a preset's fixed or default choice (contract 1.2, F1-18)
+
+
+class PlanMode(str, enum.Enum):
+    """How the run's plan was requested (docs/design/run-plans.md 3.7)."""
+
+    full = "full"  # no preset, no targets: rule R0, every applicable slot
+    preset = "preset"
+    free = "free"
+
+
+class PlanRole(str, enum.Enum):
+    """Why a slot is in the run plan (contract 1.2, presets.md 4.1)."""
+
+    target = "target"
+    upstream = "upstream"
+    if_available = "if_available"
 
 
 class StepTrigger(str, enum.Enum):
@@ -127,6 +145,16 @@ class PipelineRun(Base):
             "pipeline_runs",
             "legacy_clinical_review_status",
             [e.value for e in LegacyReviewStatus],
+        ),
+        enum_check("pipeline_runs", "plan_mode", [e.value for e in PlanMode]),
+        CheckConstraint(
+            "(plan_mode = 'preset') = (preset_id IS NOT NULL)",
+            name="ck_pipeline_runs_preset_mode",
+        ),
+        CheckConstraint(
+            "(preset_id IS NULL) = (preset_version IS NULL)"
+            " AND (preset_id IS NULL) = (preset_sha256 IS NULL)",
+            name="ck_pipeline_runs_preset_all_or_none",
         ),
         CheckConstraint("seed BETWEEN 0 AND 4294967295", name="ck_pipeline_runs_seed"),
         CheckConstraint(
@@ -199,8 +227,18 @@ class PipelineRun(Base):
     )
     provenance_path: Mapped[str | None] = mapped_column(Text)
     orchestrator_task_id: Mapped[str | None] = mapped_column(String(255))
-    # Used only by the legacy clinical-review alias; dropped by migration 0013.
+    # Used only by the legacy clinical-review alias; dropped by migration 0014.
     legacy_clinical_review_status: Mapped[str | None] = mapped_column(String(32))
+    # Run plan (docs/data-model.md 4.3, migration 0013). `full` = no plan request.
+    plan_mode: Mapped[str] = mapped_column(
+        String(8), nullable=False, default=PlanMode.full.value, server_default="full"
+    )
+    preset_id: Mapped[str | None] = mapped_column(String(64))
+    preset_version: Mapped[str | None] = mapped_column(String(64))
+    preset_sha256: Mapped[str | None] = mapped_column(String(64))
+    targets: Mapped[dict] = mapped_column(
+        JSONType, nullable=False, default=dict, server_default=text("'{}'")
+    )
 
     case = relationship("Case", back_populates="runs")
     inputs = relationship(
@@ -229,10 +267,22 @@ class PipelineRun(Base):
         formats.check_format("kebab", value)
         return value
 
+    @validates("preset_id")
+    def _validate_preset_id(self, _key: str, value: str | None) -> str | None:
+        return formats.check_format("kebab", value)
+
     @validates("pipeline_version")
     def _validate_semver(self, _key: str, value: str) -> str:
         formats.check_format("semver", value)
         return value
+
+    @validates("preset_version")
+    def _validate_preset_version(self, _key: str, value: str | None) -> str | None:
+        return formats.check_format("semver", value)
+
+    @validates("preset_sha256")
+    def _validate_preset_sha(self, _key: str, value: str | None) -> str | None:
+        return formats.check_format("sha256hex", value)
 
     @validates("pipeline_sha256")
     def _validate_sha(self, _key: str, value: str | None) -> str | None:
@@ -295,6 +345,13 @@ class RunSlot(Base):
         enum_check("run_slots", "status", [e.value for e in SlotStatus]),
         enum_check("run_slots", "reason", [e.value for e in SlotReason]),
         enum_check("run_slots", "chosen_by", [e.value for e in ChosenBy]),
+        enum_check("run_slots", "plan_role", [e.value for e in PlanRole]),
+        # Slots outside the plan or not applicable have no plan role (contract 1.2).
+        CheckConstraint(
+            "reason IS NULL OR reason NOT IN ('not_requested', 'condition_false')"
+            " OR plan_role IS NULL",
+            name="ck_run_slots_plan_role_reason",
+        ),
         CheckConstraint(
             f"{_SLOT_SELECTED_SQL} OR {_SLOT_OTHER_SQL}", name="ck_run_slots_selected"
         ),
@@ -318,6 +375,10 @@ class RunSlot(Base):
     stub: Mapped[bool | None] = mapped_column(Boolean)
     chosen_by: Mapped[str | None] = mapped_column(String(24))
     effective_parameters: Mapped[dict | None] = mapped_column(JSONType)
+    # Why the slot is in the plan; NULL for not_requested, condition_false and legacy rows.
+    plan_role: Mapped[str | None] = mapped_column(String(12))
+    # Copy of the manifest's `upstream` block of a selected external implementation.
+    upstream: Mapped[dict | None] = mapped_column(JSONType)
 
     run = relationship("PipelineRun", back_populates="slots")
     bundles = relationship(
@@ -485,7 +546,7 @@ class StepRun(Base):
     )
     orchestrator_task_id: Mapped[str | None] = mapped_column(String(255))
     cancel_requested_at: Mapped[datetime | None] = mapped_column(tz_datetime())
-    # Back-filled rows only; dropped by migration 0013.
+    # Back-filled rows only; dropped by migration 0014.
     legacy_job_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("processing_jobs.id")
     )

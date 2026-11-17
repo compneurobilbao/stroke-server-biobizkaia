@@ -1,6 +1,6 @@
 # Data model
 
-Status: design, proposed for approval ([ADR-0016](adr/0016-data-model-design.md)). Plan reference: decision D4 (also D5, D8, D9, D10, D15), card F0-11. Implemented by card F0-12 (Phase 0 tables and migration) and by the later cards named per entity.
+Status: design, proposed for approval ([ADR-0016](adr/0016-data-model-design.md)). Plan reference: decision D4 (also D5, D8, D9, D10, D15), card F0-11. Implemented by card F0-12 (Phase 0 tables and migration) and by the later cards named per entity. Run plans and preset settings (sections 4.2, 4.3, 4.5, 4.12, 8) were added by card F1-18 (migration 0013; [ADR-0018](adr/0018-presets-free-mode-external-tools.md), [run-plans.md](design/run-plans.md) 3.7).
 
 This document is the detailed design behind [ADR-0004](adr/0004-data-model.md). It respects the constraints that the step contract 1.0 fixes for the data model ([docs/contracts/](contracts/README.md)): input roles are pipeline input names, case metadata renders as `case.sex` and `case.age_band`, provenance is two-level, `executor: external` is reserved for uploaded results, and runs carry an accounting record.
 
@@ -9,7 +9,7 @@ Contents:
 1. [Scope and phasing](#1-scope-and-phasing)
 2. [Conventions](#2-conventions)
 3. [Entity-relationship diagram](#3-entity-relationship-diagram)
-4. [Phase 0 entities](#4-phase-0-entities-created-by-f0-12)
+4. [Phase 0 entities](#4-phase-0-entities-created-by-f0-12) (4.12: run plans, F1-18)
 5. [Later entities](#5-later-entities-created-by-later-cards)
 6. [Existing tables](#6-existing-tables)
 7. [State machines](#7-state-machines)
@@ -36,6 +36,7 @@ Contents:
 | `ReferenceBundle` | `reference_bundles` | F0-12 (rows written by the bundle registry, F0-18) | 0 |
 | `Report` | `reports` | F0-12 | 0 |
 | `SlotImplementationSetting` | `slot_implementation_settings` | F0-12 (rows written by admin endpoints, F0-30) | 0 |
+| `PresetSetting` | `preset_settings` | F1-18 (migration 0013; rows written by admin endpoints, F1-21) | 1 |
 | `CaseGrant` | `case_grants` | F1-03 | 1 |
 | `ModelVersion` | `model_versions` | F1-08 | 1 |
 | `ReviewRecord` | `review_records` | F1-04 | 1 |
@@ -204,7 +205,7 @@ erDiagram
   }
 ```
 
-`slot_implementation_settings` has no foreign keys and is not drawn.
+`slot_implementation_settings` and `preset_settings` have no foreign keys to the run tables and are not drawn.
 
 ## 4. Phase 0 entities (created by F0-12)
 
@@ -227,8 +228,8 @@ A pseudonymous subject with one acute session. Replaces the role of `Study`. Wri
 | `updated_at` | timestamptz | no | Updated on any change to this row. |
 | `deleted_at` | timestamptz | N | Soft delete. Set when the case is deleted by a user or by retention; its files are removed from the case store in the same operation. Rows are kept. |
 | `keep_forever` | boolean | no | Default `false`. Retention exemption; admin only. |
-| `legacy_study_id` | uuid | N | Unique, FK `studies.id`. Set only on back-filled rows (equal to `id`). Dropped by migration 0013. |
-| `legacy_attributes` | jsonb | N | Fields used only by the legacy aliases (section 10.4). `NULL` for cases never touched by an alias. Identifying keys are removed by migration 0013. |
+| `legacy_study_id` | uuid | N | Unique, FK `studies.id`. Set only on back-filled rows (equal to `id`). Dropped by migration 0014. |
+| `legacy_attributes` | jsonb | N | Fields used only by the legacy aliases (section 10.4). `NULL` for cases never touched by an alias. Identifying keys are removed by migration 0014. |
 
 Indexes: `uq_cases_subject_label`; `ix_cases_owner_user_id_created_at` (`owner_user_id`, `created_at`); `ix_cases_deleted_at`.
 
@@ -259,6 +260,7 @@ A user-supplied file attached to a case under a role. Written by: case API, lega
 | `size_bytes` | bigint | N | `>= 0`. Same nullability rule as `sha256`. |
 | `uploaded_by_user_id` | uuid | no | FK `users.id`. |
 | `created_at` | timestamptz | no | |
+| `origin` | jsonb | N | *Migration 0013.* Origin declared by the uploader ([run-plans.md](design/run-plans.md#47-user-supplied-results-as-run-inputs)): `{kind: manual}` or `{kind: external-tool, tool, version}`, later `{kind: platform-run, run_id, artifact_id}`. `NULL` when none was declared (all existing rows). The platform cannot verify it. The database does not check its shape; the API does (F1-24). Copied into `RunProvenance.inputs[].origin`. |
 
 Indexes: `uq_input_files_case_id_role` (`case_id`, `role`).
 
@@ -297,7 +299,12 @@ One execution of one pipeline version on one case. Resume and retry stay in the 
 | `failed_step_run_id` | uuid | N | FK `step_runs.id` (`use_alter`, the tables reference each other). The attempt that stopped the run. |
 | `provenance_path` | text | N | Relative path of the run-level `RunProvenance` file (F0-17). `NULL` for legacy runs, which have no provenance file. |
 | `orchestrator_task_id` | varchar(255) | N | Celery task id of the orchestrator task currently driving the run. |
-| `legacy_clinical_review_status` | varchar(32) | N | `CHECK IN ('technical_only','reviewed','validated')`. Used only by the legacy `clinical-review` alias. Dropped by migration 0013. |
+| `legacy_clinical_review_status` | varchar(32) | N | `CHECK IN ('technical_only','reviewed','validated')`. Used only by the legacy `clinical-review` alias. Dropped by migration 0014. |
+| `plan_mode` | varchar(8) | no | *Migration 0013.* Default `'full'`, `CHECK IN ('full','preset','free')`. How the plan was requested: `full` = no preset and no targets (rule R0, every applicable slot; the meaning of every run created before 0013 and of legacy runs), `preset`, `free`. |
+| `preset_id` | kebab | N | *0013.* Set exactly when `plan_mode = 'preset'`: `CHECK ((plan_mode = 'preset') = (preset_id IS NOT NULL))` (`ck_pipeline_runs_preset_mode`). |
+| `preset_version` | semver | N | *0013.* The three preset columns are all null or all set (`ck_pipeline_runs_preset_all_or_none`). |
+| `preset_sha256` | sha256hex | N | *0013.* SHA-256 of the exact bytes of the preset file used. |
+| `targets` | jsonb | no | *0013.* Default `{}`. The plan request as resolved, `{required: [slot.port], if_available: [slot.port]}`; `{}` for `full` (the full plan is defined by R0). `requested_implementations` is unchanged. The database does not check the shape. |
 
 Indexes: `ix_pipeline_runs_case_id_created_at`; `ix_pipeline_runs_status`; `ix_pipeline_runs_created_by_user_id`; `ix_pipeline_runs_pipeline` (`pipeline_id`, `pipeline_version`); `ix_pipeline_runs_billing` (`accounting_billing_account`, `created_at`).
 
@@ -327,19 +334,22 @@ The resolution of one pipeline slot for one run (`RunProvenance.slots[]`). Creat
 | `position` | smallint | no | 0-based order in `pipeline.yaml`. |
 | `optional` | boolean | no | Copied from the slot definition. |
 | `status` | varchar(16) | no | `CHECK IN ('selected','skipped','unavailable')`. |
-| `reason` | varchar(32) | N | `CHECK IN ('condition_false','upstream_absent','no_implementation')`. |
+| `reason` | varchar(32) | N | `CHECK IN ('condition_false','upstream_absent','no_implementation','not_requested')`. `not_requested` (*0013*): the slot is outside the run plan; the row is `skipped` with no implementation. |
 | `implementation_id` | kebab | N | Allowed implementation id. |
 | `step_name` | kebab | N | |
 | `step_version` | semver | N | |
 | `image` | image_ref | N | Digest-pinned image. |
 | `stub` | boolean | N | From the manifest. |
-| `chosen_by` | varchar(24) | N | `CHECK IN ('user','deployment_default','pipeline_default')`. |
+| `chosen_by` | varchar(24) | N | `CHECK IN ('user','deployment_default','pipeline_default','preset')`. `preset` (*0013*): the choice came from a preset's `fixed` or `default`. |
 | `effective_parameters` | jsonb | N | Parameters computed at creation: schema defaults, then literal `parameters`, then `parameter_bindings` with known source values, then `seed` if the step declares it (step-contract.md §1.4). Written to `/in/params.json` on every attempt. |
+| `plan_role` | varchar(12) | N | *0013.* `CHECK IN ('target','upstream','if_available')`. Why the slot is in the plan ([presets.md](contracts/presets.md#41-plan-roles)). `NULL` for `not_requested` and `condition_false` rows (`ck_run_slots_plan_role_reason`) and for legacy rows. Back-filled for existing rows of pipeline runs: applicable (not `condition_false`) non-optional selected slots `target`; optional slots, and applicable slots that are not selected, `if_available`. |
+| `upstream` | jsonb | N | *0013.* Copy of the manifest's `upstream` block for a selected external implementation ([run-plans.md](design/run-plans.md#42-manifest-the-upstream-block)), so that provenance can be regenerated from the database (section 8). `NULL` otherwise. |
 
 Constraints:
 
 - `uq_run_slots_run_slot` (`pipeline_run_id`, `slot`); `uq_run_slots_run_position` (`pipeline_run_id`, `position`).
-- `ck_run_slots_selected`: if `status = 'selected'` then `reason IS NULL` and `implementation_id`, `step_name`, `step_version`, `stub`, `chosen_by`, `effective_parameters` are not null, and (`image IS NOT NULL` or `slot = 'legacy'`); otherwise `reason IS NOT NULL` and all of those columns are null. This mirrors the `if/then/else` of the provenance schema.
+- `ck_run_slots_selected`: if `status = 'selected'` then `reason IS NULL` and `implementation_id`, `step_name`, `step_version`, `stub`, `chosen_by`, `effective_parameters` are not null, and (`image IS NOT NULL` or `slot = 'legacy'`); otherwise `reason IS NOT NULL` and all of those columns are null. This mirrors the `if/then/else` of the provenance schema and is unchanged by 0013: a `not_requested` row is a skip with a reason and no implementation.
+- `ck_run_slots_plan_role_reason` (0013): `reason IS NULL OR reason NOT IN ('not_requested','condition_false') OR plan_role IS NULL`. That `not_requested` and `chosen_by = 'preset'` occur only in runs whose `plan_mode` allows them (`preset` or `free`; `chosen_by = 'preset'` only in `preset` runs) is checked by the run API, not by the database.
 
 ### 4.6 `RunSlotBundle` (`run_slot_bundles`)
 
@@ -393,7 +403,7 @@ One execution attempt of a selected slot (`RunProvenance.steps[]`). A retry is a
 | `log_truncated` | boolean | no | Default `false`. |
 | `orchestrator_task_id` | varchar(255) | N | Celery task id handling this attempt. |
 | `cancel_requested_at` | timestamptz | N | Set by the orchestrator when it propagates a run-level cancellation to this attempt. Executors check it. |
-| `legacy_job_id` | uuid | N | Unique, FK `processing_jobs.id`. Back-filled rows only. Dropped by migration 0013. |
+| `legacy_job_id` | uuid | N | Unique, FK `processing_jobs.id`. Back-filled rows only. Dropped by migration 0014. |
 
 Status and outcome are kept consistent by `ck_step_runs_status_outcome` (the column's own enumeration check is `ck_step_runs_outcome`). Every non-null branch also requires `outcome IS NOT NULL`, so a terminal status with a null outcome is rejected:
 
@@ -506,6 +516,24 @@ Indexes: `uq_slot_impl_settings` (`pipeline_id`, `slot`, `implementation_id`); `
 
 Rules: settings are keyed by pipeline id, not version, so they survive a pipeline minor bump; a setting for an implementation id that the loaded pipeline version does not allow is ignored. The registry configuration file defines the initial rows (inserted when a pipeline is first loaded and no row exists) and whether stubs may be enabled at all; the database wins thereafter. The admin API refuses to enable a stub unless the deployment is configured as CI or demo (pipeline.md §4 item 4).
 
+### 4.12 `PresetSetting` (`preset_settings`)
+
+*Migration 0013 (F1-18).* The deployment's enablement and default per preset ([run-plans.md](design/run-plans.md#24-governance), ADR-0018), changed at run time through admin endpoints (F1-21). Written by: admin API; seeded from the registry profile. Same shape and rules as `SlotImplementationSetting` (4.11).
+
+| Column | Type | Null | Constraints / notes |
+|---|---|---|---|
+| `id` | uuid | no | PK. |
+| `pipeline_id` | kebab | no | |
+| `preset_id` | kebab | no | |
+| `enabled` | boolean | no | |
+| `is_default` | boolean | no | Default `false`. `CHECK (NOT is_default OR enabled)`. |
+| `updated_at` | timestamptz | no | |
+| `updated_by_user_id` | uuid | N | FK `users.id`; null when seeded. |
+
+Indexes: `uq_preset_settings` (`pipeline_id`, `preset_id`); `uq_preset_settings_default` partial unique (`pipeline_id`) where `is_default`.
+
+Rules: keyed by pipeline id and preset id, not by version, so that a setting survives a new preset or pipeline version; a setting for a preset that no loaded pipeline version offers is ignored. The default is unique per pipeline id (not per input set). Disabling a preset never blocks resume of a run that used it (section 7.3 is unchanged); disabling an implementation still does. Runs record the preset used in `pipeline_runs.preset_*`, not in this table.
+
 ## 5. Later entities (created by later cards)
 
 Shapes below are fixed so that Phase 0 tables need no change. Columns may be added by the owning card.
@@ -602,7 +630,7 @@ The clinician checklist bound to the report hash is designed by E2-6.
 
 ## 6. Existing tables
 
-| Table | Phase 0 change (migration 0011) | Cut-over (0012) | Removal release (0013) |
+| Table | Phase 0 change (migration 0011) | Cut-over (0012) | Removal release (0014) |
 |---|---|---|---|
 | `users` | Add `CHECK (role IN ('admin','researcher','reviewer','coordinator','service'))`. Columns unchanged. The API keeps refusing to assign the three reserved roles until F1-03. | — | — |
 | `studies` | Unchanged; authoritative for legacy studies until 0012. | Frozen: no code writes it. | Dropped. |
@@ -731,6 +759,8 @@ Clients may send an `Idempotency-Key` header on create, cancel and resume; the A
 
 **Slot and implementation choice.** At run creation the API passes `requested_implementations` to the orchestrator's resolution function (pipeline.md §6), which reads `slot_implementation_settings` for enablement and defaults, and writes one `run_slots` row per slot: status, reason, the chosen implementation (`implementation_id`, step name and version, image digest, stub flag), `chosen_by`, and `effective_parameters`. If a non-optional slot has no enabled implementation, nothing is written and the API answers 409 naming the slot. A user's choice that is allowed by the pipeline but not enabled in the deployment is refused by the API with 422 (F0-30 validates choices), so `chosen_by = 'user'` always means the user's choice was used.
 
+**Run plan (0013).** A run is created from a plan request: none (the full plan, `plan_mode = 'full'`, rule R0 of [run-plans.md](design/run-plans.md#32-resolution-algorithm)), a preset (`plan_mode = 'preset'`, with `preset_id`, `preset_version` and `preset_sha256`) or targets (`plan_mode = 'free'`). The resolved targets are stored in `targets`; every pipeline slot still gets a `run_slots` row, with `plan_role` saying why it is in the plan and reason `not_requested` when it is not. A preset's `fixed` or `default` implementation choice is recorded as `chosen_by = 'preset'`. The plan is frozen at creation like the other resolutions; resume and retry act on `selected` slots as before, and `not_requested` slots never get attempts. Runs created before 0013 are full-plan runs.
+
 **Parameters.** `effective_parameters` is computed once, at creation, from the manifest defaults, literals, bindings to `cases.sex` and `cases.age_band` (as stored at creation time; later edits of the case do not change existing runs), and the run seed. Each attempt writes exactly this object to `/in/params.json`.
 
 **Bundles.** One `run_slot_bundles` row per resolved requirement, pointing at the exact registered version. The model version used by a slot is found through the bundle (`model_versions.reference_bundle_id`).
@@ -756,10 +786,11 @@ GROUP BY 1, 2;
 | `platform {version, artefact_types_version}` | `platform_version`, `artefact_types_version` |
 | `status` | mapping of 7.1 |
 | `created_at`, `finished_at` | `created_at`, `finished_at` |
+| `plan {mode, preset {id, version, sha256} \| null, targets {required, if_available}}` | `plan_mode`, `preset_id`, `preset_version`, `preset_sha256` (null when `plan_mode <> 'preset'`), `targets`; present for runs created after 0013, and optional for earlier runs (a record without `plan` declares contract 1.0 or 1.1) |
 | `seed`, `input_set` | `seed`, `input_set` |
-| `inputs[] {name, type, sha256, size_bytes}` | `run_inputs` joined to `input_files` (`role`, `artefact_type`, `sha256`, `size_bytes`) |
+| `inputs[] {name, type, sha256, size_bytes, origin}` | `run_inputs` joined to `input_files` (`role`, `artefact_type`, `sha256`, `size_bytes`, `origin`) |
 | `accounting` | `accounting_*` columns |
-| `slots[]` | `run_slots` ordered by `position`; `bundles[]` from `run_slot_bundles` joined to `reference_bundles` (`requirement_name`, `bundle_id`, `version`, `content_digest`) |
+| `slots[]` | `run_slots` ordered by `position`, with `plan_role` from `plan_role` and `implementation.upstream` from `upstream`, reason `not_requested` and `chosen_by: preset` as stored; `bundles[]` from `run_slot_bundles` joined to `reference_bundles` (`requirement_name`, `bundle_id`, `version`, `content_digest`) |
 | `steps[]` | `step_runs` ordered by `queued_at`, `attempt`: `slot` from `run_slots.slot`; `execution` from the executor, runtime, image, digest, job, timing, exit, outcome, `granted_*` (as `resources`) and `usage_*` columns; `provenance` = `step_provenance`; `error` = `step_error` |
 
 Legacy runs (`pipeline_id = 'legacy'`) have no provenance file and are not regenerated.
@@ -781,7 +812,7 @@ Roles: `admin`, `researcher` (current); `reviewer` (clinician), `coordinator`, `
 | Delete case (soft delete, files removed) | all | own | no | no | no |
 | Set `keep_forever` | all | no | no | no | no |
 | List pipelines, slots and enabled implementations | yes | yes | yes | yes | no |
-| Create run (choose implementations) | all | own | no | no | no |
+| Create run (choose implementations; with a preset or, where the deployment policy allows it, with targets) | all | own | no | no | no |
 | Read run status, slot choices, step timeline, provenance | all | own | granted | granted | no |
 | Read step logs | all | own | no | no | no |
 | Cancel run | all | own | no | no | no |
@@ -801,6 +832,7 @@ Roles: `admin`, `researcher` (current); `reviewer` (clinician), `coordinator`, `
 | Read SP2 inputs, submit SP2 results (D8 path 2) | no | no | no | no | granted |
 | Manage users, roles, quotas | all | no | no | no | no |
 | Enable or disable implementations, set defaults | all | no | no | no | no |
+| Enable or disable presets, set the default preset (`preset_settings`, F1-21) | all | no | no | no | no |
 | Register, verify, withdraw bundles (CLI or API) | all | no | no | no | no |
 | Lock model versions, approve recalibration (F1-08, E2-3) | all | no | no | no | no |
 | Admin dashboard, audit log | all | no | no | no | no |
@@ -819,9 +851,9 @@ Phase 0 enforces only the `admin` and `researcher` columns; the API helper that 
 | 1 | `0011_case_model` | F0-12 | `studies`, `processing_jobs` | New tables and columns (sections 4 and 6); one-time back-fill (10.3). Legacy code untouched. |
 | 1b | none | F0-15 | `studies`, `processing_jobs` | The worker's legacy task runs through the orchestrator. On start it upserts the mirror rows of its study and job with the mapping of 10.3 (same derived ids), and on every state change writes both the legacy rows and the new rows. |
 | 2 | `0012_legacy_cutover` | F0-30 (implemented by MIG-02) | new tables | Final reconciliation (10.3 re-run as an upsert); `share_links.study_id` nullable; legacy endpoints become aliases over the new tables (10.4); nothing writes `studies` or `processing_jobs` any more. |
-| 3 | `0013_drop_legacy` | first card of the release after the one that ships F0-30 | new tables | Drops `studies`, `processing_jobs`, the `study_id` columns, `cases.legacy_study_id`, `step_runs.legacy_job_id`, `pipeline_runs.legacy_clinical_review_status`; removes `original_filename` and `bids_subject_id` from `cases.legacy_attributes`; removes the alias endpoints. |
+| 3 | `0014_drop_legacy` | first card of the release after the one that ships F0-30 | new tables | Drops `studies`, `processing_jobs`, the `study_id` columns, `cases.legacy_study_id`, `step_runs.legacy_job_id`, `pipeline_runs.legacy_clinical_review_status`; removes `original_filename` and `bids_subject_id` from `cases.legacy_attributes`; removes the alias endpoints. |
 
-Revision numbers are indicative: other cards may add migrations in between; only the order of these three matters. Between stage 1 and stage 2 nothing user-facing reads the new tables for legacy studies, so mirror rows that lag behind (for example after a legacy delete) are harmless; stage 2 reconciles them.
+Revision numbers are indicative: other cards may add migrations in between; only the order of these three matters. Migration 0013 (F1-18, run plans) was inserted before the removal stage, which is therefore 0014. Between stage 1 and stage 2 nothing user-facing reads the new tables for legacy studies, so mirror rows that lag behind (for example after a legacy delete) are harmless; stage 2 reconciles them.
 
 ### 10.2 Derived identifiers
 
@@ -913,7 +945,8 @@ Every legacy path keeps its method, request and response schema, and returns `De
 | `0011` | Drops the new tables, the added columns and the role `CHECK`. Legacy tables were not modified, so no data needs restoring. Guard: if any case has `legacy_study_id IS NULL` (created by new code), the downgrade aborts unless run with `alembic -x allow_data_loss=true downgrade ...`. Tested in CI by F0-12. |
 | `0012` | (a) For cases with `legacy_study_id`, writes status, timestamps, `deleted_at`, `keep_forever`, error message, review status and current PDF and ZIP paths back to `studies`, and upserts `processing_jobs` from their `step_runs` (attempts created after the cut-over get jobs with `id = step_runs.id`). (b) For cases without a study whose runs all have `pipeline_id = 'legacy'` (uploaded through the alias), inserts `studies` and `processing_jobs` rows from the same mapping in reverse, using `legacy_attributes.original_filename`. (c) Other cases stay only in the new tables, which still exist; old code does not show them, nothing is lost. (d) Share links with `study_id IS NULL` belong to cases of (c); they are deleted (the count is logged) and `share_links.study_id` is made `NOT NULL` again. |
 | (0012, note) | Rows of `audit_events` and `notifications` keep the `case_id` (and `pipeline_run_id`) links written by 0012 and after it; the 0011 schema has these columns, and legacy code ignores them. |
-| `0013` | Irreversible: the downgrade raises. Rollback is the documented procedure of plan section 7: previous tag plus restore of the backup taken before migrating. |
+| `0013` | Drops the new columns of `pipeline_runs`, `run_slots` and `input_files` and the table `preset_settings`, and restores the old `CHECK` lists of `run_slots.reason` and `run_slots.chosen_by`. Refuses, with a message and without changing anything, when any run slot has `reason = 'not_requested'` or `chosen_by = 'preset'` or any run has `plan_mode <> 'full'` (runs are never deleted or rewritten by a downgrade; the way back is the restore of the backup). Declared origins, `upstream` copies and preset settings are dropped, with their counts logged as warnings; back-filled plan roles are derivable and are written again by a new upgrade. Tested in CI on PostgreSQL. |
+| `0014` | Irreversible: the downgrade raises. Rollback is the documented procedure of plan section 7: previous tag plus restore of the backup taken before migrating. |
 
 F0-12's migration test (on PostgreSQL) seeds the 0010 schema with studies in every status, with and without PDF and ZIP, with several jobs (including a stale active job), share links, notifications and audit events; upgrades; checks every mapping rule; runs the back-fill a second time and checks nothing changed; downgrades; and checks the legacy tables are identical to the seed.
 
@@ -962,6 +995,15 @@ Taken during implementation of stage 2 (MIG-02, migration 0012):
 33. Recovery of legacy attempts left without a worker task (`worker/legacy_recovery.py`, `python -m app.cli.legacy_recover`, a pass scheduled by every legacy worker at start-up and by beat): a queued attempt older than `LEGACY_RECOVERY_QUEUED_MINUTES` whose task is not seen on any worker is re-enqueued once (claimed with a compare-and-set on its task id); a running attempt whose task is not active on any worker, when the workers answered, and older than `LEGACY_RECOVERY_RUNNING_HOURS` (and the processing timeout plus 30 minutes) is failed with `failure_code = 'legacy_worker_lost'`. The worker records its own Celery task id on the attempt when it starts it, so the cancel alias always revokes the task that runs.
 34. A cancel that reads a queued run but loses the queued-to-canceled compare-and-set because the worker started the run meanwhile continues as a processing cancel (flag plus SIGTERM), as the legacy endpoint did; it does not answer 409.
 
+Taken during implementation of run plans (F1-18, migration 0013):
+
+35. Migration 0013 is the run-plan revision; the legacy removal revision that earlier text called 0013 is now 0014 (sections 6 and 10). Nothing else about the removal changes.
+36. Existing rows are not rewritten: `plan_mode` and `targets` take their column defaults (`full`, `{}`), which is the meaning of every run created before the migration. Only `run_slots.plan_role` is back-filled (the design's rule, read as: not for legacy rows, not for `condition_false` rows; optional slots and applicable slots that are not selected get `if_available`, which is what rule R0 gives them and what the provenance rule for `upstream_absent` and `unavailable` requires; the other applicable slots get `target`).
+37. One database check beyond the design's list: `ck_run_slots_plan_role_reason` makes the rule "no plan role for `not_requested` and `condition_false`" hold in the database, as the provenance rules (provenance.md 3.2) require. The reverse (a role for every applicable slot) is not enforced, because legacy and back-filled rows exist.
+38. Regex format checks (PostgreSQL only, as in 0011) are added for `preset_id`, `preset_version`, `preset_sha256` and the two id columns of `preset_settings`. The shape of `targets` and `origin` is not checked by the database (the API does; F1-19, F1-21, F1-24), because JSON shape checks differ between PostgreSQL and the SQLite test database.
+39. The 0013 downgrade refuses only for the three conditions of the design (`not_requested`, `chosen_by = 'preset'`, `plan_mode <> 'full'`) and drops declared origins, `upstream` copies and preset settings with a logged warning, not an error: preset settings are configuration that is seeded again, and refusing for them would block every rollback once presets are enabled. There is no `allow_data_loss` override because no run is ever deleted.
+40. `preset_settings` is unique per (`pipeline_id`, `preset_id`) and has at most one default per `pipeline_id`, as `slot_implementation_settings` has per slot; the default is therefore per pipeline, not per input set.
+
 ## 12. Owner decisions on the open points (13 Nov 2026)
 
 These decisions are binding for F0-12. Where they change a rule stated earlier in this document, this section wins, and F0-12 updates the earlier section in the same pull request.
@@ -971,6 +1013,6 @@ These decisions are binding for F0-12. Where they change a rule stated earlier i
 3. **PostgreSQL in CI: separate card.** A CI job running Alembic migrations against PostgreSQL is being added independently (`tests/test_migrations_postgres.py`, enabled by `TEST_POSTGRES_URL`); F0-12 adds its migration tests there and does not edit the workflow.
 4. **Quota scope: inputs and derivatives.** Storage quota counts input files and every stored artefact of the owner's cases.
 5. **Free text in reviews: allowed, limited.** `ReviewRecord.comment` is an optional text column, at most 500 characters; the UI shows a warning not to enter identifying information.
-6. **Legacy audit details: redact.** Migration 0013 replaces upload file names in legacy `study_uploaded` audit events with a fixed placeholder.
+6. **Legacy audit details: redact.** Migration 0014 replaces upload file names in legacy `study_uploaded` audit events with a fixed placeholder.
 7. **Sealed content after opening: coordinator and case owner.** Once a sealed report is opened, the coordinator and the case owner may read it; nobody else.
 8. **Admin and sealed content: confirmed.** Admins are refused sealed content at the API level.

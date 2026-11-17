@@ -17,6 +17,7 @@ from app.models import (
     Case,
     InputFile,
     PipelineRun,
+    PresetSetting,
     ReferenceBundle,
     Report,
     RunInput,
@@ -32,6 +33,7 @@ from app.models.case import (
     is_valid_age_band,
     valid_age_bands,
 )
+from app.models._common import utcnow
 from app.schemas.case import CaseCreate, CaseRead, CaseUpdate
 from app.schemas.bundle import SlotImplementationSettingUpdate
 from app.schemas.run import PipelineRunRead, RunSlotRead, StepRunRead
@@ -635,3 +637,150 @@ def test_0011_relative_rejects_paths_escaping_the_storage_root(tmp_path):
         module._relative(str(root / "abc" / ".." / ".." / "other" / "x.pdf"), root)
     with pytest.raises(ValueError):
         module._relative("/elsewhere/x.pdf", root)
+
+
+def test_run_plan_columns_and_constraints(db, user):
+    case = make_case(db, user)
+    # no plan request: the full plan (rule R0)
+    full = make_run(db, case, status="succeeded", finished_at=utcnow())
+    assert full.plan_mode == "full" and full.targets == {}
+    assert full.preset_id is None and full.preset_version is None
+    assert full.preset_sha256 is None
+
+    preset = dict(
+        plan_mode="preset",
+        preset_id="mni-mask-analysis",
+        preset_version="1.0.0",
+        preset_sha256="c" * 64,
+    )
+    targets = {"required": ["normalisation.lesion_mni"], "if_available": []}
+    run = make_run(
+        db, case, status="succeeded", finished_at=utcnow(), targets=targets, **preset
+    )
+    db.refresh(run)
+    assert run.targets == targets
+    make_run(
+        db, case, status="succeeded", finished_at=utcnow(), plan_mode="free", targets=targets
+    )
+
+    def refused(**kw):
+        with pytest.raises(IntegrityError):
+            make_run(db, case, status="succeeded", finished_at=utcnow(), **kw)
+        db.rollback()
+
+    refused(plan_mode="custom")
+    refused(plan_mode="preset")  # preset mode needs the preset
+    refused(**{**preset, "plan_mode": "free"})  # the preset only goes with preset mode
+    refused(**{**preset, "plan_mode": "full"})
+    refused(preset_id="mni-mask-analysis")  # all three columns or none
+    refused(**{**preset, "preset_sha256": None})
+    refused(**{**preset, "preset_version": None})
+    with pytest.raises(ValueError):
+        PipelineRun(preset_id="Not Kebab")
+    with pytest.raises(ValueError):
+        PipelineRun(preset_version="v1")
+    with pytest.raises(ValueError):
+        PipelineRun(preset_sha256="C" * 64)
+
+
+def test_run_slot_plan_values(db, user):
+    case = make_case(db, user)
+    run = make_run(db, case)
+    skipped = dict(
+        status="skipped",
+        implementation_id=None,
+        step_name=None,
+        step_version=None,
+        image=None,
+        stub=None,
+        chosen_by=None,
+        effective_parameters=None,
+    )
+    chosen = make_slot(
+        db, run, slot="a", position=0, chosen_by="preset", plan_role="upstream"
+    )
+    assert chosen.plan_role == "upstream" and chosen.upstream is None
+    external = make_slot(
+        db,
+        run,
+        slot="b",
+        position=1,
+        optional=True,
+        plan_role="if_available",
+        upstream={"tool": "some-tool"},
+    )
+    db.refresh(external)
+    assert external.upstream == {"tool": "some-tool"}
+    make_slot(db, run, slot="c", position=2, plan_role="target")
+    # a slot outside the plan, and a slot whose condition is false, have no plan role
+    make_slot(db, run, slot="d", position=3, reason="not_requested", **skipped)
+    make_slot(db, run, slot="e", position=4, reason="condition_false", **skipped)
+    # rows written without any plan field (legacy rows, rows of 1.0 and 1.1 runs) are valid
+    assert make_slot(db, run, slot="f", position=5).plan_role is None
+
+    def refused(position, **kw):
+        with pytest.raises(IntegrityError):
+            make_slot(db, run, slot=f"x{position}", position=position, **kw)
+        db.rollback()
+
+    refused(10, plan_role="sidecar")
+    refused(11, chosen_by="admin")
+    refused(12, reason="unknown", **skipped)
+    refused(13, reason="not_requested", plan_role="target", **skipped)
+    refused(14, reason="condition_false", plan_role="if_available", **skipped)
+    # not_requested is a skip: it cannot carry an implementation
+    refused(15, reason="not_requested", status="skipped")
+    refused(16, reason="not_requested", status="selected")
+
+
+def test_preset_settings(db):
+    def setting(pipeline, preset, enabled, default):
+        row = PresetSetting(
+            pipeline_id=pipeline, preset_id=preset, enabled=enabled, is_default=default
+        )
+        db.add(row)
+        db.commit()
+        return row
+
+    first = setting("stroke-lnm", "full-lnm", True, True)
+    assert first.updated_at is not None and first.updated_by_user_id is None
+    setting("stroke-lnm", "ct-only", True, False)
+    setting("other-pipeline", "full-lnm", False, False)
+    setting("other-pipeline", "ct-only", True, True)  # one default per pipeline id
+    with pytest.raises(IntegrityError):  # second default for the pipeline
+        setting("stroke-lnm", "qc-only", True, True)
+    db.rollback()
+    with pytest.raises(IntegrityError):  # a default must be enabled
+        setting("stroke-lnm", "qc-only", False, True)
+    db.rollback()
+    with pytest.raises(IntegrityError):  # one row per preset id
+        setting("stroke-lnm", "ct-only", True, False)
+    db.rollback()
+    with pytest.raises(ValueError):
+        PresetSetting(pipeline_id="stroke-lnm", preset_id="Bad_Id")
+    with pytest.raises(ValueError):
+        PresetSetting(pipeline_id="Bad Id", preset_id="ct-only")
+
+
+def test_input_file_declared_origin(db, user):
+    case = make_case(db, user)
+
+    def upload(role, **kw):
+        row = InputFile(
+            case_id=case.id,
+            role=role,
+            artefact_type="lesion_mask_native",
+            storage_path=f"sub-x/{role}.nii.gz",
+            sha256=SHA,
+            size_bytes=10,
+            uploaded_by_user_id=user.id,
+            **kw,
+        )
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+        return row
+
+    assert upload("lesion_native").origin is None  # not declared
+    origin = {"kind": "external-tool", "tool": "some-tool", "version": "1.2"}
+    assert upload("lesion_mni", origin=origin).origin == origin

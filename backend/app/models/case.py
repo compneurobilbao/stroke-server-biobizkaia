@@ -108,7 +108,7 @@ class Case(Base):
     keep_forever: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("false")
     )
-    # Back-filled rows only (equal to id); dropped by migration 0013.
+    # Back-filled rows only (equal to id); dropped by migration 0014.
     legacy_study_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("studies.id"))
     # Fields used only by the legacy aliases (section 10.4); NULL for cases never touched
     # by an alias.
@@ -166,6 +166,9 @@ class InputFile(Base):
     created_at: Mapped[datetime] = mapped_column(
         tz_datetime(), nullable=False, default=utcnow
     )
+    # Origin declared by the uploader (contract 1.2 `inputs[].origin`); NULL when none was
+    # declared. The platform cannot verify it. Its shape is validated by the API (F1-24).
+    origin: Mapped[dict | None] = mapped_column(JSONType)
 
     case = relationship("Case", back_populates="input_files")
 
