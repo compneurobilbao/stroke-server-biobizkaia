@@ -4,6 +4,7 @@ The PostgreSQL-only parts (regex CHECKs, the back-fill, the downgrade) are teste
 tests/test_migrations_postgres.py.
 """
 
+import re
 import uuid
 
 import pytest
@@ -639,6 +640,14 @@ def test_0011_relative_rejects_paths_escaping_the_storage_root(tmp_path):
         module._relative("/elsewhere/x.pdf", root)
 
 
+def assert_names(err, name: str | None) -> None:
+    """The violated CHECK is `name`, where the dialect reports names (SQLite and
+    PostgreSQL both name CHECK constraints; UNIQUE violations are not compared)."""
+    match = re.search(r'(?:constraint failed: |check constraint ")(\w+)', str(err.value))
+    if name is not None and match:
+        assert match.group(1) == name, str(err.value)
+
+
 def test_run_plan_columns_and_constraints(db, user):
     case = make_case(db, user)
     # no plan request: the full plan (rule R0)
@@ -663,18 +672,22 @@ def test_run_plan_columns_and_constraints(db, user):
         db, case, status="succeeded", finished_at=utcnow(), plan_mode="free", targets=targets
     )
 
-    def refused(**kw):
-        with pytest.raises(IntegrityError):
+    def refused(name, **kw):
+        with pytest.raises(IntegrityError) as err:
             make_run(db, case, status="succeeded", finished_at=utcnow(), **kw)
         db.rollback()
+        assert_names(err, name)
 
-    refused(plan_mode="custom")
-    refused(plan_mode="preset")  # preset mode needs the preset
-    refused(**{**preset, "plan_mode": "free"})  # the preset only goes with preset mode
-    refused(**{**preset, "plan_mode": "full"})
-    refused(preset_id="mni-mask-analysis")  # all three columns or none
-    refused(**{**preset, "preset_sha256": None})
-    refused(**{**preset, "preset_version": None})
+    refused("ck_pipeline_runs_plan_mode", plan_mode="custom")
+    # preset mode needs the preset; the preset only goes with preset mode
+    refused("ck_pipeline_runs_preset_mode", plan_mode="preset")
+    refused("ck_pipeline_runs_preset_mode", **{**preset, "plan_mode": "free"})
+    refused("ck_pipeline_runs_preset_mode", **{**preset, "plan_mode": "full"})
+    # all three columns or none
+    only_id = dict(plan_mode="preset", preset_id="mni-mask-analysis")
+    refused("ck_pipeline_runs_preset_all_or_none", **only_id)
+    refused("ck_pipeline_runs_preset_all_or_none", **{**preset, "preset_sha256": None})
+    refused("ck_pipeline_runs_preset_all_or_none", **{**preset, "preset_version": None})
     with pytest.raises(ValueError):
         PipelineRun(preset_id="Not Kebab")
     with pytest.raises(ValueError):
@@ -718,19 +731,33 @@ def test_run_slot_plan_values(db, user):
     # rows written without any plan field (legacy rows, rows of 1.0 and 1.1 runs) are valid
     assert make_slot(db, run, slot="f", position=5).plan_role is None
 
-    def refused(position, **kw):
-        with pytest.raises(IntegrityError):
+    def refused(name, position, **kw):
+        with pytest.raises(IntegrityError) as err:
             make_slot(db, run, slot=f"x{position}", position=position, **kw)
         db.rollback()
+        assert_names(err, name)
 
-    refused(10, plan_role="sidecar")
-    refused(11, chosen_by="admin")
-    refused(12, reason="unknown", **skipped)
-    refused(13, reason="not_requested", plan_role="target", **skipped)
-    refused(14, reason="condition_false", plan_role="if_available", **skipped)
+    # each row violates exactly one constraint
+    refused("ck_run_slots_plan_role", 10, plan_role="sidecar")
+    refused("ck_run_slots_chosen_by", 11, chosen_by="admin")
+    refused("ck_run_slots_reason", 12, reason="unknown", **skipped)
+    refused(
+        "ck_run_slots_plan_role_reason",
+        13,
+        reason="not_requested",
+        plan_role="target",
+        **skipped,
+    )
+    refused(
+        "ck_run_slots_plan_role_reason",
+        14,
+        reason="condition_false",
+        plan_role="if_available",
+        **skipped,
+    )
     # not_requested is a skip: it cannot carry an implementation
-    refused(15, reason="not_requested", status="skipped")
-    refused(16, reason="not_requested", status="selected")
+    refused("ck_run_slots_selected", 15, reason="not_requested", status="skipped")
+    refused("ck_run_slots_selected", 16, reason="not_requested", status="selected")
 
 
 def test_preset_settings(db):
@@ -750,9 +777,10 @@ def test_preset_settings(db):
     with pytest.raises(IntegrityError):  # second default for the pipeline
         setting("stroke-lnm", "qc-only", True, True)
     db.rollback()
-    with pytest.raises(IntegrityError):  # a default must be enabled
+    with pytest.raises(IntegrityError) as err:  # a default must be enabled
         setting("stroke-lnm", "qc-only", False, True)
     db.rollback()
+    assert_names(err, "ck_preset_settings_default_enabled")
     with pytest.raises(IntegrityError):  # one row per preset id
         setting("stroke-lnm", "ct-only", True, False)
     db.rollback()

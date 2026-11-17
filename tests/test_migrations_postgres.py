@@ -8,6 +8,7 @@ Add further PostgreSQL migration tests here and mark them with `pytest.mark.post
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 import uuid
@@ -1150,6 +1151,14 @@ def test_0011_schema_matches_the_orm_models(pg_engine):
         assert column in Base.metadata.tables[table].columns
         names = {c["name"] for c in inspector.get_check_constraints(table)}
         assert f"ck_{table}_{column}_format" in names
+    path = BACKEND_DIR / "alembic" / "versions" / "0013_run_plans.py"
+    spec = importlib.util.spec_from_file_location("migration_0013", path)
+    plans = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(plans)
+    for table, column, _pattern in plans.FORMAT_CHECKS:
+        assert column in Base.metadata.tables[table].columns
+        names = {c["name"] for c in inspector.get_check_constraints(table)}
+        assert f"ck_{table}_{column}_format" in names
 
 
 # ---------------------------------------------------------------------------------------
@@ -1743,11 +1752,21 @@ def _insert_slot(conn, run_id, slot, position, optional, kind, **extra) -> None:
     )
 
 
+class _Reported(str):
+    """The constraint a violation names. ``name in reported`` is an exact comparison, so
+    that ``ck_run_slots_plan_role`` does not match ``ck_run_slots_plan_role_reason``."""
+
+    def __contains__(self, other) -> bool:
+        return str.__eq__(self, other)
+
+
 def _violation(engine, sql: str, **params) -> str:
     with pytest.raises(IntegrityError) as err:
         with engine.begin() as conn:
             conn.execute(text(sql), params)
-    return str(err.value)
+    message = str(err.value)
+    match = re.search(r'constraint "(\w+)"', message)
+    return _Reported(match.group(1)) if match else message
 
 
 @pytest.fixture()
@@ -1893,7 +1912,7 @@ def test_0013_new_constraints(pg_engine, at_0012):
         **params(),
     )
     # the three preset columns are all null or all set
-    for values in (":pid, NULL, :ps", ":pid, :pv, NULL"):
+    for values in (":pid, NULL, :ps", ":pid, :pv, NULL", ":pid, NULL, NULL"):
         assert "ck_pipeline_runs_preset_all_or_none" in _violation(
             pg_engine,
             run_sql(
@@ -1951,7 +1970,7 @@ def test_0013_new_constraints(pg_engine, at_0012):
         pg_engine, skipped("'nope'"), r=run, s="s1", p=20
     )
     assert "ck_run_slots_plan_role" in _violation(
-        pg_engine, skipped("'not_requested'", "'sidecar'"), r=run, s="s3", p=22
+        pg_engine, skipped("'upstream_absent'", "'sidecar'"), r=run, s="s3", p=22
     )
     # not_requested and condition_false rows have no plan role
     assert "ck_run_slots_plan_role_reason" in _violation(
@@ -1961,13 +1980,10 @@ def test_0013_new_constraints(pg_engine, at_0012):
         pg_engine, skipped("'condition_false'", "'if_available'"), r=run, s="s5", p=24
     )
     # chosen_by accepts preset and nothing else new; ck_run_slots_selected still applies
-    assert "ck_run_slots_chosen_by" in _violation(
-        pg_engine,
-        skipped("'not_requested'", "NULL", "'admin'"),
-        r=run,
-        s="s2",
-        p=21,
-    )
+    with pytest.raises(IntegrityError) as err:  # a selected row: only chosen_by can fire
+        with pg_engine.begin() as conn:
+            _insert_slot(conn, run, "s2", 21, False, "selected", chosen_by="admin")
+    assert 'constraint "ck_run_slots_chosen_by"' in str(err.value)
     assert "ck_run_slots_selected" in _violation(
         pg_engine,
         skipped("'not_requested'", "NULL", "'preset'"),
@@ -2020,12 +2036,8 @@ def test_0013_downgrade_restores_the_0012_schema_and_data(pg_engine, at_0012):
     checks = {t: _check_names(pg_engine, t) for t in PLAN_TABLES}
     before = _snapshot(pg_engine, columns)
     alembic("upgrade", REV_PLANS, STORAGE_ROOT=str(at_0012))
-    # new data that the downgrade is allowed to drop
+    # preset settings are the only new data a downgrade drops (with a warning)
     with pg_engine.begin() as conn:
-        conn.execute(
-            text("UPDATE input_files SET origin = CAST(:o AS jsonb) WHERE case_id = :c"),
-            {"o": json.dumps({"kind": "manual"}), "c": PIPELINE_CASE},
-        )
         conn.execute(
             text(
                 "INSERT INTO preset_settings (id, pipeline_id, preset_id, enabled,"
@@ -2050,6 +2062,14 @@ def test_0013_downgrade_restores_the_0012_schema_and_data(pg_engine, at_0012):
     assert "ck_run_slots_reason" in _violation(
         pg_engine, insert, r=PIPELINE_RUN, reason="not_requested", chosen=None
     )
+    with pytest.raises(IntegrityError) as err:  # a selected row chosen by a preset
+        with pg_engine.begin() as conn:
+            _insert_slot(
+                conn, PIPELINE_RUN, "x", 31, False, "selected", chosen_by="preset"
+            )
+    assert 'constraint "ck_run_slots_chosen_by"' in str(err.value)
+    for column in ("plan_mode", "targets", "preset_id"):
+        assert column not in _table_columns(pg_engine, "pipeline_runs")
 
     # and the upgrade can be applied again, with the same back-fill
     alembic("upgrade", REV_PLANS, STORAGE_ROOT=str(at_0012))
@@ -2075,6 +2095,16 @@ def test_0013_downgrade_restores_the_0012_schema_and_data(pg_engine, at_0012):
             " AND pipeline_run_id = :r",
             "chosen by a preset",
         ),
+        (
+            "UPDATE run_slots SET upstream = CAST('{\"tool\": \"x\"}' AS jsonb)"
+            " WHERE slot = 'qc-report' AND pipeline_run_id = :r",
+            "run slots with an upstream block",
+        ),
+        (
+            "UPDATE input_files SET origin = CAST('{\"kind\": \"manual\"}' AS jsonb)"
+            " WHERE case_id IN (SELECT case_id FROM pipeline_runs WHERE id = :r)",
+            "input files with a declared origin",
+        ),
     ],
 )
 def test_0013_downgrade_refuses_when_plan_values_are_in_use(
@@ -2086,7 +2116,7 @@ def test_0013_downgrade_refuses_when_plan_values_are_in_use(
     refused = alembic_run("downgrade", REV_CUTOVER, STORAGE_ROOT=str(at_0012))
     assert refused.returncode != 0
     assert message in refused.stderr
-    assert "Runs are not deleted" in refused.stderr
+    assert "remove that data deliberately" in refused.stderr
     # nothing was changed: still at 0013, run and slot rows intact
     assert version(pg_engine) == REV_PLANS
     count = one(pg_engine, "SELECT count(*) AS n FROM run_slots WHERE pipeline_run_id = :r", r=PIPELINE_RUN)
@@ -2098,5 +2128,13 @@ def test_0013_on_an_empty_database(pg_engine):
     alembic("upgrade", "head")
     assert "preset_settings" in user_tables(pg_engine)
     alembic("downgrade", REV_CUTOVER)
+    assert version(pg_engine) == REV_CUTOVER
     assert "preset_settings" not in user_tables(pg_engine)
+    assert "plan_mode" not in _table_columns(pg_engine, "pipeline_runs")
+    assert "plan_role" not in _table_columns(pg_engine, "run_slots")
+    assert "origin" not in _table_columns(pg_engine, "input_files")
+    assert "ck_run_slots_plan_role" not in _check_names(pg_engine, "run_slots")
     alembic("upgrade", "head")
+    assert version(pg_engine) == REV_PLANS
+    assert "plan_mode" in _table_columns(pg_engine, "pipeline_runs")
+    assert "ck_run_slots_plan_role_reason" in _check_names(pg_engine, "run_slots")

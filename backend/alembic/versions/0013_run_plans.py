@@ -17,8 +17,9 @@ Upgrade:
 
 Downgrade drops the new columns and the table and restores the two check lists. It refuses,
 with a message, when rows use ``not_requested``, ``chosen_by = 'preset'`` or
-``plan_mode <> 'full'``, rather than deleting runs or rewriting their meaning. Declared
-origins, ``upstream`` copies and preset settings are dropped; their counts are logged.
+``plan_mode <> 'full'``, or when ``run_slots.upstream`` or ``input_files.origin`` hold
+data (external-tool provenance and declared origins are not dropped silently), rather than
+deleting runs or rewriting their meaning. Preset settings are dropped; their count is logged.
 
 Revision ID: 0013_run_plans
 Revises: 0012_legacy_cutover
@@ -199,6 +200,12 @@ def downgrade() -> None:
         "runs with a plan mode other than full": (
             "SELECT count(*) FROM pipeline_runs WHERE plan_mode <> 'full'"
         ),
+        "run slots with an upstream block": (
+            "SELECT count(*) FROM run_slots WHERE upstream IS NOT NULL"
+        ),
+        "input files with a declared origin": (
+            "SELECT count(*) FROM input_files WHERE origin IS NOT NULL"
+        ),
     }
     for label, query in checks.items():
         count = conn.execute(sa.text(query)).scalar()
@@ -206,20 +213,14 @@ def downgrade() -> None:
             problems.append(f"{count} {label}")
     if problems:
         raise RuntimeError(
-            "downgrading 0013 would make existing runs unreadable by the previous schema ("
+            "downgrading 0013 would lose or misread plan data ("
             + "; ".join(problems)
             + "). Runs are not deleted by a downgrade: restore the backup taken before the"
-            " upgrade, or remove those runs deliberately first."
+            " upgrade, or remove that data deliberately first."
         )
-    dropped = {
-        "declared input origins": "SELECT count(*) FROM input_files WHERE origin IS NOT NULL",
-        "run slot upstream blocks": "SELECT count(*) FROM run_slots WHERE upstream IS NOT NULL",
-        "preset settings": "SELECT count(*) FROM preset_settings",
-    }
-    for label, query in dropped.items():
-        count = conn.execute(sa.text(query)).scalar()
-        if count:
-            log.warning("downgrade 0013 drops %s %s", count, label)
+    settings = conn.execute(sa.text("SELECT count(*) FROM preset_settings")).scalar()
+    if settings:
+        log.warning("downgrade 0013 drops %s preset settings", settings)
 
     op.drop_index("uq_preset_settings_default", table_name="preset_settings")
     op.drop_table("preset_settings")
