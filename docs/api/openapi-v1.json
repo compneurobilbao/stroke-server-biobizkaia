@@ -121,6 +121,17 @@
             "format": "binary",
             "title": "File",
             "type": "string"
+          },
+          "origin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origin"
           }
         },
         "required": [
@@ -426,6 +437,34 @@
         "title": "ConfigRead",
         "type": "object"
       },
+      "ExternalToolOrigin": {
+        "additionalProperties": false,
+        "description": "The file was produced by a tool outside the platform.",
+        "properties": {
+          "kind": {
+            "const": "external-tool",
+            "title": "Kind",
+            "type": "string"
+          },
+          "tool": {
+            "pattern": "^[A-Za-z0-9._+-]{1,64}$",
+            "title": "Tool",
+            "type": "string"
+          },
+          "version": {
+            "pattern": "^[A-Za-z0-9._+-]{1,64}$",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "tool",
+          "version"
+        ],
+        "title": "ExternalToolOrigin",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -560,6 +599,31 @@
             "title": "Id",
             "type": "string"
           },
+          "origin": {
+            "anyOf": [
+              {
+                "discriminator": {
+                  "mapping": {
+                    "external-tool": "#/components/schemas/ExternalToolOrigin",
+                    "manual": "#/components/schemas/ManualOrigin"
+                  },
+                  "propertyName": "kind"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/ManualOrigin"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ExternalToolOrigin"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origin"
+          },
           "role": {
             "maxLength": 64,
             "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*$",
@@ -607,6 +671,42 @@
         "title": "InputFileRead",
         "type": "object"
       },
+      "InputOriginUpdate": {
+        "additionalProperties": false,
+        "description": "Body of the origin change: the new declaration, or null to clear it.",
+        "properties": {
+          "origin": {
+            "anyOf": [
+              {
+                "discriminator": {
+                  "mapping": {
+                    "external-tool": "#/components/schemas/ExternalToolOrigin",
+                    "manual": "#/components/schemas/ManualOrigin"
+                  },
+                  "propertyName": "kind"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/ManualOrigin"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ExternalToolOrigin"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origin"
+          }
+        },
+        "required": [
+          "origin"
+        ],
+        "title": "InputOriginUpdate",
+        "type": "object"
+      },
       "InputSetRead": {
         "properties": {
           "description": {
@@ -637,6 +737,22 @@
           "inputs"
         ],
         "title": "InputSetRead",
+        "type": "object"
+      },
+      "ManualOrigin": {
+        "additionalProperties": false,
+        "description": "The file was drawn by hand.",
+        "properties": {
+          "kind": {
+            "const": "manual",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "ManualOrigin",
         "type": "object"
       },
       "PipelineDetail": {
@@ -2085,6 +2201,31 @@
             "format": "uuid",
             "title": "Input File Id",
             "type": "string"
+          },
+          "origin": {
+            "anyOf": [
+              {
+                "discriminator": {
+                  "mapping": {
+                    "external-tool": "#/components/schemas/ExternalToolOrigin",
+                    "manual": "#/components/schemas/ManualOrigin"
+                  },
+                  "propertyName": "kind"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/ManualOrigin"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ExternalToolOrigin"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origin"
           },
           "role": {
             "maxLength": 64,
@@ -3554,8 +3695,74 @@
           "cases"
         ]
       },
+      "patch": {
+        "description": "Change or clear the declared origin of an input without uploading it again.\nSame rule and lock as replacing the file: refused once the case has a run.",
+        "operationId": "patch_input_origin_api_v1_cases__case_id__inputs__role__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Case Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "role",
+            "required": true,
+            "schema": {
+              "title": "Role",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InputOriginUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InputFileRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Patch Input Origin",
+        "tags": [
+          "cases"
+        ]
+      },
       "put": {
-        "description": "Upload or replace the input of one role (for example ``ct``, ``lesion_native``,\n``lesion_mni``), before the first run. 201 for a new role, 200 for a replacement.",
+        "description": "Upload or replace the input of one role (for example ``ct``, ``lesion_native``,\n``lesion_mni``), before the first run. 201 for a new role, 200 for a replacement.\n\n``origin`` is an optional JSON object declaring how a supplied file was made\n(``{\"kind\": \"manual\"}`` or ``{\"kind\": \"external-tool\", \"tool\", \"version\"}``). It is\nstored as declared and never verified; a replacement without ``origin`` clears the\nprevious declaration, since it described the previous file.",
         "operationId": "put_input_api_v1_cases__case_id__inputs__role__put",
         "parameters": [
           {

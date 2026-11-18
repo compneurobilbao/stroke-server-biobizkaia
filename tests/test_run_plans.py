@@ -16,6 +16,7 @@ import pytest
 from sqlalchemy import select, update
 
 from app.models import (
+    InputFile,
     PipelineRun,
     PresetSetting,
     RunSlot,
@@ -378,6 +379,80 @@ def test_runs_without_plan_roles_are_regenerated_without_a_plan(plan_env):
     assert record["contract_version"] == "1.1" and "plan" not in record
     assert not any("plan_role" in s for s in record["slots"])
     _valid(record)
+
+
+MASK_ORIGIN = {"kind": "external-tool", "tool": "example-tool", "version": "1.2.3"}
+
+
+def _declare(env, case_id, role, origin):
+    with env.Session() as db:
+        db.execute(
+            update(InputFile)
+            .where(InputFile.case_id == case_id, InputFile.role == role)
+            .values(origin=origin)
+        )
+        db.commit()
+
+
+def test_declared_input_origin_is_copied_into_the_12_record(plan_env):
+    env = plan_env()
+    case_id = env.make_case()
+    _declare(env, case_id, "lesion_native", MASK_ORIGIN)
+    _declare(env, case_id, "ct", {"kind": "manual"})
+    run_id = env.create(case_id)
+    assert env.drive(run_id) is TickResult.FINISHED
+    for record in (_run_file(env, run_id), _regenerated(env, run_id)):
+        assert record["contract_version"] == "1.2"
+        origins = {i["name"]: i.get("origin") for i in record["inputs"]}
+        assert origins == {"ct": {"kind": "manual"}, "lesion_native": MASK_ORIGIN}
+        _valid(record)
+
+
+def _regenerated(env, run_id) -> dict:
+    with env.Session() as db:
+        return build_run_provenance(db, db.get(PipelineRun, run_id))
+
+
+def test_undeclared_inputs_have_no_origin_key(plan_env):
+    env = plan_env()
+    run_id = env.create(env.make_case())
+    record = _regenerated(env, run_id)
+    assert all("origin" not in i for i in record["inputs"])
+    _valid(record)
+
+
+def test_a_11_record_never_carries_a_declared_origin(plan_env):
+    """Origins are a 1.2 field: a run without plan roles is written as 1.1."""
+    env = plan_env()
+    case_id = env.make_case(roles=("lesion_mni",))
+    _declare(env, case_id, "lesion_mni", MASK_ORIGIN)
+    run_id = env.create(case_id)
+    with env.Session() as db:
+        db.execute(
+            update(RunSlot)
+            .where(RunSlot.pipeline_run_id == run_id)
+            .values(plan_role=None)
+        )
+        db.commit()
+    record = _regenerated(env, run_id)
+    assert record["contract_version"] == "1.1"
+    assert all("origin" not in i for i in record["inputs"])
+    _valid(record)
+
+
+def test_steps_declaring_an_older_contract_get_the_record_without_origins(plan_env):
+    env = plan_env(report_contract="1.0")
+    case_id = env.make_case()
+    _declare(env, case_id, "lesion_native", MASK_ORIGIN)
+    run_id = env.create(case_id)
+    assert env.drive(run_id) is TickResult.FINISHED
+    assert any(
+        "origin" in i for i in _run_file(env, run_id)["inputs"]
+    )  # the run record keeps it
+    (staged,) = env.executor.staged_records
+    assert staged["contract_version"] == "1.0"
+    assert all("origin" not in i for i in staged["inputs"])
+    _valid(staged)
 
 
 def test_step_runs_are_never_created_for_skipped_slots(plan_env):

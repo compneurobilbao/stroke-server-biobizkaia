@@ -5,6 +5,7 @@ import { errorText } from '../../api/client';
 import { getCase, listCaseRuns, type CaseDetail, type RunRead } from '../../api/v1';
 import { useFormatters } from '../../shared/useFormatters';
 import { useAuth } from '../auth/AuthContext';
+import { originText } from './RunPlanSummary';
 import { RunStatusBadge } from './RunStatusBadge';
 
 export function CaseDetailPage() {
@@ -63,9 +64,22 @@ export function CaseDetailPage() {
           <dd>{date(item.created_at)}</dd>
           <dt>{t('cases.detail.inputs')}</dt>
           <dd>
-            {(item.inputs ?? []).length === 0
-              ? t('common.notInformed')
-              : (item.inputs ?? []).map((input) => t(`cases.roles.${input.role}`, { defaultValue: input.role })).join(', ')}
+            {(item.inputs ?? []).length === 0 ? (
+              t('common.notInformed')
+            ) : (
+              <ul className="plain-list">
+                {(item.inputs ?? []).map((input) => (
+                  <li key={input.role} data-testid={`input-${input.role}`}>
+                    {t(`cases.roles.${input.role}`, { defaultValue: input.role })}
+                    {input.origin && (
+                      <span className="hint block">
+                        {t('cases.run.declaredByUser')}: {originText(t, input.origin)}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
           </dd>
         </dl>
       </section>
