@@ -116,11 +116,14 @@ def test_external_entry_without_validation_fails(docs, root):
 def test_validated_needs_a_record_file(docs, root):
     found = errors_for(docs, root, lambda e: e["validation"].update(status="validated"))
     assert any("validation.record" in e for e in found), found
+    assert any("validation.reviewed_by" in e for e in found), found
+    assert any("reviewed licence_review" in e for e in found), found
     (root / "record.md").write_text("validation record", encoding="utf-8")
-    found = errors_for(
-        docs, root, lambda e: e["validation"].update(status="validated", record="record.md")
-    )
-    assert found == []
+    def sign_off(e):
+        e["validation"].update(status="validated", record="record.md", reviewed_by="reviewer")
+        e["licence_review"].update(status="reviewed", reviewed="2026-11-18", reviewed_by="reviewer")
+
+    assert errors_for(docs, root, sign_off) == []
 
 
 def test_unpinned_base_image_fails(docs, root):
@@ -189,7 +192,22 @@ def test_build_local_goes_with_a_licence_that_forbids_publishing(docs, root):
         forbid(e)
         e["build"] = "local"
 
-    assert errors_for(docs, root, local) == []
+    # the committed image is on the public registry: a local build never is
+    found = errors_for(docs, root, local)
+    assert any("never on a public registry" in e for e in found), found
+    pipeline, registry = copy.deepcopy(docs[0]), copy.deepcopy(docs[1])
+    entry = registry["implementations"][SLOT][IMPL]
+    local(entry)
+    entry["image"] = "registry.example.org/local/step-flnm-fast@sha256:" + "0" * 64
+    allowed = next(a for a in pipeline["slots"][2]["implementations"]["allowed"] if a["id"] == IMPL)
+    allowed["image"] = entry["image"]
+    assert registry_tool.check(pipeline, registry, root=root) == []
+    # CI neither builds nor pushes it; materialize leaves it alone without a digest
+    assert "flnm-fast@1.1.0" not in registry_tool.sources(registry)
+    assert "flnm-fast@1.1.0" in registry_tool.sources(registry, local=True)
+    digests = {k: f"docker.io/x/{k.split('@')[0]}@sha256:" + "1" * 64 for k in registry_tool.sources(registry)}
+    _p, out = registry_tool.materialize(pipeline, registry, digests)
+    assert out["implementations"][SLOT][IMPL]["image"] == entry["image"]
 
 
 def test_build_local_is_for_external_entries(docs, root):
@@ -235,8 +253,10 @@ def test_level_rule(docs):
     impls = docs[1]["implementations"]
     assert registry_tool.validation_level(impls[SLOT][IMPL]) == "reference-tested"
     assert registry_tool.validation_level(impls[SLOT]["fdisconnection-stub"]) == "unvalidated"
-    assert registry_tool.validation_level(impls["lesion-intake"]["lesion-qc"]) == "validated"
+    assert registry_tool.validation_level(impls["lesion-intake"]["lesion-qc"]) == "reference-tested"
+    assert registry_tool.validation_level({"kind": "real"}) == "unvalidated"
     assert registry_tool.validation_level({"kind": "real", "origin": "external"}) == "unvalidated"
+    # nothing is validated implicitly: a real in-house step without a status is unvalidated
     assert registry_tool.validation_level({"kind": "planned"}) == "unvalidated"
 
 
@@ -255,3 +275,48 @@ def test_cli_check_fails_on_a_damaged_registry(tmp_path):
     )
     assert done.returncode == 1
     assert "needs a licence_review" in done.stderr
+
+
+def test_every_real_entry_needs_an_explicit_validation_status(docs, root):
+    pipeline, registry = copy.deepcopy(docs[0]), copy.deepcopy(docs[1])
+    del registry["implementations"]["lesion-intake"]["lesion-qc"]["validation"]
+    found = registry_tool.check(pipeline, registry, root=root)
+    assert any("explicit validation.status" in e for e in found), found
+    # and no profile but ci would enable it
+    assert any("profile deployment: lesion-intake/lesion-qc is unvalidated" in e for e in found)
+    for impls in docs[1]["implementations"].values():
+        for entry in impls.values():
+            if entry["kind"] == "real":
+                assert entry["validation"]["status"] in ("reference-tested", "validated")
+            assert entry["validation"]["status"] != "validated" if "validation" in entry else True
+
+
+def test_licence_review_pending_and_reviewed_states(docs, root):
+    entry = docs[1]["implementations"][SLOT][IMPL]
+    assert entry["licence_review"]["status"] == "pending"
+    assert "reviewed" not in entry["licence_review"]
+
+    def reviewed_without_who(e):
+        e["licence_review"]["status"] = "reviewed"
+
+    found = errors_for(docs, root, reviewed_without_who)
+    assert any("licence_review.reviewed is missing" in e for e in found), found
+    assert any("licence_review.reviewed_by is missing" in e for e in found), found
+
+    def reviewed(e):
+        e["licence_review"].update(status="reviewed", reviewed="2026-11-18", reviewed_by="reviewer")
+
+    assert errors_for(docs, root, reviewed) == []
+
+    def pending_with_date(e):
+        e["licence_review"]["reviewed"] = "2026-11-18"
+
+    found = errors_for(docs, root, pending_with_date)
+    assert any("pending licence_review has no reviewed" in e for e in found), found
+    found = errors_for(docs, root, lambda e: e["licence_review"].update(status="done"))
+    assert any("licence_review.status must be one of" in e for e in found), found
+
+
+def test_external_entry_needs_a_citation(docs, root):
+    found = errors_for(docs, root, manifest=lambda m: m["upstream"].pop("citation"))
+    assert any("upstream.citation" in e for e in found), found

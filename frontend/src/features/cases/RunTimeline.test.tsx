@@ -16,6 +16,16 @@ function item(slot: string): HTMLElement {
 }
 
 describe('RunTimeline', () => {
+  it('marks a slot whose implementation was experimental when the run was created', () => {
+    const run = makeRun();
+    const slots = (run.slots ?? []).map((s) =>
+      s.slot === 'functional-disconnection' ? { ...s, validation_level: 'reference-tested' as const, experimental: true } : s,
+    );
+    renderTimeline({ ...run, slots });
+    expect(within(item('functional-disconnection')).getByTestId('experimental')).toHaveTextContent('Experimental');
+    expect(within(item('lesion-intake')).queryByTestId('experimental')).not.toBeInTheDocument();
+  });
+
   it('shows succeeded, skipped and running states with the implementation that ran', () => {
     renderTimeline();
     expect(item('lesion-intake')).toHaveAttribute('data-state', 'succeeded');

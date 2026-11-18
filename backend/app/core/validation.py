@@ -33,15 +33,10 @@ def level_rank(level: str) -> int:
 
 
 def implementation_level(entry: Mapping[str, Any]) -> str:
-    """Level of a registry entry: its ``validation.status`` when declared; otherwise
-    ``validated`` for a real step of the lab's own (``origin`` absent or ``internal``) and
-    ``unvalidated`` for stubs, planned entries and external entries without a status."""
+    """Level of a registry entry: its ``validation.status``; ``unvalidated`` when none is
+    declared (``registry.py check`` requires one for every real implementation)."""
     declared = (entry.get("validation") or {}).get("status")
-    if declared in VALIDATION_LEVELS:
-        return declared
-    if entry.get("kind") == "real" and entry.get("origin", "internal") == "internal":
-        return "validated"
-    return "unvalidated"
+    return declared if declared in VALIDATION_LEVELS else "unvalidated"
 
 
 def min_implementation_validation(

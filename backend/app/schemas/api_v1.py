@@ -60,6 +60,13 @@ class SlotImplementationRead(BaseModel):
     enabled: bool
     is_default: bool  # deployment default (slot_implementation_settings)
     is_pipeline_default: bool
+    # Validation level recorded in the pipeline registry (card F1-23); `experimental` is
+    # true for `reference-tested`. `unavailable_reason` is set when the setting is enabled
+    # but the level is below the deployment's minimum (the implementation is then not
+    # enabled for plans and runs).
+    validation_level: Literal["unvalidated", "reference-tested", "validated"] | None = None
+    experimental: bool = False
+    unavailable_reason: Literal["implementation_not_validated"] | None = None
 
 
 class SlotRead(BaseModel):
@@ -349,6 +356,11 @@ class ImplementationAdminRead(BaseModel):
     image: str
     enabled: bool
     is_default: bool
+    validation_level: Literal["unvalidated", "reference-tested", "validated"] | None = None
+    experimental: bool = False
+    # True when the level is below this deployment's minimum: it cannot be enabled, and an
+    # enabled row is ignored by plans and runs.
+    below_minimum: bool = False
     updated_at: datetime | None = None
     updated_by_user_id: UUID | None = None
 

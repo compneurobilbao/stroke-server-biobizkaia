@@ -35,6 +35,7 @@ from app.core.config import Settings, free_mode_allowed, run_plan_policy
 from app.core.validation import (
     DirectoryValidationLevels,
     StaticValidationLevels,
+    below_minimum,
     min_implementation_validation,
 )
 from app.models.audit_event import AuditEvent
@@ -189,6 +190,22 @@ def effective_min_validation() -> str:
     the environment on each call. Raises ``RuntimeError`` for an unknown value and for any
     value below ``validated`` on a public profile."""
     return min_implementation_validation(deployment_profile())
+
+
+def not_validated_implementations(
+    orch: Orchestration, pipeline
+) -> dict[tuple[str, str], str]:
+    """(slot, implementation id) -> validation level of the implementations of
+    ``pipeline`` below this deployment's minimum level (card F1-23): plans, run creation
+    and the slot listings treat them as not enabled, whatever the settings table says."""
+    minimum = effective_min_validation()
+    out: dict[tuple[str, str], str] = {}
+    for slot in pipeline.slots:
+        for impl in slot["implementations"]["allowed"]:
+            level = orch.validation.level(pipeline.id, slot["name"], impl["id"])
+            if below_minimum(level, minimum):
+                out[(slot["name"], impl["id"])] = level
+    return out
 
 
 def may_use_free_mode(user: User) -> bool:

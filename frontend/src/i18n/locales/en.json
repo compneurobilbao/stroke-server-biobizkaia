@@ -261,6 +261,7 @@
     "slots": {
       "default": "deployment default",
       "stub": "stub",
+      "experimental": "experimental",
       "optional": "Optional",
       "notUsed": "Not used in this mode",
       "unavailable": "Unavailable",
@@ -392,6 +393,7 @@
       "planIfAvailable": "If available",
       "notRequested": "Not part of this plan ({{count}})",
       "externalTool": "External tool",
+      "experimental": "Experimental",
       "upstream": "External tool: {{tool}}",
       "inputOrigin": "Origin of {{role}}",
       "declaredByUser": "Declared by the user (not verified)",

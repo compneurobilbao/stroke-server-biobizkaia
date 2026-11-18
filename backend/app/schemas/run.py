@@ -57,6 +57,10 @@ class RunSlotRead(_Read):
     effective_parameters: dict[str, Any] | None = None
     # Copy of the step manifest's `upstream` block (external tools, contract 1.2).
     upstream: dict[str, Any] | None = None
+    # Validation level of the implementation when the run was created (card F1-23), from the
+    # `run_created` audit record; null for runs created before it was recorded.
+    validation_level: Literal["unvalidated", "reference-tested", "validated"] | None = None
+    experimental: bool = False
     bundles: list[RunSlotBundleRead] = []
 
 

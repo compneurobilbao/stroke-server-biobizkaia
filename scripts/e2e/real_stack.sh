@@ -51,6 +51,9 @@ cmd_env() {
     # (research-public and mask-only are fixed to presets_only). Nothing else in this stack
     # depends on the profile; it is stored on new cases and decides the policy.
     echo "DEPLOYMENT_PROFILE=on-premise"
+    # the stack runs stubs and unvalidated steps (the `ci` seed profile): lower the minimum
+    # validation level the lab instance would otherwise enforce (docs/configuration.md)
+    echo "MIN_IMPLEMENTATION_VALIDATION=unvalidated"
     echo "COMPOSE_PROFILES=pipelines"
     echo "PIPELINES_DIR=/app/$SERVICE_DIR/pipelines"
     echo "STEP_MANIFESTS_DIR=/app/$SERVICE_DIR/step-manifests"

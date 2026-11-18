@@ -19,6 +19,13 @@ chosen profile (enabled or not, default or not). Defaults:
   ``reference-tested`` by default on ``on-premise``). ``--skip-below-minimum`` seeds those
   implementations disabled (and not default) with a warning instead of refusing, so that a
   public deployment can still seed the rest of the profile.
+* ``--profile ci`` (stubs, unvalidated implementations) is refused when ``DEPLOYMENT_PROFILE``
+  is ``research-public`` or ``mask-only``, unless ``--allow-ci-profile`` is given.
+* Already-enabled rows below the minimum (an admin change, or an older seed) are listed as
+  warnings and left alone; plans and runs ignore them anyway. ``--reset`` disables them.
+* A preset whose required target slot has no implementation enabled by the seeded profile
+  (below-minimum and skipped ones do not count) is seeded disabled with a warning. This is a
+  first-level check of the target slots only; the API reports the exact availability.
 * ``--dry-run`` reports what would change and rolls back.
 * Presets follow the same rules. The preset files are found the way the API finds them
   (``orchestrator.catalog.resolve_presets_dir``: ``PRESETS_DIR``, else the pipelines
@@ -62,6 +69,7 @@ from orchestrator.catalog import resolve_presets_dir, scan_presets
 
 PLACEHOLDER_DIGEST = "@sha256:" + "0" * 64
 STUB_PROFILES = frozenset({"ci"})
+PUBLIC_DEPLOYMENT_PROFILES = frozenset({"research-public", "mask-only"})
 
 
 class SeedError(Exception):
@@ -227,6 +235,19 @@ def find_registry_files(
     return found
 
 
+def preset_required_slots_by_pipeline(
+    presets_root: Path,
+) -> dict[str, dict[str, set[str]]]:
+    """pipeline id -> preset id -> slots of the preset's required targets."""
+    found, _failed = scan_presets(presets_root)
+    out: dict[str, dict[str, set[str]]] = {}
+    for _path, preset in found:
+        out.setdefault(preset.pipeline_id, {}).setdefault(preset.id, set()).update(
+            t.split(".", 1)[0] for t in preset.required
+        )
+    return out
+
+
 def preset_ids_by_pipeline(
     presets_root: Path,
 ) -> tuple[dict[str, list[str]], list[tuple[Path, str]]]:
@@ -248,6 +269,7 @@ def seed_registry(
     preset_ids: list[str] | None = None,
     minimum: str | None = None,
     skip_below_minimum: bool = False,
+    preset_required_slots: dict[str, set[str]] | None = None,
 ) -> list[Change]:
     """Write the rows of one registry (implementations, then presets); the caller commits
     or rolls back. ``preset_ids`` are the preset files of the pipeline (default: the
@@ -306,8 +328,9 @@ def seed_registry(
                     "warning",
                     pid,
                     *key,
-                    f"enabled in the database but {implementation_level(entry)} is "
-                    f"below the minimum {minimum} (admin change, left as is)",
+                    f"WARNING enabled in the database but {implementation_level(entry)} is "
+                    f"below the minimum {minimum}: plans and runs ignore it; run with "
+                    "--reset to disable it (admin change, left as is)",
                 )
             )
         if want["enabled"] and PLACEHOLDER_DIGEST in entry["image"]:
@@ -368,7 +391,21 @@ def seed_registry(
                     )
                 )
     db.flush()
-    changes += _seed_presets(db, registry, profile, reset, preset_ids)
+    unrunnable: dict[str, str] = {}
+    if preset_required_slots:
+        usable = {
+            slot
+            for slot, ids in registry["profiles"][profile].get("enabled", {}).items()
+            if any((slot, i) not in below for i in ids)
+        }
+        for preset_id, slots in preset_required_slots.items():
+            missing = sorted(slots - usable)
+            if missing:
+                unrunnable[preset_id] = (
+                    "no implementation is enabled for its required slot(s) "
+                    + ", ".join(missing)
+                )
+    changes += _seed_presets(db, registry, profile, reset, preset_ids, unrunnable)
     return changes
 
 
@@ -378,8 +415,10 @@ def _seed_presets(
     profile: str,
     reset: bool,
     preset_ids: list[str] | None,
+    unrunnable: dict[str, str] | None = None,
 ) -> list[Change]:
     pid = registry["pipeline"]["id"]
+    unrunnable = unrunnable or {}
     rows = {
         r.preset_id: r
         for r in db.scalars(
@@ -414,6 +453,11 @@ def _seed_presets(
     for want in preset_profile_settings(registry, profile, preset_ids):
         key = want["preset_id"]
         row = rows.get(key)
+        if key in unrunnable and want["enabled"] and (row is None or reset):
+            want = {**want, "enabled": False, "is_default": False}
+            changes.append(
+                Change("warning", pid, "preset", key, f"seeded disabled: {unrunnable[key]}")
+            )
         if row is None:
             is_default = want["is_default"] and not taken
             detail = f"enabled={want['enabled']} default={is_default}"
@@ -469,6 +513,12 @@ def main(argv: list[str] | None = None, session_factory=None) -> int:
         help="seed implementations below the deployment's minimum validation level "
         "disabled, with a warning, instead of refusing the profile",
     )
+    parser.add_argument(
+        "--allow-ci-profile",
+        action="store_true",
+        help="allow --profile ci (stubs, unvalidated implementations) on a deployment whose "
+        "DEPLOYMENT_PROFILE is research-public or mask-only",
+    )
     parser.add_argument("--pipeline", help="only this pipeline id")
     parser.add_argument(
         "--presets-dir",
@@ -488,6 +538,14 @@ def main(argv: list[str] | None = None, session_factory=None) -> int:
 
     root = Path(args.pipelines_dir)
     try:
+        if args.profile in STUB_PROFILES and not args.allow_ci_profile:
+            deployment = os.environ.get("DEPLOYMENT_PROFILE") or "research-public"
+            if deployment in PUBLIC_DEPLOYMENT_PROFILES:
+                raise SeedError(
+                    f"profile {args.profile!r} enables stubs and unvalidated implementations "
+                    f"and is refused on a {deployment} deployment; "
+                    "use --allow-ci-profile to override"
+                )
         registries = (
             find_registry_files(root, args.pipeline) if root.is_dir() else []
         )
@@ -499,6 +557,7 @@ def main(argv: list[str] | None = None, session_factory=None) -> int:
             else resolve_presets_dir(root)
         )
         preset_ids, preset_failures = preset_ids_by_pipeline(presets_root)
+        required_slots = preset_required_slots_by_pipeline(presets_root)
         for bad, message in preset_failures:
             print(f"warning: preset {bad} ignored: {message}", file=sys.stderr)
         db = session_factory()
@@ -512,6 +571,7 @@ def main(argv: list[str] | None = None, session_factory=None) -> int:
                     reset=args.reset,
                     preset_ids=preset_ids.get(registry["pipeline"]["id"], []),
                     skip_below_minimum=args.skip_below_minimum,
+                    preset_required_slots=required_slots.get(registry["pipeline"]["id"]),
                 )
             if args.dry_run:
                 db.rollback()

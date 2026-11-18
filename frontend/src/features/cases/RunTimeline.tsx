@@ -87,6 +87,11 @@ export function RunTimeline({ slots, steps, loadLog }: RunTimelineProps) {
           {slot.plan_role && <span className="tag">{t(`cases.plan.role.${slot.plan_role}`)}</span>}
           {slot.optional && <span className="tag">{t('cases.slots.optional')}</span>}
           {external && <span className="tag tag-warn">{t('cases.run.externalTool')}</span>}
+          {slot.status === 'selected' && slot.experimental && (
+            <span className="tag tag-warn" data-testid="experimental">
+              {t('cases.run.experimental')}
+            </span>
+          )}
         </div>
         {slot.status === 'selected' && (
           <p className="hint timeline-impl">

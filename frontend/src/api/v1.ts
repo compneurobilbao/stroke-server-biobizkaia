@@ -19,6 +19,8 @@ export interface PipelineSummary {
   input_sets: { name: string; description?: string | null; inputs: string[] }[];
 }
 
+export type ValidationLevel = 'unvalidated' | 'reference-tested' | 'validated';
+
 export interface SlotImplementation {
   id: string;
   step_name: string;
@@ -29,6 +31,11 @@ export interface SlotImplementation {
   is_default: boolean;
   is_pipeline_default: boolean;
   stub?: boolean | null;
+  /** Validation level of the implementation (registry); `experimental` for `reference-tested`. */
+  validation_level?: ValidationLevel | null;
+  experimental?: boolean;
+  /** Set for an enabled setting below the deployment's minimum level (listed to administrators only). */
+  unavailable_reason?: 'implementation_not_validated' | null;
 }
 
 export interface SlotPort {
@@ -106,6 +113,9 @@ export interface RunSlot {
   reason?: SlotReason | null;
   plan_role?: PlanRole | null;
   upstream?: UpstreamInfo | null;
+  /** Validation level when the run was created; `experimental` for `reference-tested`. */
+  validation_level?: ValidationLevel | null;
+  experimental?: boolean;
 }
 
 export interface PlanPresetRef {

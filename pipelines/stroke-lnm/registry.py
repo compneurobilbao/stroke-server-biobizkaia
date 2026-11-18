@@ -67,23 +67,23 @@ VALIDATION_LEVELS = ("unvalidated", "reference-tested", "validated")
 ORIGINS = ("internal", "external")
 BUILDS = ("published", "local")
 REDISTRIBUTION = ("allowed", "forbidden")
-LICENCE_REVIEW_KEYS = ("code", "weights", "image_redistribution", "notes", "reviewed")
+LICENCE_REVIEW_KEYS = ("code", "weights", "image_redistribution", "notes")
+# status: reviewed (default) needs `reviewed` (date) and `reviewed_by`; pending (not yet
+# confirmed by the responsible person) needs neither and must not set them.
+LICENCE_REVIEW_STATUSES = ("reviewed", "pending")
+LICENCE_REVIEW_OPTIONAL = ("status", "reviewed", "reviewed_by")
+# Registries whose images are public: a `build: local` entry never points at one.
+PUBLIC_REGISTRY_HOSTS = ("docker.io", "index.docker.io", "registry-1.docker.io", "ghcr.io", "quay.io")
 # Lowest level a profile may enable (run-plans.md 4.4): only the ci profile takes unvalidated.
 PROFILE_MIN_VALIDATION = {"ci": "unvalidated"}
 DEFAULT_PROFILE_MIN_VALIDATION = "reference-tested"
 
 
 def validation_level(entry: dict) -> str:
-    """Validation level of a registry entry (run-plans.md 4.4): its `validation.status` when
-    declared; otherwise `validated` for a real step of the lab's own (reviewed through the
-    plan's protocol: `origin` absent or `internal`) and `unvalidated` for stubs, planned
-    entries and external entries without a status."""
+    """Validation level of a registry entry (run-plans.md 4.4): its `validation.status`;
+    `unvalidated` when none is declared (the check requires one for every real step)."""
     declared = (entry.get("validation") or {}).get("status")
-    if declared in VALIDATION_LEVELS:
-        return declared
-    if entry.get("kind") == "real" and entry.get("origin", "internal") == "internal":
-        return "validated"
-    return "unvalidated"
+    return declared if declared in VALIDATION_LEVELS else "unvalidated"
 
 
 def level_rank(level: str) -> int:
@@ -148,6 +148,11 @@ def external_errors(
     if build == "local" and not external_origin:
         errors.append(f"{where}: build: local is for origin: external entries")
     validation = entry.get("validation")
+    if validation is None and entry["kind"] == "real":
+        errors.append(
+            f"{where}: a real implementation needs an explicit validation.status "
+            "(nothing is validated implicitly)"
+        )
     if validation is not None:
         status = validation.get("status") if isinstance(validation, dict) else None
         if status not in VALIDATION_LEVELS:
@@ -161,6 +166,11 @@ def external_errors(
                     f"{where}: a validated implementation needs validation.record, "
                     "a file of the repository"
                 )
+            if not str(validation.get("reviewed_by", "")).strip():
+                errors.append(
+                    f"{where}: a validated implementation needs validation.reviewed_by "
+                    "(the responsible scientist, not the wrapper author)"
+                )
     review = entry.get("licence_review")
     if review is not None or external_origin:
         if not isinstance(review, dict):
@@ -169,9 +179,24 @@ def external_errors(
         for key in LICENCE_REVIEW_KEYS:
             if not str(review.get(key, "")).strip():
                 errors.append(f"{where}: licence_review.{key} is missing")
-        extra = set(review) - set(LICENCE_REVIEW_KEYS)
+        extra = set(review) - set(LICENCE_REVIEW_KEYS) - set(LICENCE_REVIEW_OPTIONAL)
         if extra:
             errors.append(f"{where}: unknown licence_review keys {sorted(extra)}")
+        review_status = review.get("status", "reviewed")
+        if review_status not in LICENCE_REVIEW_STATUSES:
+            errors.append(
+                f"{where}: licence_review.status must be one of {list(LICENCE_REVIEW_STATUSES)}"
+            )
+        elif review_status == "reviewed":
+            for key in ("reviewed", "reviewed_by"):
+                if not str(review.get(key, "")).strip():
+                    errors.append(f"{where}: licence_review.{key} is missing")
+        else:
+            for key in ("reviewed", "reviewed_by"):
+                if str(review.get(key, "")).strip():
+                    errors.append(f"{where}: a pending licence_review has no {key}")
+        if validation is not None and validation.get("status") == "validated" and review_status != "reviewed":
+            errors.append(f"{where}: a validated implementation needs a reviewed licence_review")
         redistribution = review.get("image_redistribution")
         if redistribution and redistribution not in REDISTRIBUTION:
             errors.append(
@@ -191,6 +216,24 @@ def external_errors(
             errors.append(
                 f"{where}: build: local is only for licence_review.image_redistribution: forbidden"
             )
+    if build == "local":
+        host = str(entry.get("image", "")).split("/", 1)[0]
+        if host in PUBLIC_REGISTRY_HOSTS:
+            errors.append(
+                f"{where}: a build: local image is never on a public registry; keep the "
+                "placeholder (or the deployment's own registry reference)"
+            )
+    if level_rank(validation_level(entry)) >= 1 and entry["kind"] == "real":
+        own = _manifest_path(entry, root, None)
+        if own is not None and own.is_file():
+            try:
+                own_manifest = yaml.safe_load(own.read_text(encoding="utf-8")) or {}
+            except yaml.YAMLError:
+                own_manifest = {}
+            if "reference_test" not in own_manifest:
+                errors.append(
+                    f"{where}: reference-tested and validated need a reference_test in the manifest"
+                )
     if not external_origin:
         return errors
     if validation is None:
@@ -227,6 +270,8 @@ def external_errors(
     if not isinstance(upstream, dict):
         errors.append(f"{where}: the manifest has no upstream block")
         return errors
+    if not str(upstream.get("citation", "")).strip():
+        errors.append(f"{where}: an external implementation needs upstream.citation")
     if not DIGEST_REF.match(str(upstream.get("image", ""))):
         errors.append(f"{where}: upstream.image is not pinned by digest")
     third = {t.get("name"): t.get("spdx") for t in manifest.get("licence", {}).get("third_party", [])}
@@ -236,8 +281,6 @@ def external_errors(
         )
     if str(review.get("code", "")).strip() and review["code"] != upstream.get("licence"):
         errors.append(f"{where}: licence_review.code differs from upstream.licence")
-    if level_rank(validation_level(entry)) >= 1 and "reference_test" not in manifest:
-        errors.append(f"{where}: reference-tested and validated need a reference_test in the manifest")
     dockerfile = path.parent / Path(entry["source"]["dockerfile"]).name
     if not dockerfile.is_file():
         errors.append(f"{where}: {dockerfile} not found")
@@ -434,6 +477,8 @@ def materialize(pipeline: dict, registry: dict, digests: dict[str, str]) -> tupl
                 continue
             key = f"{entry['step']['name']}@{entry['step']['version']}"
             ref = digests.get(key)
+            if ref is None and entry.get("build") == "local":
+                continue  # built by the deployment itself: keeps the placeholder until it is
             if ref is None:
                 raise ValueError(f"no digest supplied for {key}")
             if not DIGEST_REF.match(ref):
@@ -446,13 +491,16 @@ def materialize(pipeline: dict, registry: dict, digests: dict[str, str]) -> tupl
     return pipeline, registry
 
 
-def sources(registry: dict) -> dict[str, dict]:
-    """Unique steps to build: ``"<name>@<version>"`` -> source entry (planned ones excluded)."""
+def sources(registry: dict, *, local: bool = False) -> dict[str, dict]:
+    """Unique steps to build: ``"<name>@<version>"`` -> source entry. Planned entries are
+    excluded, and so are ``build: local`` ones (their image is never pushed anywhere by this
+    tool; a deployment builds them itself) unless ``local`` is set."""
     out: dict[str, dict] = {}
     for impls in registry["implementations"].values():
         for entry in impls.values():
-            if entry["kind"] != "planned":
-                out[f"{entry['step']['name']}@{entry['step']['version']}"] = entry["source"]
+            if entry["kind"] == "planned" or (entry.get("build") == "local" and not local):
+                continue
+            out[f"{entry['step']['name']}@{entry['step']['version']}"] = entry["source"]
     return out
 
 

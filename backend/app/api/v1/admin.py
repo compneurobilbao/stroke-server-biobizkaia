@@ -54,7 +54,13 @@ def _allowed(orch: Orchestration):
     return out
 
 
-def _read(key, step, row: SlotImplementationSetting | None) -> ImplementationAdminRead:
+def _read(
+    key,
+    step,
+    row: SlotImplementationSetting | None,
+    level: str | None = None,
+    below_minimum_: bool = False,
+) -> ImplementationAdminRead:
     return ImplementationAdminRead(
         pipeline_id=key[0],
         slot=key[1],
@@ -64,6 +70,9 @@ def _read(key, step, row: SlotImplementationSetting | None) -> ImplementationAdm
         image=step[2],
         enabled=bool(row and row.enabled),
         is_default=bool(row and row.is_default),
+        validation_level=level,
+        experimental=level == "reference-tested",
+        below_minimum=below_minimum_,
         updated_at=row.updated_at if row else None,
         updated_by_user_id=row.updated_by_user_id if row else None,
     )
@@ -83,11 +92,16 @@ def list_implementations(
         (r.pipeline_id, r.slot, r.implementation_id): r
         for r in db.scalars(select(SlotImplementationSetting))
     }
-    return [
-        _read(key, step, rows.get(key))
-        for key, step in sorted(_allowed(orch).items())
-        if pipeline_id is None or key[0] == pipeline_id
-    ]
+    minimum = effective_min_validation()
+    out = []
+    for key, step in sorted(_allowed(orch).items()):
+        if pipeline_id is not None and key[0] != pipeline_id:
+            continue
+        level = orch.validation.level(*key)
+        out.append(
+            _read(key, step, rows.get(key), level, below_minimum(level, minimum))
+        )
+    return out
 
 
 @router.put(
@@ -174,7 +188,8 @@ def set_implementation(
     )
     db.commit()
     db.refresh(row)
-    return _read(key, step, row)
+    level = orch.validation.level(*key)
+    return _read(key, step, row, level, below_minimum(level, effective_min_validation()))
 
 
 # ----------------------------------------------------------------------- presets

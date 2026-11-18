@@ -10,7 +10,12 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.v1.deps import Orchestration, authorize, get_orchestration
+from app.api.v1.deps import (
+    Orchestration,
+    authorize,
+    get_orchestration,
+    not_validated_implementations,
+)
 from app.api.v1.errors import v1_error
 from app.db.session import get_db
 from app.models.reference_bundle import SlotImplementationSetting
@@ -97,7 +102,9 @@ def build_slots(
     orch: Orchestration,
     *,
     include_disabled: bool = False,
+    not_validated: Mapping[tuple[str, str], str] | None = None,
 ) -> list[SlotRead]:
+    blocked = not_validated or {}
     slots = []
     for position, slot in enumerate(pipeline.slots):
         slot_settings = settings.get(slot["name"], {})
@@ -106,11 +113,14 @@ def build_slots(
         enabled_ids = []
         for impl in slot["implementations"]["allowed"]:
             setting = slot_settings.get(impl["id"])
-            enabled = bool(setting and setting.enabled)
+            is_set = bool(setting and setting.enabled)
+            below = (slot["name"], impl["id"]) in blocked
+            enabled = is_set and not below
             if enabled:
                 enabled_ids.append(impl["id"])
             if not enabled and not include_disabled:
                 continue
+            level = orch.validation.level(pipeline.id, slot["name"], impl["id"])
             manifest = orch.steps.manifest(
                 impl["step"]["name"], impl["step"]["version"], impl["image"]
             )
@@ -126,6 +136,11 @@ def build_slots(
                     enabled=enabled,
                     is_default=bool(setting and setting.is_default),
                     is_pipeline_default=impl["id"] == pipeline_default,
+                    validation_level=level,
+                    experimental=level == "reference-tested",
+                    unavailable_reason=(
+                        "implementation_not_validated" if is_set and below else None
+                    ),
                 )
             )
         # The rule of pipeline.md section 6 item 3 without a user choice.
@@ -191,6 +206,7 @@ def get_pipeline(
         settings_of(db, pipeline.id),
         orch,
         include_disabled=include_disabled,
+        not_validated=not_validated_implementations(orch, pipeline),
     )
     return PipelineDetail(**_summary(pipeline), slots=slots)
 
@@ -210,7 +226,11 @@ def list_slots(
     authorize(current_user, "pipeline.list")
     pipeline = _visible(pipeline_id, version, current_user, include_disabled, orch)
     return build_slots(
-        pipeline, settings_of(db, pipeline.id), orch, include_disabled=include_disabled
+        pipeline,
+        settings_of(db, pipeline.id),
+        orch,
+        include_disabled=include_disabled,
+        not_validated=not_validated_implementations(orch, pipeline),
     )
 
 

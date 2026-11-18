@@ -20,6 +20,7 @@ from app.core.validation import (
     min_implementation_validation,
 )
 from app.models import AuditEvent
+from app.models.preset_setting import PresetSetting
 from app.models.reference_bundle import SlotImplementationSetting
 from tests.test_api_v1_plans import PIPE, make_synthetic  # noqa: F401  (fixtures below)
 from tests import pgdb
@@ -100,7 +101,7 @@ def test_level_rule_is_the_one_of_the_registry_tool():
 def test_directory_levels_read_the_committed_registry():
     levels = DirectoryValidationLevels(PIPELINES)
     assert levels.level("stroke-lnm", "functional-disconnection", "flnm-fast") == "reference-tested"
-    assert levels.level("stroke-lnm", "lesion-intake", "lesion-qc") == "validated"
+    assert levels.level("stroke-lnm", "lesion-intake", "lesion-qc") == "reference-tested"
     assert (
         levels.level("stroke-lnm", "functional-disconnection", "fdisconnection-stub")
         == "unvalidated"
@@ -257,9 +258,11 @@ def test_seed_skip_flag_seeds_the_refused_implementation_disabled(
     out = capsys.readouterr().out
     assert "warning" in out and CODE in out
     got = rows(factory)
-    assert got[("functional-disconnection", "flnm-fast")] == (False, False)
-    assert got[("lesion-intake", "lesion-qc")] == (True, True)
-    assert got[("report", "research-report")] == (True, True)
+    # nothing is validated yet: a public deployment enables no in-house step either
+    assert all(enabled is False for enabled, _default in got.values())
+    presets = preset_rows(factory)
+    assert all(row == (False, False) for row in presets.values())
+    assert "seeded disabled: no implementation is enabled for its required slot" in out
 
 
 def test_seed_on_the_lab_instance_enables_flnm_fast(factory, monkeypatch):
@@ -273,8 +276,18 @@ def test_seed_on_the_lab_instance_enables_flnm_fast(factory, monkeypatch):
 
 def test_seed_ci_profile_takes_unvalidated_whatever_the_deployment(factory, monkeypatch):
     monkeypatch.setenv("DEPLOYMENT_PROFILE", "research-public")
-    assert run(factory, "--profile", "ci") == 0
+    assert run(factory, "--profile", "ci", "--allow-ci-profile") == 0
     assert rows(factory)[("functional-disconnection", "fdisconnection-stub")] == (True, True)
+
+
+@pytest.mark.parametrize("profile", ["research-public", "mask-only"])
+def test_seed_ci_profile_is_refused_on_public_deployments(factory, monkeypatch, capsys, profile):
+    monkeypatch.setenv("DEPLOYMENT_PROFILE", profile)
+    assert run(factory, "--profile", "ci") == 1
+    assert "--allow-ci-profile" in capsys.readouterr().err
+    assert rows(factory) == {}
+    monkeypatch.setenv("DEPLOYMENT_PROFILE", "on-premise")  # the lab and CI stacks need no override
+    assert run(factory, "--profile", "ci") == 0
 
 
 def test_seed_refuses_an_invalid_minimum(factory, monkeypatch, capsys):
@@ -291,5 +304,151 @@ def test_seed_warns_about_an_enabled_row_below_the_minimum(factory, monkeypatch,
     capsys.readouterr()
     assert run(factory, "--profile", "deployment", "--skip-below-minimum") == 0
     out = capsys.readouterr().out
-    assert "left as is" in out
+    assert "left as is" in out and "WARNING" in out and "--reset" in out
     assert rows(factory)[("functional-disconnection", "flnm-fast")] == (True, True)
+    # --reset disables what is below the minimum
+    assert run(factory, "--profile", "deployment", "--skip-below-minimum", "--reset") == 0
+    assert all(enabled is False for enabled, _default in rows(factory).values())
+
+
+def test_seed_disables_presets_without_an_enabled_required_slot(factory, monkeypatch, capsys):
+    monkeypatch.setenv("DEPLOYMENT_PROFILE", "on-premise")
+    assert run(factory, "--profile", "deployment") == 0
+    assert preset_rows(factory)["full"] == (True, True)  # every required slot has one
+    capsys.readouterr()
+    monkeypatch.setenv("MIN_IMPLEMENTATION_VALIDATION", "validated")
+    assert run(factory, "--profile", "deployment", "--skip-below-minimum", "--reset") == 0
+    assert preset_rows(factory)["full"] == (False, False)
+    assert "preset" in capsys.readouterr().out
+
+
+def preset_rows(factory):
+    with factory() as db:
+        return {
+            r.preset_id: (r.enabled, r.is_default) for r in db.scalars(select(PresetSetting))
+        }
+
+
+# ------------------------------------------- plans, runs and listings ignore stale rows
+
+
+def stale_enable(syn, slot, impl):
+    """An enabled row below the minimum, as an older seed or a changed minimum leaves it."""
+    with syn.Session() as db:
+        row = db.scalar(
+            select(SlotImplementationSetting).where(
+                SlotImplementationSetting.pipeline_id == PIPE,
+                SlotImplementationSetting.slot == slot,
+                SlotImplementationSetting.implementation_id == impl,
+            )
+        )
+        if row is None:
+            row = SlotImplementationSetting(
+                pipeline_id=PIPE, slot=slot, implementation_id=impl
+            )
+            db.add(row)
+        row.enabled = True
+        db.commit()
+
+
+@pytest.fixture()
+def lab(syn, monkeypatch):
+    syn.policy("free_for_researchers", "on-premise")
+    monkeypatch.delenv("MIN_IMPLEMENTATION_VALIDATION", raising=False)
+    syn.enable_implementations(skip=("disc-alt",))
+    stale_enable(syn, "disconnection", "disc-alt")
+    return syn
+
+
+SLOTS_URL = f"/api/v1/pipelines/{PIPE}/versions/1.0.0/slots"
+
+
+def test_a_stale_enabled_row_is_not_enabled_for_plans_and_runs(lab):
+    wanted = {"implementations": {"disconnection": "disc-alt"}}
+    preview = lab.preview(["lesion_mni"], **wanted)
+    assert preview.status_code == 200
+    body = preview.json()
+    assert body["feasible"] is False
+    assert [r["code"] for r in body["reasons"]] == [CODE]
+    assert body["reasons"][0]["slot"] == "disconnection"
+    case_id = lab.case(["lesion_mni"])
+    refused = lab.start(case_id, **wanted)
+    assert (refused.status_code, refused.json()["code"]) == (422, CODE)
+    assert lab.counts()["PipelineRun"] == 0
+    # the validated and reference-tested ones still run, and the default is not the stale one
+    ok = lab.start(case_id)
+    assert ok.status_code == 201, ok.text
+    slots = {s["slot"]: s for s in ok.json()["slots"]}
+    assert slots["disconnection"]["implementation_id"] == "disc"
+
+
+def test_slot_listing_shows_levels_and_hides_below_minimum(lab):
+    slots = {
+        s["name"]: s
+        for s in lab.client.get(SLOTS_URL, headers=lab.alice).json()
+    }
+    disc = {i["id"]: i for i in slots["disconnection"]["implementations"]}
+    assert set(disc) == {"disc"}  # the stale one is not offered
+    assert disc["disc"]["validation_level"] == "reference-tested"
+    assert disc["disc"]["experimental"] is True
+    assert slots["intake"]["implementations"][0]["experimental"] is False
+    assert slots["intake"]["implementations"][0]["validation_level"] == "validated"
+    assert slots["disconnection"]["default_implementation"] == "disc"
+    admin = {
+        s["name"]: s
+        for s in lab.client.get(
+            SLOTS_URL, params={"include_disabled": "true"}, headers=lab.admin
+        ).json()
+    }
+    alt = {i["id"]: i for i in admin["disconnection"]["implementations"]}["disc-alt"]
+    assert alt["enabled"] is False
+    assert alt["unavailable_reason"] == CODE and alt["validation_level"] == "unvalidated"
+
+
+def test_admin_list_shows_level_experimental_and_below_minimum(lab):
+    listing = {
+        (r["slot"], r["implementation_id"]): r
+        for r in lab.client.get("/api/v1/admin/implementations", headers=lab.admin).json()
+    }
+    assert listing[("disconnection", "disc")]["experimental"] is True
+    assert listing[("disconnection", "disc")]["below_minimum"] is False
+    alt = listing[("disconnection", "disc-alt")]
+    assert (alt["validation_level"], alt["below_minimum"], alt["experimental"]) == (
+        "unvalidated",
+        True,
+        False,
+    )
+    assert listing[("intake", "intake")]["validation_level"] == "validated"
+
+
+def test_run_detail_records_the_level_in_effect_at_creation(lab, monkeypatch):
+    case_id = lab.case(["lesion_mni"])
+    run = lab.start(case_id)
+    assert run.status_code == 201, run.text
+    run_id = run.json()["id"]
+    got = lab.client.get(f"/api/v1/runs/{run_id}", headers=lab.alice).json()
+    levels = {
+        s["slot"]: (s["validation_level"], s["experimental"])
+        for s in got["slots"]
+        if s["status"] == "selected"
+    }
+    assert levels["disconnection"] == ("reference-tested", True)
+    assert levels["intake"] == ("validated", False)
+    # a later change of the registry does not rewrite the record
+    levels_for(lab, {("disconnection", "disc"): "validated"})
+    again = lab.client.get(f"/api/v1/runs/{run_id}", headers=lab.alice).json()
+    assert {s["slot"]: s["validation_level"] for s in again["slots"] if s["status"] == "selected"}[
+        "disconnection"
+    ] == "reference-tested"
+    # skipped slots carry no level
+    assert all(s["validation_level"] is None for s in got["slots"] if s["status"] != "selected")
+
+
+def test_raising_the_minimum_removes_reference_tested_from_plans(lab, monkeypatch):
+    monkeypatch.setenv("MIN_IMPLEMENTATION_VALIDATION", "validated")
+    preview = lab.preview(["lesion_mni"], implementations={"disconnection": "disc"}).json()
+    assert preview["feasible"] is False
+    assert preview["reasons"][0]["code"] == CODE
+    slots = {s["name"]: s for s in lab.client.get(SLOTS_URL, headers=lab.alice).json()}
+    assert slots["disconnection"]["implementations"] == []
+    assert slots["disconnection"]["default_implementation"] is None

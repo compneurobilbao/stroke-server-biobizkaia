@@ -126,8 +126,14 @@ def effective_parameters(
     return values
 
 
-def enablement(db: Session, pipeline_id: str) -> Enablement:
-    """The deployment's implementation and preset settings for one pipeline id."""
+def enablement(
+    db: Session,
+    pipeline_id: str,
+    not_validated: Iterable[tuple[str, str]] = (),
+) -> Enablement:
+    """The deployment's implementation and preset settings for one pipeline id.
+    ``not_validated``: (slot, implementation id) pairs below the deployment's minimum
+    validation level, treated as not enabled (card F1-23)."""
     return Enablement.from_settings(
         db.scalars(
             select(SlotImplementationSetting).where(
@@ -137,6 +143,7 @@ def enablement(db: Session, pipeline_id: str) -> Enablement:
         db.scalars(
             select(PresetSetting).where(PresetSetting.pipeline_id == pipeline_id)
         ).all(),
+        not_validated,
     )
 
 
@@ -173,6 +180,7 @@ def create_run(
     preset: PresetRef | None = None,
     targets: TargetRequest | None = None,
     presets: PresetRegistry | None = None,
+    not_validated: Iterable[tuple[str, str]] = (),
 ) -> PipelineRun:
     """Resolve and insert a queued run (see the module docstring). Does not commit.
 
@@ -214,7 +222,9 @@ def create_run(
     )
     if isinstance(request, PlanRefused):
         raise RunRefused.from_plan(request)
-    result = plan(pipeline, input_set, request, enablement(db, pipeline.id))
+    result = plan(
+        pipeline, input_set, request, enablement(db, pipeline.id, not_validated)
+    )
     refused = result if isinstance(result, PlanRefused) else None
     if refused is not None and (refused.mode != FULL or not refused.slots):
         raise RunRefused.from_plan(refused)

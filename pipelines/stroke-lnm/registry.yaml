@@ -19,28 +19,44 @@ pipeline: {id: stroke-lnm, version: 0.4.0}
 #                               its manifest declares contract 1.2 and the `upstream` block, its
 #                               Dockerfile pins the upstream image by digest, and the entry needs
 #                               licence_review and validation.
-#   licence_review: {code, weights, image_redistribution: allowed|forbidden, notes, reviewed}
-#   validation: {status: unvalidated|reference-tested|validated, record: <repository file>, notes}
-#                               `validated` needs a record (a document in the repository, no
-#                               data). Without `validation`, a real internal step counts as
-#                               validated, a stub or planned entry as unvalidated.
-#   build: published|local      `local`: the licence forbids publishing an image containing the
+#   licence_review: {status: reviewed|pending, code, weights, image_redistribution:
+#                    allowed|forbidden, notes, reviewed: <date>, reviewed_by}
+#                               `pending`: not yet confirmed (no `reviewed`, no `reviewed_by`);
+#                               `reviewed` needs both. `reviewed_by` is the responsible person,
+#                               not the wrapper author.
+#   validation: {status: unvalidated|reference-tested|validated, record: <repository file>,
+#                reviewed_by, notes}
+#                               Every real implementation needs an explicit status; nothing is
+#                               validated implicitly. `validated` needs a record (a document in
+#                               the repository, no data) and `reviewed_by`. Stubs and planned
+#                               entries are unvalidated.
+#   build: published|local      `local` (never pushed or built by CI, never a public-registry image): the licence forbids publishing an image containing the
 #                               tool; each deployment builds the wrapper itself and the image is
 #                               never pushed to the public registry (owner decision 7).
-# A deployment refuses to enable an implementation below its minimum validation level
-# (MIN_IMPLEMENTATION_VALIDATION, docs/configuration.md); the `deployment` profile here
-# enables nothing below reference-tested.
+# A deployment does not enable, and its runs do not use, an implementation below its minimum
+# validation level (MIN_IMPLEMENTATION_VALIDATION, docs/configuration.md); the `deployment`
+# profile here enables nothing below reference-tested. No step is `validated` until a validation
+# record is signed off by the responsible scientist, so the public profiles (minimum validated)
+# enable nothing yet and the lab instance runs as DEPLOYMENT_PROFILE=on-premise.
 implementations:
   lesion-intake:
     lesion-qc:
       step: {name: lesion-qc, version: 1.0.0}
       kind: real
+      validation:
+        status: reference-tested
+        notes: >-
+          The step's reference test runs in CI on synthetic or public data. No signed validation record exists, so it is not validated.
       image: docker.io/compneurobilbaolab/step-lesion-qc@sha256:0000000000000000000000000000000000000000000000000000000000000000
       source: {repository: this, dockerfile: steps/lesion-qc/Dockerfile}
   normalisation:
     ct-lesion-to-mni152:
       step: {name: ct-lesion-to-mni152, version: 1.0.0}
       kind: real
+      validation:
+        status: reference-tested
+        notes: >-
+          The step's reference test runs in CI on synthetic or public data. No signed validation record exists, so it is not validated. Known limitation: the step's regression floor on its reference case is Dice 0.40.
       image: docker.io/compneurobilbaolab/step-ct-lesion-to-mni152@sha256:0000000000000000000000000000000000000000000000000000000000000000
       source:
         repository: compneurobilbao/CTLesion2MNI152
@@ -52,6 +68,7 @@ implementations:
       kind: real
       origin: external
       licence_review:
+        status: pending  # to be confirmed by the image author; then `reviewed` and `reviewed_by`
         code: MIT
         weights: >-
           No model weights. The normative functional connectivity data is a reference bundle
@@ -66,7 +83,6 @@ implementations:
           weighting. The wrapper records the warning lowest_overlapped_parcel_omitted in every
           run and refuses single-parcel lesions (lesion_single_parcel) until the image author
           decides how to fix the engine.
-        reviewed: 2026-11-18
       validation:
         status: reference-tested
         notes: >-
@@ -88,6 +104,10 @@ implementations:
     lnm-tracts:
       step: {name: lnm-tracts, version: 1.0.0}
       kind: real
+      validation:
+        status: reference-tested
+        notes: >-
+          The step's reference test runs in CI on synthetic or public data. No signed validation record exists, so it is not validated.
       image: docker.io/compneurobilbaolab/step-lnm-tracts@sha256:0000000000000000000000000000000000000000000000000000000000000000
       source:
         repository: compneurobilbao/lnm
@@ -97,6 +117,10 @@ implementations:
     cognet-stroke:
       step: {name: cognet-stroke, version: 1.0.0}
       kind: real
+      validation:
+        status: reference-tested
+        notes: >-
+          The step's reference test runs in CI on synthetic or public data. No signed validation record exists, so it is not validated.
       image: docker.io/compneurobilbaolab/step-cognet-stroke@sha256:0000000000000000000000000000000000000000000000000000000000000000
       source:
         repository: compneurobilbao/COGNET-STROKE
@@ -106,11 +130,19 @@ implementations:
     research-report:
       step: {name: research-report, version: 0.3.0}
       kind: real
+      validation:
+        status: reference-tested
+        notes: >-
+          The step's reference test runs in CI on synthetic or public data. No signed validation record exists, so it is not validated.
       image: docker.io/compneurobilbaolab/step-research-report@sha256:0000000000000000000000000000000000000000000000000000000000000000
       source: {repository: this, dockerfile: steps/report/Dockerfile}
     research-report-es:
       step: {name: research-report, version: 0.3.0}
       kind: real
+      validation:
+        status: reference-tested
+        notes: >-
+          The step's reference test runs in CI on synthetic or public data. No signed validation record exists, so it is not validated.
       image: docker.io/compneurobilbaolab/step-research-report@sha256:0000000000000000000000000000000000000000000000000000000000000000
       source: {repository: this, dockerfile: steps/report/Dockerfile}
 

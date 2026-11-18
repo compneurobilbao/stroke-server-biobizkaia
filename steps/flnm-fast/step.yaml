@@ -28,6 +28,9 @@ upstream:
   homepage: https://hub.docker.com/r/compneurobilbaolab/flnm-fast
   image: docker.io/compneurobilbaolab/flnm-fast@sha256:7370e5d9ee5c67fe7e7cf1bf6ae94d4579ee0fcf07cbf99bd3e5a39af2fd8173
   licence: MIT
+  citation: >-
+    flnm-fast lesion_zmaps engine 1.0 (Docker image compneurobilbaolab/flnm-fast; no
+    publication; cite the image and its digest)
 licence:
   spdx: MIT
   third_party:

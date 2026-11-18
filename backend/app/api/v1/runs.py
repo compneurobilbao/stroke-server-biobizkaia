@@ -29,6 +29,7 @@ from app.api.v1.deps import (
     load_case,
     load_run,
     lock_case,
+    not_validated_implementations,
     require_free_mode,
     storage_for,
 )
@@ -38,6 +39,7 @@ from app.api.v1.quota import storage_used
 from app.core.config import Settings, get_settings
 from app.db.session import get_db
 from app.models.artifact import Artifact, Report
+from app.models.audit_event import AuditEvent
 from app.models.case import InputFile
 from app.models.pipeline_run import ACTIVE_STATUSES, PipelineRun, RunSlot, StepRun
 from app.models.user import User
@@ -74,7 +76,26 @@ def _attempt(a: StepRun, slot_name: str) -> StepAttemptRead:
     return StepAttemptRead(**data)
 
 
+def _recorded_levels(db: Session, run: PipelineRun) -> dict[str, str]:
+    """Validation level per slot recorded by the ``run_created`` audit event."""
+    details = db.scalar(
+        select(AuditEvent.details)
+        .where(
+            AuditEvent.pipeline_run_id == run.id,
+            AuditEvent.event_type == "run_created",
+        )
+        .order_by(AuditEvent.timestamp)
+        .limit(1)
+    )
+    try:
+        levels = json.loads(details or "{}").get("implementation_levels") or {}
+    except (ValueError, AttributeError):
+        return {}
+    return levels if isinstance(levels, dict) else {}
+
+
 def _detail_read(db: Session, run: PipelineRun) -> RunDetailRead:
+    levels = _recorded_levels(db, run)
     names = {s.id: s.slot for s in run.slots}
     attempts = db.scalars(
         select(StepRun)
@@ -87,7 +108,7 @@ def _detail_read(db: Session, run: PipelineRun) -> RunDetailRead:
         plan=_plan_read(run),
         cancel_requested=run.cancel_requested_at is not None,
         inputs=[{"role": i.role, "input_file_id": i.input_file_id} for i in run.inputs],
-        slots=[_slot(s) for s in run.slots],
+        slots=[_slot(s, levels.get(s.slot)) for s in run.slots],
         steps=[_attempt(a, names[a.run_slot_id]) for a in attempts],
     )
 
@@ -112,10 +133,14 @@ def _plan_read(run: PipelineRun) -> RunPlanRead:
     )
 
 
-def _slot(s: RunSlot):
+def _slot(s: RunSlot, level: str | None = None):
     from app.schemas.run import RunSlotRead
 
-    return RunSlotRead.model_validate(s)
+    read = RunSlotRead.model_validate(s)
+    if level in ("unvalidated", "reference-tested", "validated"):
+        read.validation_level = level
+        read.experimental = level == "reference-tested"
+    return read
 
 
 def _enqueue(db: Session, run: PipelineRun, queue: RunQueue) -> None:
@@ -206,6 +231,7 @@ def create_case_run(
                 else None
             ),
             presets=orch.presets,
+            not_validated=not_validated_implementations(orch, pipeline),
         )
     except RunRefused as exc:
         db.rollback()
@@ -229,6 +255,15 @@ def create_case_run(
             "preset": run.preset_id,
             "preset_version": run.preset_version,
             "targets": run.targets,
+            # Validation level of each selected implementation when the run was created
+            # (card F1-23): the run page shows it later, whatever the registry says then.
+            "implementation_levels": {
+                s.slot: orch.validation.level(
+                    pipeline.id, s.slot, s.implementation_id
+                )
+                for s in run.slots
+                if s.status == "selected"
+            },
         },
         ip_address=client_ip(request),
     )
