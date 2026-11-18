@@ -17,8 +17,9 @@ import uuid
 from pathlib import Path
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Query, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, Request, Response, UploadFile
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -45,7 +46,13 @@ from app.models.case import Case, InputFile
 from app.models.pipeline_run import ACTIVE_STATUSES, PipelineRun
 from app.models.user import User
 from app.schemas.api_v1 import CaseDetailRead, CaseUpdateV1
-from app.schemas.case import CaseCreate, CaseRead, InputFileRead
+from app.schemas.case import (
+    ORIGIN_FIELD_MAX_LENGTH,
+    CaseCreate,
+    CaseRead,
+    InputFileRead,
+    InputOrigin,
+)
 from app.services.auth import client_ip, get_current_user
 from app.services.bids import (
     BidsNaming,
@@ -258,6 +265,34 @@ def _check_nifti(path: Path) -> None:
         raise v1_error(422, "invalid_input_file", "The file is not a NIfTI image")
 
 
+_ORIGIN_ADAPTER: TypeAdapter[InputOrigin] = TypeAdapter(InputOrigin)
+_ORIGIN_HELP = (
+    'The declared origin must be {"kind": "manual"} or {"kind": "external-tool", '
+    '"tool": "<name>", "version": "<version>"}, with tool and version matching '
+    "[A-Za-z0-9._+-]{1,64}"
+)
+
+
+def _origin_dict(origin: InputOrigin | None) -> dict | None:
+    return origin.model_dump(mode="json") if origin is not None else None
+
+
+def parse_origin(raw: str | None) -> dict | None:
+    """The ``origin`` form field (a JSON object) as a validated dict; None when absent.
+
+    The error never repeats the submitted text: it is user input that may carry
+    identifiers, and it would end up in logs.
+    """
+    if raw is None or raw.strip() == "":
+        return None
+    if len(raw) > ORIGIN_FIELD_MAX_LENGTH:
+        raise v1_error(422, "invalid_origin", _ORIGIN_HELP)
+    try:
+        return _origin_dict(_ORIGIN_ADAPTER.validate_json(raw))
+    except ValidationError:
+        raise v1_error(422, "invalid_origin", _ORIGIN_HELP) from None
+
+
 @router.put(
     "/cases/{case_id}/inputs/{role}", response_model=InputFileRead, status_code=201
 )
@@ -267,13 +302,20 @@ def put_input(
     request: Request,
     response: Response,
     file: UploadFile = File(...),
+    origin: str | None = Form(default=None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     orch: Orchestration = Depends(get_orchestration),
 ) -> InputFile:
     """Upload or replace the input of one role (for example ``ct``, ``lesion_native``,
-    ``lesion_mni``), before the first run. 201 for a new role, 200 for a replacement."""
+    ``lesion_mni``), before the first run. 201 for a new role, 200 for a replacement.
+
+    ``origin`` is an optional JSON object declaring how a supplied file was made
+    (``{"kind": "manual"}`` or ``{"kind": "external-tool", "tool", "version"}``). It is
+    stored as declared and never verified; a replacement without ``origin`` clears the
+    previous declaration, since it described the previous file."""
+    declared_origin = parse_origin(origin)
     case = load_case(db, case_id, current_user, "case.inputs.write")
     types = input_role_types(orch).get(role)
     if not types:
@@ -368,6 +410,7 @@ def put_input(
         existing.storage_path = stored.relative_path
         existing.sha256 = stored.sha256
         existing.size_bytes = stored.size_bytes
+        existing.origin = declared_origin
         case.updated_at = utcnow()
         audit_event(
             db,
@@ -378,6 +421,7 @@ def put_input(
                 "role": role,
                 "artefact_type": atype,
                 "size_bytes": stored.size_bytes,
+                "origin_kind": declared_origin["kind"] if declared_origin else None,
             },
             ip_address=client_ip(request),
         )
@@ -397,6 +441,54 @@ def put_input(
         shutil.rmtree(tmp_dir, ignore_errors=True)
     db.refresh(existing)
     return existing
+
+
+class InputOriginUpdate(BaseModel):
+    """Body of the origin change: the new declaration, or null to clear it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    origin: InputOrigin | None
+
+
+@router.patch("/cases/{case_id}/inputs/{role}", response_model=InputFileRead)
+def patch_input_origin(
+    case_id: UUID,
+    role: str,
+    body: InputOriginUpdate,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> InputFile:
+    """Change or clear the declared origin of an input without uploading it again.
+    Same rule and lock as replacing the file: refused once the case has a run."""
+    load_case(db, case_id, current_user, "case.inputs.write")
+    case = lock_case(db, case_id)
+    try:
+        if _has_runs(db, case.id):
+            raise v1_error(
+                409, "case_has_runs", "Inputs cannot change after the first run"
+            )
+        row = _input(db, case, role)
+        row.origin = _origin_dict(body.origin)
+        case.updated_at = utcnow()
+        audit_event(
+            db,
+            "input_origin_changed",
+            current_user,
+            case_id=case.id,
+            details={
+                "role": role,
+                "origin_kind": row.origin["kind"] if row.origin else None,
+            },
+            ip_address=client_ip(request),
+        )
+        db.commit()
+    except BaseException:
+        db.rollback()
+        raise
+    db.refresh(row)
+    return row
 
 
 @router.get("/cases/{case_id}/inputs", response_model=list[InputFileRead])

@@ -11,6 +11,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from app.models import formats
+from app.schemas.case import InputOrigin
 
 Status = Literal["queued", "running", "awaiting_review", "succeeded", "failed", "canceled"]
 Kebab = Annotated[str, StringConstraints(pattern=formats.KEBAB, max_length=64)]
@@ -26,6 +27,8 @@ class _Read(BaseModel):
 class RunInputRead(_Read):
     role: Snake
     input_file_id: UUID
+    # Declared by the uploader (contract 1.2); not verified by the platform.
+    origin: InputOrigin | None = None
 
 
 class RunSlotBundleRead(_Read):

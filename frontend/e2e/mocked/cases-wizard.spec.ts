@@ -116,6 +116,50 @@ test.describe('case creation wizard (mocked API)', () => {
   });
 });
 
+test.describe('declared origin of a supplied mask (mocked API)', () => {
+  test('an external tool with its version is sent with the upload and shown on the run page', async ({ page }) => {
+    const handle = await installMockApi(page);
+    await openWizard(page);
+    await page.getByRole('radio', { name: /Lesion mask already in MNI/ }).check();
+    await page.getByRole('button', { name: 'Next' }).click();
+
+    await expect(page.getByText(/shown on the run page and in the report as declared by the user/)).toBeVisible();
+    await page.getByLabel('Lesion mask in MNI space (.nii.gz)').setInputFiles(gz('whatever-name.nii.gz'));
+    await page.getByLabel('Origin of the mask').selectOption('external-tool');
+    await expect(page.getByRole('button', { name: 'Next' })).toBeDisabled();
+    // Free text is refused in the browser: spaces are not allowed in a tool name.
+    await page.getByLabel('Tool name').fill('drawn by someone');
+    await page.getByLabel('Tool version').fill('1.4.2');
+    await expect(page.getByRole('alert')).toContainText('Use only letters, digits');
+    await expect(page.getByRole('button', { name: 'Next' })).toBeDisabled();
+    await page.getByLabel('Tool name').fill('example-tool');
+    await page.getByRole('button', { name: 'Next' }).click();
+    await expect(page.getByRole('group', { name: 'Analysis' })).toBeVisible();
+    await page.getByRole('button', { name: 'Next' }).click();
+    await page.getByRole('button', { name: 'Create case and start run' }).click();
+
+    await expect(page).toHaveURL(/\/runs\/r1$/);
+    await expect(page.getByTestId('origin-lesion_mni')).toContainText('Declared by the user');
+    await expect(page.getByTestId('origin-lesion_mni')).toContainText('external tool example-tool 1.4.2');
+    const put = handle.requests.find((r) => r.method === 'PUT' && r.path === '/v1/cases/c1/inputs/lesion_mni');
+    expect(put?.contentType).toContain('multipart/form-data');
+    expect(put?.body).toContain('name="origin"');
+    expect(put?.body).toContain('{"kind":"external-tool","tool":"example-tool","version":"1.4.2"}');
+  });
+
+  test('without a declaration no origin is sent and the run page shows none', async ({ page }) => {
+    const handle = await installMockApi(page);
+    await openWizard(page);
+    await uploadMniMask(page);
+    await page.getByRole('button', { name: 'Next' }).click();
+    await page.getByRole('button', { name: 'Create case and start run' }).click();
+    await expect(page).toHaveURL(/\/runs\/r1$/);
+    await expect(page.getByTestId('origin-lesion_mni')).toHaveCount(0);
+    const put = handle.requests.find((r) => r.method === 'PUT');
+    expect(put?.body).not.toContain('name="origin"');
+  });
+});
+
 test.describe('analysis step (mocked API)', () => {
   test('preset flow: the preview shows the plan, the run request names the preset, the run page shows it', async ({ page }) => {
     const handle = await installMockApi(page, { presets: true });

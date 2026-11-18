@@ -149,6 +149,13 @@ def build_run_provenance(db: Session, run: PipelineRun) -> dict[str, Any]:
         }
         for role, f in inputs
     ]
+    if record["contract_version"] == PLAN_CONTRACT_VERSION:
+        # Declared origins are a 1.2 field (provenance.md 3.3): a 1.1 record (a run
+        # without a plan, such as a legacy run) never carries them. They are copied
+        # as declared and never verified.
+        for item, (_role, f) in zip(record["inputs"], inputs, strict=True):
+            if f.origin:
+                item["origin"] = copy.deepcopy(dict(f.origin))
     if with_plan:
         record["plan"] = plan_record(run)
     record["accounting"] = {

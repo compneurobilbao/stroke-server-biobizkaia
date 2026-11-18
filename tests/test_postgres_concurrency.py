@@ -221,6 +221,61 @@ def test_upload_waits_for_a_run_creation_and_is_refused(v1, monkeypatch):
     assert sha_of(v1, case_id) == before
 
 
+def origin_request(v1, case_id, role, origin, headers=None):
+    return Request(
+        "PATCH",
+        f"/api/v1/cases/{case_id}/inputs/{role}",
+        json={"origin": origin},
+        headers=headers or v1.alice,
+    )
+
+
+def test_origin_change_waits_for_a_run_creation_and_is_refused(v1, monkeypatch):
+    v1.enable_all()
+    case_id = v1.native_case()
+    gate = Gate(runs_module.lock_case)
+    monkeypatch.setattr(runs_module, "lock_case", gate)
+
+    run = run_request(v1, case_id)
+    run.start()
+    assert gate.reached.wait(WAIT)
+    change = origin_request(v1, case_id, "ct", {"kind": "manual"})
+    change.start()
+    try:
+        wait_until_blocked(engine_of(v1))
+        assert change.is_alive()  # blocked on the case row held by run creation
+    finally:
+        gate.release.set()
+    assert run.finish().status_code == 201
+    refused = change.finish()
+    assert refused.status_code == 409 and refused.json()["code"] == "case_has_runs"
+    with v1.Session() as db:
+        assert db.scalar(select(InputFile.origin).where(InputFile.role == "ct")) is None
+
+
+def test_run_creation_waits_for_an_origin_change_and_sees_it(v1, monkeypatch):
+    v1.enable_all()
+    case_id = v1.native_case()
+    gate = Gate(cases_module.lock_case)
+    monkeypatch.setattr(cases_module, "lock_case", gate)
+
+    change = origin_request(v1, case_id, "ct", {"kind": "manual"})
+    change.start()
+    assert gate.reached.wait(WAIT)
+    run = run_request(v1, case_id)
+    run.start()
+    try:
+        wait_until_blocked(engine_of(v1))
+        assert run.is_alive()
+    finally:
+        gate.release.set()
+    assert change.finish().status_code == 200
+    created = run.finish()
+    assert created.status_code == 201
+    inputs = {i["role"]: i["origin"] for i in created.json()["inputs"]}
+    assert inputs["ct"] == {"kind": "manual"}
+
+
 # ----------------------------------------------------------- delete vs run creation
 
 

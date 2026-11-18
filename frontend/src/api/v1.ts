@@ -55,6 +55,8 @@ export interface InputFile {
   artefact_type: string;
   size_bytes?: number | null;
   created_at: string;
+  /** Declared by the uploader; not verified by the platform. */
+  origin?: InputOrigin | null;
 }
 
 export interface CaseRead {
@@ -318,9 +320,10 @@ export const createCase = (api: ApiClient, body: CaseCreate) =>
   api.json<CaseDetail>('/v1/cases', { method: 'POST', json: body });
 
 /** Upload the file of one input role. The file name is not used by the client beyond the upload itself. */
-export const putInput = (api: ApiClient, caseId: string, role: string, file: File) => {
+export const putInput = (api: ApiClient, caseId: string, role: string, file: File, origin?: InputOrigin | null) => {
   const form = new FormData();
   form.append('file', file);
+  if (origin) form.append('origin', JSON.stringify(origin));
   return api.json<InputFile>(`/v1/cases/${enc(caseId)}/inputs/${enc(role)}`, { method: 'PUT', body: form });
 };
 

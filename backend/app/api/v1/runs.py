@@ -86,7 +86,14 @@ def _detail_read(db: Session, run: PipelineRun) -> RunDetailRead:
         **base,
         plan=_plan_read(run),
         cancel_requested=run.cancel_requested_at is not None,
-        inputs=[{"role": i.role, "input_file_id": i.input_file_id} for i in run.inputs],
+        inputs=[
+            {
+                "role": i.role,
+                "input_file_id": i.input_file_id,
+                "origin": i.input_file.origin,
+            }
+            for i in run.inputs
+        ],
         slots=[_slot(s) for s in run.slots],
         steps=[_attempt(a, names[a.run_slot_id]) for a in attempts],
     )

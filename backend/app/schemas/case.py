@@ -17,6 +17,34 @@ from app.models.case import is_valid_age_band
 
 Snake = Annotated[str, StringConstraints(pattern=formats.SNAKE, max_length=64)]
 Sha256Hex = Annotated[str, StringConstraints(pattern=formats.SHA256_HEX)]
+# Tool names and versions of declared origins: no free text, which could carry identifiers
+# (contract 1.2, provenance.md 3.3; same pattern as `origin_token` in the schema).
+OriginToken = Annotated[str, StringConstraints(pattern=formats.ORIGIN_TOKEN)]
+
+
+class ManualOrigin(BaseModel):
+    """The file was drawn by hand."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["manual"]
+
+
+class ExternalToolOrigin(BaseModel):
+    """The file was produced by a tool outside the platform."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["external-tool"]
+    tool: OriginToken
+    version: OriginToken
+
+
+# `platform-run` (an artefact of an earlier run) is deferred (owner decision 6).
+InputOrigin = Annotated[ManualOrigin | ExternalToolOrigin, Field(discriminator="kind")]
+
+# Upper bound on the raw `origin` form field, checked before parsing it.
+ORIGIN_FIELD_MAX_LENGTH = 512
 
 
 def validate_age_band(value: str | None) -> str | None:
@@ -74,3 +102,5 @@ class InputFileRead(BaseModel):
     size_bytes: int | None = Field(default=None, ge=0)
     uploaded_by_user_id: UUID
     created_at: datetime
+    # Declared by the uploader and not verified by the platform.
+    origin: InputOrigin | None = None

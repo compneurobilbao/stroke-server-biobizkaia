@@ -674,6 +674,10 @@ th, td {
 .field-row { display: flex; gap: 16px; flex-wrap: wrap; }
 .field-row label, .file-row { display: flex; flex-direction: column; gap: 6px; font-weight: 600; color: #12324a; }
 .file-row { max-width: 560px; }
+.file-group { display: flex; flex-direction: column; gap: 8px; }
+.origin-field { max-width: 560px; border: 1px solid #d0d7de; border-radius: 6px; padding: 8px 12px; display: flex; flex-direction: column; gap: 8px; }
+.origin-field legend { font-weight: 600; color: #12324a; padding: 0 6px; }
+.origin-field label { display: flex; flex-direction: column; gap: 4px; font-weight: 600; color: #12324a; }
 .wizard-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 16px; }
 .tag { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 999px; font-size: .78rem; font-weight: 600; background: var(--bb-indigo-soft); color: var(--bb-indigo); }
 .tag-muted { background: #e5e7eb; color: #475467; }

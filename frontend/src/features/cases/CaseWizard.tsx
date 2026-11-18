@@ -36,6 +36,8 @@ import {
   type TargetKind,
 } from './plan';
 import { IDLE_PREVIEW, ReasonList, slotTitleOf, type PreviewState } from './PlanPreview';
+import { EMPTY_ORIGIN, isValidOrigin, originOf, originRoles, type OriginDraft } from './origin';
+import { OriginField } from './OriginField';
 import { SlotSelector } from './SlotSelector';
 import { baselineImplementation, fixedImplementation, implementationOverrides } from './slots';
 
@@ -84,6 +86,8 @@ export function CaseWizard() {
   const [sex, setSex] = useState<'' | Sex>('');
   const [ageBand, setAgeBand] = useState('');
   const [files, setFiles] = useState<Record<string, File | null>>({});
+  // How the user says each supplied mask was made (optional, declared and never verified).
+  const [origins, setOrigins] = useState<Record<string, OriginDraft>>({});
   const [pipelines, setPipelines] = useState<PipelineSummary[] | null>(null);
   const [slots, setSlots] = useState<Slot[] | null>(null);
   const [config, setConfig] = useState<Config | null>(null);
@@ -245,6 +249,7 @@ export function CaseWizard() {
   }, [api, pipeline, requestKey, previewActive, t]);
 
   const missingFiles = roles.filter((role) => !files[role] && !uploaded.current.has(role));
+  const invalidOrigins = originRoles(roles).filter((role) => !isValidOrigin(origins[role] ?? EMPTY_ORIGIN));
   const feasible = preview.status === 'ready' && previewKey === requestKey && preview.data?.feasible === true;
   const canStart =
     !busy && pipeline !== null && slots !== null && request !== null && missingFiles.length === 0 && feasible;
@@ -295,7 +300,7 @@ export function CaseWizard() {
       for (const role of roles) {
         const file = files[role];
         if (uploaded.current.has(role) || !file) continue;
-        await putInput(api, id, role, file);
+        await putInput(api, id, role, file, originOf(origins[role]));
         uploaded.current.add(role);
       }
       const run = await createRun(api, id, {
@@ -385,18 +390,28 @@ export function CaseWizard() {
         <div className="wizard-panel">
           <p className="hint">{t('cases.wizard.filesHint')}</p>
           {roles.map((role) => (
-            <label key={role} className="file-row">
-              <span>
-                <strong>{t(`cases.roles.${role}`, { defaultValue: role })}</strong>
-                {uploaded.current.has(role) && <span className="tag">{t('cases.wizard.uploaded')}</span>}
-              </span>
-              <input
-                type="file"
-                accept=".nii.gz"
-                aria-label={t(`cases.roles.${role}`, { defaultValue: role })}
-                onChange={(event) => setFiles((prev) => ({ ...prev, [role]: event.target.files?.[0] ?? null }))}
-              />
-            </label>
+            <div key={role} className="file-group">
+              <label className="file-row">
+                <span>
+                  <strong>{t(`cases.roles.${role}`, { defaultValue: role })}</strong>
+                  {uploaded.current.has(role) && <span className="tag">{t('cases.wizard.uploaded')}</span>}
+                </span>
+                <input
+                  type="file"
+                  accept=".nii.gz"
+                  aria-label={t(`cases.roles.${role}`, { defaultValue: role })}
+                  onChange={(event) => setFiles((prev) => ({ ...prev, [role]: event.target.files?.[0] ?? null }))}
+                />
+              </label>
+              {originRoles([role]).length > 0 && (
+                <OriginField
+                  role={role}
+                  value={origins[role] ?? EMPTY_ORIGIN}
+                  disabled={uploaded.current.has(role)}
+                  onChange={(draft) => setOrigins((prev) => ({ ...prev, [role]: draft }))}
+                />
+              )}
+            </div>
           ))}
         </div>
       )}
@@ -508,7 +523,7 @@ export function CaseWizard() {
           <button
             type="button"
             disabled={
-              (step === 'files' && missingFiles.length > 0) ||
+              (step === 'files' && (missingFiles.length > 0 || invalidOrigins.length > 0)) ||
               (step === 'analysis' && (!optionsReady || !slots || request === null))
             }
             onClick={() => setStep(STEPS[stepIndex + 1])}
