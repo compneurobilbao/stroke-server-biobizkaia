@@ -82,6 +82,7 @@ Only used when the Compose profile `pipelines` is enabled (see `docs/deployment.
 | `DOCKER_EXECUTOR_PIDS_LIMIT` | Maximum processes per step container. | `512` |
 | `DOCKER_EXECUTOR_PULL_MISSING` | Pull allow-listed images missing on the host. | `false` |
 | `DOCKER_EXECUTOR_ALLOW_GPUS` | Grant GPUs to step containers. | `false` |
+| `DOCKER_EXECUTOR_API_VERSION` | Docker Engine API version used by the docker executor, e.g. `v1.45`. `auto` asks the daemon (`GET /version`, allowed by the socket proxy) and uses its version, never below v1.41; recent engines refuse older client versions. | `auto` |
 | `API_PIPELINES_DIR` | `PIPELINES_DIR` of the `api` service (compose only). Set to `/app/pipelines` to let the API list pipelines; unset, the API lists none. | unset (`/app/pipelines-disabled`) |
 | `API_STEP_MANIFESTS_DIR` | `STEP_MANIFESTS_DIR` of the `api` service. Set to `/app/steps` together with the previous one. | unset (`/app/steps-disabled`) |
 | `DEPLOYMENT_PROFILE` | Profile recorded on new cases by the API: `research-public`, `mask-only` or `on-premise`. Any other value stops the whole application at startup (since F1-21). | `research-public` |

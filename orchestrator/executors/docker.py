@@ -97,7 +97,11 @@ CONTRACT_COMMAND = (
     "/in/params.json",
 )
 DEFAULT_PROXY_URL = "http://docker-proxy:2375"
-DEFAULT_API_VERSION = "v1.41"
+DEFAULT_API_VERSION = "auto"
+# Oldest Engine API version whose features this executor uses. With "auto" the client asks
+# the daemon for its version (GET /version, unversioned) and uses it, never below this floor;
+# recent engines refuse old client versions (Docker 29 requires at least 1.44).
+MIN_API_VERSION = (1, 41)
 DEFAULT_PIDS_LIMIT = 512
 FALLBACK_USER = "10001:10001"
 LOG_LIMIT_BYTES = 10 * 1024 * 1024  # step-contract.md section 3, item 4
@@ -231,11 +235,49 @@ class _Client:
         timeout: float,
         transport: httpx.BaseTransport | None,
     ) -> None:
-        self._http = httpx.Client(
-            base_url=f"{base_url.rstrip('/')}/{api_version}",
-            timeout=timeout,
-            transport=transport,
-        )
+        self._base_url = base_url.rstrip("/")
+        self._timeout = timeout
+        self._transport = transport
+        self._api_version = api_version
+        self._http_client: httpx.Client | None = None
+
+    @property
+    def _http(self) -> httpx.Client:
+        if self._http_client is None:
+            version = self._api_version
+            if version == "auto":
+                version = self._negotiate()
+            self._http_client = httpx.Client(
+                base_url=f"{self._base_url}/{version}",
+                timeout=self._timeout,
+                transport=self._transport,
+            )
+        return self._http_client
+
+    def _negotiate(self) -> str:
+        """The daemon's API version (``GET /version``), never below MIN_API_VERSION."""
+        floor = "v{}.{}".format(*MIN_API_VERSION)
+        try:
+            with httpx.Client(
+                base_url=self._base_url,
+                timeout=self._timeout,
+                transport=self._transport,
+            ) as probe:
+                response = probe.get("/version")
+        except httpx.HTTPError as exc:
+            raise ExecutorError(
+                f"Docker socket proxy unreachable ({type(exc).__name__}: {exc})"
+            ) from exc
+        if response.status_code != 200:
+            return floor
+        try:
+            raw = str(response.json().get("ApiVersion", ""))
+            parts = tuple(int(x) for x in raw.split("."))
+        except (ValueError, AttributeError):
+            return floor
+        if len(parts) != 2 or parts < MIN_API_VERSION:
+            return floor
+        return "v{}.{}".format(*parts)
 
     def request(
         self,
@@ -345,6 +387,8 @@ class DockerExecutor(Executor):
             ),
             "pull_missing": _truthy(env.get("DOCKER_EXECUTOR_PULL_MISSING")),
             "allow_gpus": _truthy(env.get("DOCKER_EXECUTOR_ALLOW_GPUS")),
+            "api_version": env.get("DOCKER_EXECUTOR_API_VERSION")
+            or DEFAULT_API_VERSION,
         }
         values.update(overrides)
         return cls(allowed_images=allowed_images, **values)

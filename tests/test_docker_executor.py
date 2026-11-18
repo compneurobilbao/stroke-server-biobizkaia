@@ -81,6 +81,10 @@ class FakeDocker:
         return httpx.MockTransport(self.handle)
 
     def handle(self, request: httpx.Request) -> httpx.Response:
+        if (
+            request.url.path == "/version"
+        ):  # API version negotiation, not an engine call
+            return httpx.Response(200, json={"ApiVersion": "1.41"})
         path = re.sub(r"^/v[0-9.]+", "", request.url.path)
         self.calls.append((request.method, path))
         method = request.method
@@ -726,3 +730,46 @@ def test_adopt_refuses_another_attempt(tmp_path, docker):
     with pytest.raises(ExecutorRefused, match="labels"):
         make_executor(docker).adopt(inv)
     assert CONTAINER_ID in docker.containers
+
+
+def _version_transport(api_version, seen):
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.path)
+        if request.url.path == "/version":
+            if api_version is None:
+                return httpx.Response(404, json={"message": "forbidden"})
+            return httpx.Response(200, json={"ApiVersion": api_version})
+        return httpx.Response(404, json={"message": "no such image"})
+
+    return httpx.MockTransport(handler)
+
+
+@pytest.mark.parametrize(
+    ("daemon", "expected"),
+    [("1.52", "/v1.52/"), ("1.44", "/v1.44/"), ("1.40", "/v1.41/"), (None, "/v1.41/")],
+)
+def test_api_version_is_negotiated_with_the_daemon(daemon, expected):
+    seen: list[str] = []
+    executor = DockerExecutor(
+        allowed_images=[IMAGE],
+        base_url="http://proxy.invalid:2375",
+        user="10001:10001",
+        transport=_version_transport(daemon, seen),
+    )
+    executor._client.request("GET", f"/images/{IMAGE}/json", ok=(200, 404))
+    assert seen[0] == "/version"
+    assert seen[1].startswith(expected)
+
+
+def test_api_version_can_be_pinned_from_the_environment():
+    seen: list[str] = []
+    executor = DockerExecutor.from_env(
+        [IMAGE],
+        environ={
+            "DOCKER_EXECUTOR_API_VERSION": "v1.45",
+            "DOCKER_EXECUTOR_USER": "10001:10001",
+        },
+        transport=_version_transport("1.52", seen),
+    )
+    executor._client.request("GET", f"/images/{IMAGE}/json", ok=(200, 404))
+    assert seen == [f"/v1.45/images/{IMAGE}/json"]
