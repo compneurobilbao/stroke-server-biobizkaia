@@ -262,6 +262,13 @@
       "default": "predeterminado del despliegue",
       "stub": "simulado",
       "experimental": "experimental",
+      "candidates": "Implementaciones candidatas",
+      "externalTool": "Herramienta externa: {{tool}}",
+      "level": {
+        "unvalidated": "sin validar",
+        "reference-tested": "probada con referencia",
+        "validated": "validada"
+      },
       "optional": "Opcional",
       "notUsed": "No se usa en este modo",
       "unavailable": "No disponible",
@@ -276,6 +283,8 @@
       "empty": "Todavía no hay casos.",
       "failed": "No se pudieron cargar los casos.",
       "case": "Caso",
+      "origin": "Origen declarado de las máscaras",
+      "noOrigin": "No declarado",
       "created": "Creado"
     },
     "detail": {
@@ -283,10 +292,17 @@
       "failed": "No se pudo cargar el caso.",
       "inputs": "Entradas",
       "runs": "Ejecuciones",
+      "editOrigin": "Editar origen",
+      "saveOrigin": "Guardar origen",
+      "cancelEdit": "Cancelar",
+      "originFailed": "No se pudo guardar el origen.",
+      "originLocked": "El origen declarado no se puede cambiar después de la primera ejecución.",
       "noRuns": "Este caso no tiene ejecuciones."
     },
     "wizard": {
       "title": "Nuevo caso",
+      "titleAgain": "Nueva ejecución de este caso",
+      "sameCase": "Se reutilizan los archivos de este caso; no se sube nada de nuevo. Elija el análisis de la nueva ejecución.",
       "privacy": "Un caso guarda solo una etiqueta generada por la plataforma, el sexo (opcional) y una banda de edad. No introduzca nombres ni identificadores. Los nombres de archivo no se guardan.",
       "progress": "Progreso del asistente",
       "step": {
@@ -413,7 +429,9 @@
         "manual": "dibujada a mano",
         "externalTool": "herramienta externa {{tool}} {{version}}"
       },
-      "runAgain": "Ejecutar de nuevo con el mismo plan"
+      "runAgain": "Ejecutar de nuevo con el mismo plan",
+      "runAgainNewFiles": "Ejecutar de nuevo con archivos nuevos",
+      "runAgainActive": "Hay una ejecución de este caso en curso: ejecute de nuevo cuando termine."
     },
     "analysis": {
       "hint": "Elija qué ejecutar en este caso. El plan de abajo muestra qué pasos se ejecutarán y por qué.",
@@ -444,6 +462,8 @@
       "infeasible": "Este plan no puede ejecutarse. Vea los motivos más abajo.",
       "refused": "Por qué este plan no puede ejecutarse:",
       "thePlan": "el plan",
+      "missingHeading": "Entradas opcionales que faltarán:",
+      "missingInput": "{{consumer}} se ejecutará sin la entrada opcional \"{{port}}\": {{producers}} no se ejecutará en este plan. Añádalo al plan para incluirla.",
       "role": {
         "target": "Solicitado",
         "upstream": "Añadido por el plan",

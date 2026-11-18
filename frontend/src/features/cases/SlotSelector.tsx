@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import type { PlanSlot, Slot, SlotImplementation } from '../../api/v1';
 import { isPlanned, planSlotState } from './plan';
+import { upstreamText } from './RunTimeline';
 import { defaultImplementationId, isSelectable, isSlotUnavailable, slotApplies } from './slots';
 
 interface SlotSelectorProps {
@@ -22,6 +23,45 @@ interface SlotSelectorProps {
 function fixedLabel(slot: Slot, id: string): string {
   const impl = slot.implementations.find((i) => i.id === id);
   return impl ? impl.title || `${impl.step_name} ${impl.step_version}` : id;
+}
+
+/**
+ * What a candidate implementation is, beyond its name: the external tool it wraps (name, version and
+ * licence of the upstream block) and its validation level, with an "experimental" mark for
+ * `reference-tested`. Candidates with neither are not listed.
+ */
+function CandidateBadges({ impls, selected }: { impls: readonly SlotImplementation[]; selected: string }) {
+  const { t } = useTranslation();
+  const rows = impls.filter((impl) => impl.upstream || impl.validation_level);
+  if (rows.length === 0) return null;
+  return (
+    <ul className="impl-badges" aria-label={t('cases.slots.candidates')}>
+      {rows.map((impl) => {
+        const external = impl.upstream ? upstreamText(impl.upstream) : '';
+        const level = impl.validation_level;
+        return (
+          <li key={impl.id} data-impl={impl.id} data-current={impl.id === selected ? 'true' : undefined}>
+            <span className="impl-name">{impl.title || `${impl.step_name} ${impl.step_version}`}</span>
+            {external && (
+              <span className="tag tag-warn" data-testid="impl-external">
+                {t('cases.slots.externalTool', { tool: external })}
+              </span>
+            )}
+            {level && (
+              <span
+                className={`tag ${impl.experimental ? 'tag-warn' : level === 'validated' ? '' : 'tag-muted'}`}
+                data-testid="impl-level"
+                data-level={level}
+              >
+                {t(`cases.slots.level.${level}`)}
+                {impl.experimental ? ` - ${t('cases.slots.experimental')}` : ''}
+              </span>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
 }
 
 /**
@@ -86,6 +126,12 @@ export function SlotSelector({ slots, roles, value, onChange, disabled, plan, fi
                   </option>
                 ))}
               </select>
+            )}
+            {applies && !unavailable && (
+              <CandidateBadges
+                impls={fixedId ? slot.implementations.filter((impl) => impl.id === fixedId) : slot.implementations.filter(isSelectable)}
+                selected={fixedId ?? value[slot.name] ?? defaultId ?? ''}
+              />
             )}
             {applies && unavailable && (
               <p className="hint slot-note">

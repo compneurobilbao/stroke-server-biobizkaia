@@ -283,3 +283,89 @@ test.describe('analysis step (mocked API)', () => {
     expect(handle.requests.filter((r) => r.method === 'POST' && r.path === '/v1/cases')).toHaveLength(1);
   });
 });
+
+test.describe('wizard and run page follow-ups (mocked API)', () => {
+  test('the plan preview says which optional input will be missing, and names the external tool and level of a candidate', async ({ page }) => {
+    await installMockApi(page, { presets: true });
+    await openWizard(page);
+    await uploadMniMask(page);
+
+    // The full analysis plans every step that applies: nothing is missing.
+    await expect(planRow(page, 'functional-disconnection')).toBeVisible();
+    await expect(page.getByTestId('plan-missing-inputs')).toHaveCount(0);
+
+    // The preset leaves the cognitive profile out, which the functional disconnection can optionally use.
+    await page.getByRole('radio', { name: /Disconnection analysis of an MNI lesion mask/ }).check();
+    await expect(page.getByTestId('plan-missing-inputs')).toContainText(
+      'Functional disconnection will run without the optional input "cognet profile": Cognitive profile will not run in this plan.',
+    );
+    // The mask the user supplied feeds the other optional port: only one note.
+    await expect(page.getByTestId('plan-missing-inputs').locator('li')).toHaveCount(1);
+
+    await page.getByRole('button', { name: 'Next' }).click();
+    const row = page.locator('[data-slot="functional-disconnection"]');
+    const candidates = row.getByRole('list', { name: 'Candidate implementations' });
+    await expect(candidates.locator('[data-impl="fdc-alt"]')).toContainText('External tool: ext-tool 2.3.4 (MIT)');
+    await expect(candidates.locator('[data-impl="fdc-alt"]')).toContainText('reference-tested - experimental');
+    await expect(candidates.locator('[data-impl="fdc-stub"]')).toContainText('unvalidated');
+    await expect(candidates.locator('[data-impl="fdc-stub"]')).not.toContainText('External tool');
+    await expect(candidates.locator('[data-impl="fdc-stub"]')).toHaveAttribute('data-current', 'true');
+    await row.getByRole('combobox').selectOption('fdc-alt');
+    await expect(candidates.locator('[data-impl="fdc-alt"]')).toHaveAttribute('data-current', 'true');
+  });
+
+  test('run again on the same case: no files step, nothing is uploaded again, the run goes to the same case', async ({ page }) => {
+    const handle = await installMockApi(page, { seedCase: { run: 'succeeded', origin: { kind: 'manual' } } });
+    await page.goto('/runs/r1');
+    await page.getByRole('button', { name: 'Run again with the same plan' }).click();
+
+    await expect(page.getByRole('heading', { name: 'New run on this case' })).toBeVisible();
+    await expect(page.getByTestId('same-case-note')).toBeVisible();
+    await expect(page.getByRole('group', { name: 'Analysis' })).toBeVisible();
+    await expect(page.getByLabel('Lesion mask in MNI space (.nii.gz)')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Next' }).click();
+    await page.getByRole('button', { name: 'Create case and start run' }).click();
+
+    await expect(page).toHaveURL(/\/runs\/r1$/);
+    expect(handle.requests.filter((r) => r.method === 'POST' && r.path === '/v1/cases')).toHaveLength(0);
+    expect(handle.requests.filter((r) => r.method === 'PUT')).toHaveLength(0);
+    expect(bodyOf(handle, 'POST', '/v1/cases/c1/runs')).toMatchObject({ input_roles: ['lesion_mni'] });
+  });
+
+  test('run again on the same case is not possible while the run is active', async ({ page }) => {
+    await installMockApi(page, { seedCase: { run: 'running' } });
+    await page.goto('/runs/r1');
+    await expect(page.getByRole('button', { name: 'Run again with the same plan' })).toBeDisabled();
+    await expect(page.getByText(/A run of this case is active/)).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Run again with new files' })).toBeEnabled();
+  });
+
+  test('the case list shows the declared origin; the owner edits it before the first run', async ({ page }) => {
+    const handle = await installMockApi(page, { seedCase: { origin: { kind: 'manual' } } });
+    await page.goto('/cases');
+    await expect(page.getByTestId('origin-c1')).toContainText('drawn by hand');
+
+    await page.getByRole('link', { name: 'sub-0001 / ses-01' }).click();
+    await expect(page.getByTestId('origin-lesion_mni')).toContainText('Declared by the user (not verified): drawn by hand');
+    await page.getByRole('button', { name: 'Edit origin' }).click();
+    await page.getByLabel('Origin of the mask').selectOption('external-tool');
+    await page.getByLabel('Tool name').fill('example-tool');
+    await page.getByLabel('Tool version').fill('1.4.2');
+    await page.getByRole('button', { name: 'Save origin' }).click();
+    await expect(page.getByTestId('origin-lesion_mni')).toContainText('external tool example-tool 1.4.2');
+    expect(bodyOf(handle, 'PATCH', '/v1/cases/c1/inputs/lesion_mni')).toEqual({
+      origin: { kind: 'external-tool', tool: 'example-tool', version: '1.4.2' },
+    });
+
+    await page.getByRole('link', { name: 'Back to cases' }).click();
+    await expect(page.getByTestId('origin-c1')).toContainText('external tool example-tool 1.4.2');
+  });
+
+  test('after the first run the origin cannot be edited', async ({ page }) => {
+    await installMockApi(page, { seedCase: { run: 'succeeded', origin: { kind: 'manual' } } });
+    await page.goto('/cases/c1');
+    await expect(page.getByTestId('origin-lesion_mni')).toContainText('drawn by hand');
+    await expect(page.getByRole('button', { name: 'Edit origin' })).toHaveCount(0);
+    await expect(page.getByTestId('origin-locked')).toBeVisible();
+  });
+});

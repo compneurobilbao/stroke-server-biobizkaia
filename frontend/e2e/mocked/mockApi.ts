@@ -92,11 +92,20 @@ const SLOTS: MockSlot[] = [
     title: 'Functional disconnection',
     position: 2,
     optional: true,
-    consumes: [],
+    // Optionally uses the cognitive profile (a producer a preset may leave out of the plan) and the supplied mask.
+    consumes: [
+      { port: 'cognet_profile', type: 'cognet_profile', optional: true, from: ['cognitive-profile.profile'] },
+      { port: 'lesion_mask', type: 'lesion_mask_mni_any', optional: true, from: ['inputs.lesion_mni'] },
+    ],
     produces: [{ port: 'fdisconnection_map', type: 'fdisconnection_map' }],
     implementations: [
-      impl('fdc-stub', { is_default: true, is_pipeline_default: true, stub: true }),
-      impl('fdc-alt', { title: 'Alternative connectome' }),
+      impl('fdc-stub', { is_default: true, is_pipeline_default: true, stub: true, validation_level: 'unvalidated' }),
+      impl('fdc-alt', {
+        title: 'Alternative connectome',
+        validation_level: 'reference-tested',
+        experimental: true,
+        upstream: { name: 'ext-tool', version: '2.3.4', licence: 'MIT' },
+      }),
     ],
     default_implementation: 'fdc-stub',
   },
@@ -280,6 +289,12 @@ export interface MockOptions {
   freeMode?: boolean;
   /** Refuse the first run creation although the preview said feasible (bundles, manifests, parameters). */
   refuseCreateOnce?: boolean;
+  /**
+   * A case `c1` that already exists with a lesion mask in MNI space (as after an earlier session):
+   * `origin` is what was declared for the mask, `run` adds a run `r1` of it that is finished
+   * (`succeeded`) or stays active (`running`); without `run` the case has no run yet.
+   */
+  seedCase?: { origin?: unknown; run?: 'succeeded' | 'running' };
 }
 
 function runDetail(status: 'running' | 'succeeded', plan: Plan, inputs: Array<Record<string, unknown>> = []) {
@@ -336,6 +351,26 @@ export async function installMockApi(page: Page, options: MockOptions = {}): Pro
   let createAttempts = 0;
   // Origins declared at upload (multipart field `origin`), by role: shown on the run, as the API does.
   const declared: Record<string, unknown> = {};
+  const seed = options.seedCase;
+  let caseExists = Boolean(seed);
+  let hasRun = Boolean(seed?.run);
+  if (seed) {
+    declared.lesion_mni = seed.origin ?? null;
+    if (seed.run) runReads = seed.run === 'succeeded' ? 2 : 0;
+  }
+  // The seeded active run never finishes; a run created in the test is `running` on its first read.
+  const holdRunning = seed?.run === 'running';
+  const runStatusNow = (): 'running' | 'succeeded' => (holdRunning || runReads <= 1 ? 'running' : 'succeeded');
+  const caseRead = () => ({
+    id: 'c1',
+    owner_user_id: USER.id,
+    subject_label: 'sub-0001',
+    session_label: 'ses-01',
+    created_at: NOW,
+    updated_at: NOW,
+  });
+  const inputFiles = () =>
+    Object.entries(declared).map(([role, origin]) => ({ id: `in-${role}`, role, artefact_type: 'x', created_at: NOW, origin }));
   const inputsOf = () => Object.entries(declared).map(([role, origin]) => ({ role, input_file_id: `in-${role}`, origin }));
 
   const json = (route: Route, body: unknown, status = 200) =>
@@ -375,11 +410,23 @@ export async function installMockApi(page: Page, options: MockOptions = {}): Pro
       }
       return json(route, planFor(body, Boolean(options.presets)));
     }
-    if (method === 'GET' && path === '/v1/cases') return json(route, []);
+    if (method === 'GET' && path === '/v1/cases') return json(route, caseExists ? [caseRead()] : []);
     if (method === 'POST' && path === '/v1/cases') {
-      return json(route, { id: 'c1', subject_label: 'sub-0001', session_label: 'ses-01', created_at: NOW, updated_at: NOW, inputs: [] }, 201);
+      caseExists = true;
+      return json(route, { ...caseRead(), inputs: [] }, 201);
+    }
+    if (method === 'GET' && path === '/v1/cases/c1' && caseExists) {
+      return json(route, { ...caseRead(), inputs: inputFiles() });
+    }
+    if (method === 'GET' && path === '/v1/cases/c1/runs') {
+      return json(route, hasRun ? [{ ...runDetail(runStatusNow(), created), slots: undefined, steps: undefined }] : []);
     }
     const input = /^\/v1\/cases\/c1\/inputs\/([a-z_]+)$/.exec(path);
+    if (method === 'PATCH' && input && input[1] in declared) {
+      if (hasRun) return json(route, { detail: 'Inputs cannot change after the first run', code: 'case_has_runs' }, 409);
+      declared[input[1]] = (JSON.parse(request.postData() ?? '{}') as { origin: unknown }).origin;
+      return json(route, inputFiles().find((file) => file.role === input[1]));
+    }
     if (method === 'PUT' && input) {
       const sent = /name="origin"\r?\n\r?\n([^\r\n]*)/.exec(request.postData() ?? '');
       const origin = sent ? (JSON.parse(sent[1]) as unknown) : null;
@@ -402,13 +449,18 @@ export async function installMockApi(page: Page, options: MockOptions = {}): Pro
           409,
         );
       }
+      // One active run per case (the API refuses a second one).
+      if (hasRun && runStatusNow() === 'running') {
+        return json(route, { detail: 'Another run of this case is active', code: 'active_run_exists' }, 409);
+      }
       created = planFor(JSON.parse(request.postData() ?? '{}') as PlanBody, Boolean(options.presets));
       runReads = 0;
+      hasRun = true;
       return json(route, runDetail('running', created, inputsOf()), 201);
     }
     if (method === 'GET' && path === '/v1/runs/r1') {
       runReads += 1;
-      return json(route, runDetail(runReads > 1 ? 'succeeded' : 'running', created, inputsOf()));
+      return json(route, runDetail(runStatusNow(), created, inputsOf()));
     }
     if (method === 'GET' && path === '/v1/runs/r1/artifacts') {
       return json(

@@ -149,6 +149,7 @@ export function AnalysisStep({
       <PlanPreview
         preview={preview}
         slots={slots}
+        roles={roles}
         idleHint={
           selected === CUSTOM_KEY && noneRequested
             ? t('cases.analysis.chooseOutput')

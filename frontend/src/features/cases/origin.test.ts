@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EMPTY_ORIGIN, isValidOrigin, originOf, originRoles } from './origin';
+import { EMPTY_ORIGIN, draftOf, isValidOrigin, originOf, originRoles } from './origin';
 
 describe('declared origin', () => {
   it('declares nothing by default', () => {
@@ -33,5 +33,25 @@ describe('declared origin', () => {
   it('only lesion masks can have a declared origin', () => {
     expect(originRoles(['ct', 'lesion_native'])).toEqual(['lesion_native']);
     expect(originRoles(['lesion_mni'])).toEqual(['lesion_mni']);
+  });
+});
+
+describe('editing a stored origin', () => {
+  it('turns a stored origin into the draft of the form, and anything else into "not declared"', () => {
+    expect(draftOf({ kind: 'manual' })).toEqual({ kind: 'manual', tool: '', version: '' });
+    expect(draftOf({ kind: 'external-tool', tool: 'example-tool', version: '2.1' })).toEqual({
+      kind: 'external-tool',
+      tool: 'example-tool',
+      version: '2.1',
+    });
+    expect(draftOf(null)).toEqual(EMPTY_ORIGIN);
+    expect(draftOf(undefined)).toEqual(EMPTY_ORIGIN);
+    expect(draftOf({ kind: 'platform-run' })).toEqual(EMPTY_ORIGIN);
+  });
+
+  it('round-trips through the value that is sent', () => {
+    const origin = { kind: 'external-tool', tool: 'example-tool', version: '2.1' };
+    expect(originOf(draftOf(origin))).toEqual(origin);
+    expect(originOf(draftOf(null))).toBeNull();
   });
 });

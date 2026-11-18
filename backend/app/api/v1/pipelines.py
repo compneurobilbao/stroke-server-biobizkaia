@@ -96,6 +96,10 @@ def _summary(p: PipelineDefinition) -> dict[str, Any]:
     }
 
 
+def _as_list(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else [value]
+
+
 def build_slots(
     pipeline: PipelineDefinition,
     settings: Mapping[str, Mapping[str, SlotImplementationSetting]],
@@ -141,6 +145,7 @@ def build_slots(
                     unavailable_reason=(
                         "implementation_not_validated" if is_set and below else None
                     ),
+                    upstream=(manifest or {}).get("upstream"),
                 )
             )
         # The rule of pipeline.md section 6 item 3 without a user choice.
@@ -161,6 +166,7 @@ def build_slots(
                         port=c["port"],
                         type=c["type"],
                         optional=bool(c.get("optional", False)),
+                        from_=[str(s) for s in _as_list(c["from"])],
                     )
                     for c in slot["consumes"]
                 ],

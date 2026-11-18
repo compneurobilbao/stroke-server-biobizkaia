@@ -1444,6 +1444,20 @@
       },
       "PortRead": {
         "properties": {
+          "from": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From"
+          },
           "optional": {
             "default": false,
             "title": "Optional",
@@ -2575,6 +2589,18 @@
               }
             ],
             "title": "Unavailable Reason"
+          },
+          "upstream": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Upstream"
           },
           "validation_level": {
             "anyOf": [

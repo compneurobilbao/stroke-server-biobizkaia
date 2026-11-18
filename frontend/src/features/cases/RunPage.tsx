@@ -127,6 +127,8 @@ export function RunPage() {
   const viewable = selectLayers(artifacts).some((layer) => layer.kind !== 'template');
   const canResume = run.status === 'failed' || run.status === 'canceled';
   const slots = run.slots ?? [];
+  // "Run again" on the same case reuses these inputs (they cannot change after the first run).
+  const sameCaseRoles = (run.inputs ?? []).map((input) => input.role);
   const steps = run.steps ?? [];
   const declared = (run.inputs ?? []).filter((input) => input.origin);
 
@@ -186,17 +188,32 @@ export function RunPage() {
               {t('cases.run.view')}
             </Link>
           )}
+          {sameCaseRoles.length > 0 && (
+            <button
+              type="button"
+              className="secondary"
+              disabled={active}
+              onClick={() =>
+                navigate('/cases/new', {
+                  state: { rerun: rerunRequest(run), sameCase: { caseId: run.case_id, roles: sameCaseRoles } },
+                })
+              }
+            >
+              {t('cases.run.runAgain')}
+            </button>
+          )}
           <button
             type="button"
             className="secondary"
             onClick={() => navigate('/cases/new', { state: { rerun: rerunRequest(run) } })}
           >
-            {t('cases.run.runAgain')}
+            {t('cases.run.runAgainNewFiles')}
           </button>
           <Link className="download secondary" to={`/cases/${run.case_id}`}>
             {t('cases.run.openCase')}
           </Link>
         </div>
+        {active && sameCaseRoles.length > 0 && <p className="hint">{t('cases.run.runAgainActive')}</p>}
         <p className="hint">{t('cases.run.researchOnly')}</p>
       </section>
 

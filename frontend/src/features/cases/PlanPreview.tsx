@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import type { PlanPreview as PlanPreviewData, PlanReason, Slot } from '../../api/v1';
-import { planSlotState, reasonKey, reasonParams } from './plan';
+import { missingOptionalInputs, planSlotState, reasonKey, reasonParams } from './plan';
 
 /** State of the live plan preview of the wizard. */
 export interface PreviewState {
@@ -50,12 +50,14 @@ export function ReasonList({ reasons, titleOf, alert = false, heading }: ReasonL
 interface PlanPreviewProps {
   preview: PreviewState;
   slots: readonly Slot[];
+  /** Input roles of the wizard mode: an optional input fed by a supplied file is not reported as missing. */
+  roles: readonly string[];
   /** Nothing can be previewed yet: say what is missing. */
   idleHint?: string;
 }
 
 /** Each slot of the plan the request would get, with its role or why it is left out, and every refusal reason. */
-export function PlanPreview({ preview, slots, idleHint }: PlanPreviewProps) {
+export function PlanPreview({ preview, slots, roles, idleHint }: PlanPreviewProps) {
   const { t } = useTranslation();
   const titleOf = slotTitleOf(slots);
   const { data } = preview;
@@ -64,6 +66,8 @@ export function PlanPreview({ preview, slots, idleHint }: PlanPreviewProps) {
     (a, b) => (position.get(a.name) ?? 0) - (position.get(b.name) ?? 0),
   );
   const stale = preview.status === 'loading';
+  // Only for a plan that can run: a refused plan has no usable slot list to talk about.
+  const missing = data?.feasible ? missingOptionalInputs(slots, data.slots ?? [], roles) : [];
 
   return (
     <section
@@ -107,6 +111,22 @@ export function PlanPreview({ preview, slots, idleHint }: PlanPreviewProps) {
               );
             })}
           </ul>
+          {missing.length > 0 && (
+            <div className="plan-missing" data-testid="plan-missing-inputs">
+              <strong>{t('cases.plan.missingHeading')}</strong>
+              <ul>
+                {missing.map((item) => (
+                  <li key={`${item.consumer}-${item.port}`} data-consumer={item.consumer} data-port={item.port}>
+                    {t('cases.plan.missingInput', {
+                      consumer: titleOf(item.consumer),
+                      port: item.port.replace(/[_-]/g, ' '),
+                      producers: item.producers.map(titleOf).join(' / '),
+                    })}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <ReasonList reasons={data.reasons ?? []} titleOf={titleOf} alert heading={t('cases.plan.refused')} />
         </div>
       )}

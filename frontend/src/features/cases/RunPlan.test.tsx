@@ -136,11 +136,40 @@ describe('run page: plan', () => {
     expect(screen.queryByTestId('origin-lesion_mni')).not.toBeInTheDocument();
   });
 
-  it('opens the wizard with the recorded mode when running again', async () => {
+  it('opens the wizard with the recorded mode when running again with new files', async () => {
     mockApi({ run: makeRun({ plan: PRESET_PLAN, input_set: 'mni-mask' }) });
     renderRun();
-    await userEvent.click(await screen.findByRole('button', { name: 'Run again with the same plan' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Run again with new files' }));
     expect(await screen.findByRole('heading', { name: 'New case' })).toBeInTheDocument();
     expect(screen.getByRole('radio', { name: /Lesion mask already in MNI/ })).toBeChecked();
+  });
+
+  it('runs again on the same case: no files step, nothing uploaded again', async () => {
+    mockApi({
+      run: makeRun({ status: 'succeeded', plan: PRESET_PLAN, input_set: 'mni-mask', inputs: [{ role: 'lesion_mni' }] }),
+    });
+    renderRun();
+    await userEvent.click(await screen.findByRole('button', { name: 'Run again with the same plan' }));
+    expect(await screen.findByRole('heading', { name: 'New run on this case' })).toBeInTheDocument();
+    expect(screen.getByTestId('same-case-note')).toHaveTextContent('nothing is uploaded again');
+    const steps = within(screen.getByRole('list', { name: 'Wizard progress' })).getAllByRole('listitem');
+    expect(steps.map((item) => item.textContent)).toEqual(['1. Analysis', '2. Implementations']);
+    expect(screen.queryByLabelText('Lesion mask in MNI space (.nii.gz)')).not.toBeInTheDocument();
+  });
+
+  it('cannot run again on the same case while the run is active', async () => {
+    mockApi({ run: makeRun({ status: 'running', inputs: [{ role: 'lesion_mni' }] }) });
+    renderRun();
+    expect(await screen.findByRole('button', { name: 'Run again with the same plan' })).toBeDisabled();
+    expect(screen.getByText(/A run of this case is active/)).toBeInTheDocument();
+    // a new case with new files is always possible
+    expect(screen.getByRole('button', { name: 'Run again with new files' })).toBeEnabled();
+  });
+
+  it('offers no same-case run again when the run detail lists no inputs', async () => {
+    mockApi({ run: makeRun({ status: 'succeeded', inputs: [] }) });
+    renderRun();
+    await screen.findByRole('button', { name: 'Run again with new files' });
+    expect(screen.queryByRole('button', { name: 'Run again with the same plan' })).not.toBeInTheDocument();
   });
 });
