@@ -16,6 +16,18 @@ function renderWizard() {
 }
 
 const next = () => userEvent.click(screen.getByRole('button', { name: 'Next' }));
+/** Files step done: wait for the analysis step to load its options, then go on to the implementations. */
+async function acceptAnalysis() {
+  await screen.findByRole('group', { name: 'Analysis' });
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Next' })).toBeEnabled());
+  await next();
+}
+/** The start button enables once the plan preview of the current request says it is feasible. */
+async function start() {
+  const button = screen.getByRole('button', { name: 'Create case and start run' });
+  await waitFor(() => expect(button).toBeEnabled());
+  await userEvent.click(button);
+}
 const calls = (all: Call[], method: string, path: string) => all.filter((c) => c.method === method && c.path === path);
 const mask = () => new File(['x'], 'original-name.nii.gz', { type: 'application/gzip' });
 
@@ -43,11 +55,12 @@ describe('case wizard', () => {
     expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled();
     await userEvent.upload(screen.getByLabelText('Lesion mask in MNI space (.nii.gz)'), mask());
     await next();
+    await acceptAnalysis();
 
     await screen.findByRole('combobox', { name: 'Functional disconnection' });
     expect(screen.getByRole('combobox', { name: 'Functional disconnection' })).toHaveValue('fdc-stub');
     await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Functional disconnection' }), 'fdc-alt');
-    await userEvent.click(screen.getByRole('button', { name: 'Create case and start run' }));
+    await start();
 
     expect(await screen.findByRole('heading', { name: 'Run' })).toBeInTheDocument();
     const created = calls(all, 'POST', '/v1/cases');
@@ -79,9 +92,10 @@ describe('case wizard', () => {
     expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled();
     await userEvent.upload(screen.getByLabelText('Lesion mask on the CT (.nii.gz)'), mask());
     await next();
+    await acceptAnalysis();
 
     await screen.findByRole('combobox', { name: 'CT lesion to MNI152' });
-    await userEvent.click(screen.getByRole('button', { name: 'Create case and start run' }));
+    await start();
     await screen.findByRole('heading', { name: 'Run' });
 
     expect(JSON.parse(calls(all, 'POST', '/v1/cases')[0].body as string)).toEqual({ sex: null, age_band: null });
@@ -103,8 +117,9 @@ describe('case wizard', () => {
     await userEvent.upload(screen.getByLabelText('CT scan (.nii.gz)'), mask());
     await userEvent.upload(screen.getByLabelText('Lesion mask on the CT (.nii.gz)'), mask());
     await next();
+    await acceptAnalysis();
 
-    expect(await screen.findByText(/required step is unavailable: CT lesion to MNI152/)).toBeInTheDocument();
+    expect(await screen.findByText(/CT lesion to MNI152 has no enabled implementation in this deployment\./)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Create case and start run' })).toBeDisabled();
     expect(calls(all, 'POST', '/v1/cases')).toHaveLength(0);
   });
@@ -136,12 +151,13 @@ describe('case wizard', () => {
     await next();
     await userEvent.upload(screen.getByLabelText('Lesion mask in MNI space (.nii.gz)'), mask());
     await next();
+    await acceptAnalysis();
     await screen.findByRole('combobox', { name: 'Functional disconnection' });
-    const start = screen.getByRole('button', { name: 'Create case and start run' });
-    await userEvent.click(start);
+    const startButton = screen.getByRole('button', { name: 'Create case and start run' });
+    await start();
     expect(await screen.findByText('A run is already active')).toBeInTheDocument();
-    await waitFor(() => expect(start).toBeEnabled());
-    await userEvent.click(start);
+    await waitFor(() => expect(startButton).toBeEnabled());
+    await userEvent.click(startButton);
     await screen.findByRole('heading', { name: 'Run' });
     expect(calls(all, 'POST', '/v1/cases')).toHaveLength(1);
     expect(all.filter((c) => c.method === 'PUT')).toHaveLength(1);

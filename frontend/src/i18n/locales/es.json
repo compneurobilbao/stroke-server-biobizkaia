@@ -265,7 +265,8 @@
       "notUsed": "No se usa en este modo",
       "unavailable": "No disponible",
       "unavailableOptional": "Este despliegue no tiene ninguna implementación disponible. Este paso opcional se omitirá.",
-      "unavailableRequired": "Este despliegue no tiene ninguna implementación disponible. Una ejecución que necesite este paso no puede iniciarse."
+      "unavailableRequired": "Este despliegue no tiene ninguna implementación disponible. Una ejecución que necesite este paso no puede iniciarse.",
+      "fixed": "Fijada por este análisis"
     },
     "list": {
       "title": "Casos",
@@ -290,7 +291,8 @@
       "step": {
         "mode": "Modo y datos del caso",
         "files": "Archivos",
-        "steps": "Pasos del pipeline"
+        "steps": "Implementaciones",
+        "analysis": "Análisis"
       },
       "modeLegend": "Modo de entrada",
       "mode": {
@@ -309,18 +311,20 @@
       "locked": "El caso ya se ha creado; estos valores no se pueden cambiar aquí.",
       "filesHint": "Seleccione los archivos de este modo (solo .nii.gz).",
       "uploaded": "Subido",
-      "stepsHint": "Cada paso usa la implementación predeterminada del despliegue salvo que elija otra.",
+      "stepsHint": "Cada paso del análisis elegido usa la implementación predeterminada salvo que elija otra.",
       "pipeline": "Pipeline",
       "noPipeline": "Ningún pipeline cargado acepta este modo de entrada.",
       "loading": "Cargando los pasos del pipeline...",
-      "blocked": "Este modo no puede iniciarse en este despliegue porque falta un paso obligatorio: {{slots}}.",
       "back": "Atrás",
       "next": "Siguiente",
       "start": "Crear caso e iniciar ejecución",
       "starting": "Iniciando...",
       "failed": "No se pudo crear el caso ni iniciar la ejecución.",
       "pipelinesFailed": "No se pudieron cargar los pipelines.",
-      "slotsFailed": "No se pudieron cargar los pasos del pipeline."
+      "slotsFailed": "No se pudieron cargar los pasos del pipeline.",
+      "analysis": "Análisis",
+      "presetsFailed": "No se pudieron cargar los análisis. Se ofrece el plan completo.",
+      "refused": "El servidor ha rechazado iniciar esta ejecución:"
     },
     "run": {
       "title": "Ejecución",
@@ -348,7 +352,8 @@
       "chosenBy": {
         "user": "elegida por usted",
         "deployment_default": "predeterminada del despliegue",
-        "pipeline_default": "predeterminada del pipeline"
+        "pipeline_default": "predeterminada del pipeline",
+        "preset": "fijada por el análisis"
       },
       "trigger": {
         "initial": "inicial",
@@ -358,7 +363,8 @@
       "reason": {
         "condition_false": "Omitido: no es necesario para este modo de entrada.",
         "upstream_absent": "Omitido: un paso anterior no produjo salida.",
-        "no_implementation": "No había ninguna implementación disponible."
+        "no_implementation": "No había ninguna implementación disponible.",
+        "not_requested": "No forma parte de este plan."
       },
       "showLog": "Ver registro",
       "refreshLog": "Actualizar registro",
@@ -377,7 +383,90 @@
       "synthetic": "sintético",
       "download": "Descargar",
       "downloadArtifact": "Descargar {{port}}",
-      "downloadFailed": "No se pudo descargar el archivo."
+      "downloadFailed": "No se pudo descargar el archivo.",
+      "plan": "Plan",
+      "planPreset": "Análisis",
+      "planCustom": "Plan personalizado",
+      "planFull": "Plan completo",
+      "planRequired": "Obligatorio",
+      "planIfAvailable": "Si está disponible",
+      "notRequested": "No forman parte de este plan ({{count}})",
+      "externalTool": "Herramienta externa",
+      "upstream": "Herramienta externa: {{tool}}",
+      "inputOrigin": "Origen de {{role}}",
+      "declaredByUser": "Declarado por el usuario (no verificado)",
+      "origin": {
+        "manual": "dibujada a mano",
+        "externalTool": "herramienta externa {{tool}} {{version}}"
+      },
+      "runAgain": "Ejecutar de nuevo con el mismo plan"
+    },
+    "analysis": {
+      "hint": "Elija qué ejecutar en este caso. El plan de abajo muestra qué pasos se ejecutarán y por qué.",
+      "legend": "Análisis",
+      "recommended": "Recomendado",
+      "unavailable": "No disponible",
+      "unavailableNoReason": "Este análisis no puede ejecutarse ahora en este despliegue.",
+      "full": "Plan completo",
+      "fullHint": "Todos los pasos que se aplican a este modo de entrada.",
+      "custom": "Personalizado",
+      "customHint": "Elija los resultados que desea; los pasos que necesitan se añaden automáticamente.",
+      "outputs": "Resultados",
+      "outputsHint": "Obligatorio: la ejecución se rechaza si no puede producirse. Si está disponible: se produce cuando es posible y se omite en caso contrario.",
+      "produces": "Produce",
+      "request": "{{slot}}: solicitud",
+      "notRequested": "No solicitado",
+      "required": "Obligatorio",
+      "ifAvailable": "Si está disponible",
+      "chooseOutput": "Elija al menos un resultado para ver el plan.",
+      "chooseAnalysis": "Elija un análisis para ver el plan."
+    },
+    "plan": {
+      "title": "Plan",
+      "idle": "El plan aparece aquí cuando se elige el análisis.",
+      "updating": "Actualizando el plan...",
+      "previewFailed": "No se pudo calcular el plan.",
+      "feasible": "Este plan puede ejecutarse en este despliegue.",
+      "infeasible": "Este plan no puede ejecutarse. Vea los motivos más abajo.",
+      "refused": "Por qué este plan no puede ejecutarse:",
+      "thePlan": "el plan",
+      "role": {
+        "target": "Solicitado",
+        "upstream": "Añadido por el plan",
+        "if_available": "Si está disponible"
+      },
+      "state": {
+        "target": "Solicitado",
+        "upstream": "Añadido: lo necesita {{slot}}",
+        "if_available": "Si está disponible",
+        "not_requested": "No forma parte de este plan",
+        "condition_false": "No se aplica a este modo de entrada",
+        "upstream_absent": "Omitido: un paso anterior no produce resultado",
+        "unavailable": "No disponible: no hay ninguna implementación habilitada"
+      },
+      "reason": {
+        "free_mode_not_allowed": "Elegir sus propios resultados no está permitido para su cuenta en este despliegue. Elija uno de los análisis.",
+        "preset_not_found": "El análisis {{target}} no existe para esta versión del pipeline.",
+        "preset_not_enabled": "El análisis {{target}} no está habilitado en este despliegue.",
+        "preset_input_set_mismatch": "El análisis {{target}} no acepta los archivos de este modo de entrada.",
+        "preset_and_targets": "No se pueden combinar un análisis y resultados personalizados.",
+        "unknown_target": "El resultado {{target}} no existe en este pipeline.",
+        "ambiguous_target": "El resultado {{target}} coincide con más de un resultado de este pipeline. Elija uno más específico.",
+        "target_not_applicable": "{{target}} no se produce con los archivos de este modo de entrada.",
+        "target_not_guaranteed": "{{target}} no siempre se produce. Solicítelo como \"Si está disponible\" en lugar de \"Obligatorio\".",
+        "target_unreachable": "{{target}} no puede producirse aquí: {{slot}} necesita {{port}} y ningún paso puede proporcionarlo con estos archivos.",
+        "conflicting_targets": "{{slot}} se solicita a la vez como obligatorio y como si está disponible. Elija una opción.",
+        "empty_request": "No hay nada que ejecutar: ninguno de los resultados elegidos se aplica a estos archivos.",
+        "implementation_fixed_by_preset": "El análisis fija la implementación de {{slot}}; no se puede cambiar.",
+        "implementation_not_enabled": "La implementación elegida para {{slot}} no está habilitada en este despliegue.",
+        "no_implementation": "{{slot}} no tiene ninguna implementación habilitada en este despliegue y {{requiredBy}} la necesita.",
+        "slot_unsatisfiable": "{{slot}} no puede ejecutarse porque un paso del que depende no está disponible.",
+        "step_contract_too_old": "La versión instalada del paso de {{slot}} no puede leer el registro de ejecución de este plan. Se necesita una versión más reciente de ese paso.",
+        "invalid_parameters": "Los parámetros de {{slot}} no son válidos para este caso.",
+        "bundle_unavailable": "No está disponible un paquete de datos de referencia que necesita {{slot}}.",
+        "manifest_unavailable": "La imagen del paso de {{slot}} no está disponible en este despliegue.",
+        "no_implementation_plain": "{{slot}} no tiene ninguna implementación habilitada en este despliegue."
+      }
     }
   },
   "viewer": {

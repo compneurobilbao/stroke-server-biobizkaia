@@ -71,6 +71,17 @@ async function uploadMniMask(page: Page) {
   await page.getByRole('button', { name: 'Next' }).click();
 }
 
+/**
+ * The analysis step (card F1-22): optionally pick an analysis by its title, wait until the live
+ * preview says the plan can run, and go on to the implementations step.
+ */
+async function chooseAnalysis(page: Page, title?: RegExp) {
+  await expect(page.getByRole('group', { name: 'Analysis' })).toBeVisible();
+  if (title) await page.getByRole('radio', { name: title }).check();
+  await expect(page.getByTestId('plan-summary')).toContainText('can run', { timeout: 30_000 });
+  await page.getByRole('button', { name: 'Next' }).click();
+}
+
 /** Default implementation of every slot that applies in MNI-mask mode with the `ci` profile. */
 async function expectCiDefaults(page: Page) {
   const choice = (title: string) => page.getByRole('combobox', { name: title, exact: true });
@@ -79,7 +90,8 @@ async function expectCiDefaults(page: Page) {
   await expect(choice('Tract-wise structural disconnection')).toHaveValue('lnm-tracts');
   await expect(choice('COGNET-STROKE cognitive profile')).toHaveValue('cognet-stroke');
   await expect(choice('Research report')).toHaveValue('research-report');
-  await expect(page.locator('[data-slot="normalisation"]')).toContainText('Not used in this mode');
+  // A slot that does not apply to the mode is not part of the plan and gets no selector.
+  await expect(page.locator('[data-slot="normalisation"]')).toHaveCount(0);
 }
 
 /** Clicks Start and returns the body of the run-creation request (the page then shows the run). */
@@ -197,11 +209,20 @@ test.describe('case creation wizard (real stack)', () => {
     test.setTimeout(RUN_TIMEOUT_MS + 120_000);
     await openWizard(page);
     await uploadMniMask(page);
+    // The default preset (`full`) is preselected: its plan equals the full plan of earlier versions.
+    await expect(page.getByRole('radio', { name: /Full lesion network analysis/ })).toBeChecked();
+    await chooseAnalysis(page);
     await expectCiDefaults(page);
 
     const body = await startRun(page);
-    // Only choices that differ from the deployment default are sent.
-    expect(body).toMatchObject({ pipeline_id: 'stroke-lnm', input_roles: ['lesion_mni'], implementations: {} });
+    // The preset is named; only choices that differ from the deployment default are sent.
+    expect(body).toMatchObject({
+      pipeline_id: 'stroke-lnm',
+      input_roles: ['lesion_mni'],
+      implementations: {},
+      preset: { id: 'full' },
+    });
+    expect(body).not.toHaveProperty('targets');
 
     await waitForRunSuccess(page);
     await expectStepsSucceeded(page);
@@ -221,6 +242,7 @@ test.describe('case creation wizard (real stack)', () => {
     test.setTimeout(RUN_TIMEOUT_MS + 120_000);
     await openWizard(page);
     await uploadMniMask(page);
+    await chooseAnalysis(page);
     await expectCiDefaults(page);
     await page.getByRole('combobox', { name: 'Research report', exact: true }).selectOption('research-report-es');
 
@@ -249,6 +271,7 @@ test.describe('case creation wizard (real stack)', () => {
     await page.getByLabel('CT scan (.nii.gz)').setInputFiles(ct);
     await page.getByLabel('Lesion mask on the CT (.nii.gz)').setInputFiles(mask);
     await page.getByRole('button', { name: 'Next' }).click();
+    await chooseAnalysis(page);
 
     const normalisation = page.locator('[data-slot="normalisation"]');
     await expect(normalisation).not.toHaveAttribute('data-state', 'unavailable');
@@ -256,7 +279,7 @@ test.describe('case creation wizard (real stack)', () => {
       'ct-lesion-to-mni152',
     );
     await expect(page.getByRole('combobox', { name: 'Lesion intake and QC', exact: true })).toHaveValue('lesion-qc');
-    await expect(page.getByRole('alert').filter({ hasText: 'required step is unavailable' })).toHaveCount(0);
+    await expect(page.getByRole('alert').filter({ hasText: 'Why this plan cannot run' })).toHaveCount(0);
 
     const body = await startRun(page);
     expect(body).toMatchObject({
@@ -270,5 +293,87 @@ test.describe('case creation wizard (real stack)', () => {
     await expectOutputs(page, 'ct');
     await expectPdfDownload(page);
     await expectViewer(page, 'ct');
+  });
+
+  test('lesion mask already in MNI: the QC-and-report preset runs only its plan', async ({ page }) => {
+    test.setTimeout(RUN_TIMEOUT_MS + 120_000);
+    await openWizard(page);
+    await uploadMniMask(page);
+    await page.getByRole('radio', { name: /Lesion QC and report/ }).check();
+    // The preview names what is in the plan and what is left out.
+    const row = (slot: string) => page.locator(`.plan-slot[data-slot="${slot}"]`);
+    await expect(row('lesion-intake')).toHaveAttribute('data-plan-state', 'target');
+    await expect(row('report')).toHaveAttribute('data-plan-state', 'target');
+    for (const slot of ['functional-disconnection', 'tract-disconnection', 'cognet-profile']) {
+      await expect(row(slot), `slot ${slot}`).toHaveAttribute('data-plan-state', 'not_requested');
+    }
+    await expect(row('normalisation')).toHaveAttribute('data-plan-state', 'condition_false');
+    await chooseAnalysis(page);
+
+    // Only the planned slots get a selector.
+    await expect(page.getByRole('combobox', { name: 'Research report', exact: true })).toHaveValue('research-report');
+    await expect(page.locator('[data-slot="tract-disconnection"]')).toHaveCount(0);
+
+    const body = await startRun(page);
+    expect(body).toMatchObject({ preset: { id: 'lesion-qc-report' }, input_roles: ['lesion_mni'], implementations: {} });
+
+    await waitForRunSuccess(page);
+    await expect(page.getByTestId('run-plan')).toContainText('Preset lesion-qc-report');
+    const slot = (name: string) => timeline(page).locator(`[data-slot="${name}"]`);
+    await expect(slot('lesion-intake')).toHaveAttribute('data-state', 'succeeded');
+    await expect(slot('report')).toHaveAttribute('data-state', 'succeeded');
+    // Slots outside the plan are collapsed, never attempted and never failed.
+    await expect(page.getByTestId('not-requested')).toContainText('Not part of this plan (3)');
+    for (const name of ['functional-disconnection', 'tract-disconnection', 'cognet-profile']) {
+      await expect(page.getByTestId('not-requested').locator(`[data-slot="${name}"]`)).toHaveAttribute(
+        'data-state',
+        'skipped',
+      );
+    }
+    await expectPdfDownload(page);
+  });
+
+  test('lesion mask already in MNI: a custom plan adds the upstream slot and stops at the requested output', async ({
+    page,
+  }) => {
+    // Free mode is enabled in this stack (DEPLOYMENT_PROFILE=on-premise, see scripts/e2e/real_stack.sh).
+    test.setTimeout(RUN_TIMEOUT_MS + 120_000);
+    await openWizard(page);
+    await uploadMniMask(page);
+    await page.getByRole('radio', { name: /Custom/ }).check();
+    await expect(page.getByRole('button', { name: 'Next' })).toBeDisabled();
+    await page.getByRole('combobox', { name: 'Tract-wise structural disconnection: request' }).selectOption('required');
+
+    const row = (slot: string) => page.locator(`.plan-slot[data-slot="${slot}"]`);
+    await expect(row('tract-disconnection')).toHaveAttribute('data-plan-state', 'target');
+    // The lesion intake is added because the tract disconnection reads its output.
+    await expect(row('lesion-intake')).toHaveAttribute('data-plan-state', 'upstream');
+    for (const slot of ['report', 'functional-disconnection', 'cognet-profile']) {
+      await expect(row(slot), `slot ${slot}`).toHaveAttribute('data-plan-state', 'not_requested');
+    }
+    await chooseAnalysis(page);
+
+    const body = await startRun(page);
+    expect(body).toMatchObject({
+      pipeline_id: 'stroke-lnm',
+      input_roles: ['lesion_mni'],
+      implementations: {},
+      targets: { required: ['tract-disconnection'], if_available: [] },
+    });
+    expect(body).not.toHaveProperty('preset');
+
+    await waitForRunSuccess(page);
+    const plan = page.getByTestId('run-plan');
+    await expect(plan).toContainText('Custom plan');
+    await expect(plan).toContainText('tract-disconnection.tract_disconnection');
+    const slot = (name: string) => timeline(page).locator(`[data-slot="${name}"]`);
+    await expect(slot('lesion-intake')).toHaveAttribute('data-state', 'succeeded');
+    await expect(slot('lesion-intake')).toContainText('Added by the plan');
+    await expect(slot('tract-disconnection')).toHaveAttribute('data-state', 'succeeded');
+    await expect(slot('report')).toHaveAttribute('data-state', 'skipped');
+    const artefacts = page.locator('section', { has: page.getByRole('heading', { name: 'Artefacts' }) });
+    await expect(artefacts.getByRole('row', { name: /tract_disconnection/ })).toBeVisible();
+    // No report was requested.
+    await expect(page.getByText('No report yet.')).toBeVisible();
   });
 });

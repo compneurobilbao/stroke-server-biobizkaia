@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { errorText } from '../../api/client';
 import {
   cancelRun,
@@ -20,6 +20,8 @@ import { formatBytes } from '../../shared/format';
 import { useMessage } from '../../shared/messages';
 import { useFormatters } from '../../shared/useFormatters';
 import { useAuth } from '../auth/AuthContext';
+import { rerunRequest } from './plan';
+import { RunPlanSummary, originText } from './RunPlanSummary';
 import { RunStatusBadge } from './RunStatusBadge';
 import { RunTimeline } from './RunTimeline';
 import { selectLayers } from '../viewer/layers';
@@ -47,6 +49,7 @@ export function RunPage() {
   const { api } = useAuth();
   const { setMessage } = useMessage();
   const { date } = useFormatters();
+  const navigate = useNavigate();
   const [run, setRun] = useState<RunDetail | null>(null);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
@@ -125,6 +128,7 @@ export function RunPage() {
   const canResume = run.status === 'failed' || run.status === 'canceled';
   const slots = run.slots ?? [];
   const steps = run.steps ?? [];
+  const declared = (run.inputs ?? []).filter((input) => input.origin);
 
   return (
     <>
@@ -140,6 +144,18 @@ export function RunPage() {
           </dd>
           <dt>{t('cases.run.inputSet')}</dt>
           <dd>{run.input_set}</dd>
+          <dt>{t('cases.run.plan')}</dt>
+          <dd data-testid="run-plan">
+            <RunPlanSummary plan={run.plan} />
+          </dd>
+          {declared.map((input) => (
+            <Fragment key={input.role}>
+              <dt>{t('cases.run.inputOrigin', { role: input.role })}</dt>
+              <dd data-testid={`origin-${input.role}`}>
+                {t('cases.run.declaredByUser')}: {input.origin ? originText(t, input.origin) : ''}
+              </dd>
+            </Fragment>
+          ))}
           <dt>{t('cases.run.created')}</dt>
           <dd>{date(run.created_at)}</dd>
           <dt>{t('cases.run.finished')}</dt>
@@ -170,6 +186,13 @@ export function RunPage() {
               {t('cases.run.view')}
             </Link>
           )}
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => navigate('/cases/new', { state: { rerun: rerunRequest(run) } })}
+          >
+            {t('cases.run.runAgain')}
+          </button>
           <Link className="download secondary" to={`/cases/${run.case_id}`}>
             {t('cases.run.openCase')}
           </Link>
