@@ -1,4 +1,4 @@
-import type { Slot, SlotImplementation } from '../../api/v1';
+import type { Preset, Slot, SlotImplementation } from '../../api/v1';
 
 /** An implementation the user may pick: present in the deployment, enabled and loadable. */
 export const isSelectable = (impl: SlotImplementation) => impl.available && impl.enabled;
@@ -47,4 +47,32 @@ export function overrides(slots: readonly Slot[], choices: Record<string, string
 /** A required slot that applies but cannot run: the server would refuse the run (409 no_implementation). */
 export function blockingSlots(slots: readonly Slot[], roles: readonly string[]): Slot[] {
   return slots.filter((slot) => !slot.optional && slotApplies(slot, roles) && isSlotUnavailable(slot));
+}
+
+/** Implementation a preset fixes for the slot (the user cannot change it), if any. */
+export const fixedImplementation = (preset: Preset | null | undefined, slot: string): string | null =>
+  preset?.implementations?.[slot]?.fixed ?? null;
+
+/** What the slot gets when the user picks nothing: a preset's default, else the deployment's default. */
+export function baselineImplementation(slot: Slot, preset: Preset | null | undefined): string | null {
+  const presetDefault = preset?.implementations?.[slot.name]?.default;
+  if (presetDefault && slot.implementations.some((impl) => impl.id === presetDefault && isSelectable(impl))) {
+    return presetDefault;
+  }
+  return defaultImplementationId(slot);
+}
+
+/** Explicit user picks that differ from what the slot would get anyway; fixed slots are never sent. */
+export function implementationOverrides(
+  slots: readonly Slot[],
+  picks: Record<string, string>,
+  preset: Preset | null | undefined,
+): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const slot of slots) {
+    const picked = picks[slot.name];
+    if (!picked || fixedImplementation(preset, slot.name)) continue;
+    if (picked !== baselineImplementation(slot, preset)) result[slot.name] = picked;
+  }
+  return result;
 }

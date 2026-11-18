@@ -6,8 +6,11 @@ import {
   cancelRun,
   createCase,
   createRun,
+  getConfig,
   getStepLog,
+  listPresets,
   listSlots,
+  previewPlan,
   putInput,
   resumeRun,
 } from './v1';
@@ -129,3 +132,52 @@ describe('v1 client', () => {
     await expect(getStepLog(api, 'r1', 'a1')).rejects.toMatchObject({ code: 'log_not_available', status: 404 });
   });
 });
+
+describe('v1 client: run plans', () => {
+  it('reads the configuration of the caller', async () => {
+    const fetchMock = stubFetch(
+      new Response(JSON.stringify({ deployment_profile: 'on-premise', run_plan_policy: 'free_for_researchers', free_mode_allowed: true })),
+    );
+    await expect(getConfig(api)).resolves.toMatchObject({ free_mode_allowed: true });
+    expect(lastCall(fetchMock)[0]).toBe('/api/v1/config');
+  });
+
+  it('lists the presets of a pipeline version', async () => {
+    const fetchMock = stubFetch(new Response('[]'));
+    await listPresets(api, 'stroke-lnm', '0.3.0');
+    expect(lastCall(fetchMock)[0]).toBe('/api/v1/pipelines/stroke-lnm/versions/0.3.0/presets');
+  });
+
+  it('posts a plan preview with the request as body and returns a refused plan like any other answer', async () => {
+    const answer = { feasible: false, mode: 'free', input_set: 'mni-mask', slots: [], reasons: [{ code: 'empty_request', message: 'm' }] };
+    const fetchMock = stubFetch(new Response(JSON.stringify(answer)));
+    const request = { input_roles: ['lesion_mni'], targets: { required: ['report'], if_available: [] }, implementations: {} };
+    await expect(previewPlan(api, 'stroke-lnm', '0.3.0', request)).resolves.toEqual(answer);
+    const [url, init] = lastCall(fetchMock);
+    expect(url).toBe('/api/v1/pipelines/stroke-lnm/versions/0.3.0/plan');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual(request);
+  });
+
+  it('sends a preset or targets with the run request', async () => {
+    const fetchMock = stubFetch(new Response(JSON.stringify({ id: 'r1' }), { status: 201 }));
+    await createRun(api, 'c1', { pipeline_id: 'stroke-lnm', preset: { id: 'full', version: '1.0.0' } });
+    expect(JSON.parse(lastCall(fetchMock)[1].body as string)).toEqual({
+      pipeline_id: 'stroke-lnm',
+      preset: { id: 'full', version: '1.0.0' },
+    });
+    await createRun(api, 'c1', { pipeline_id: 'stroke-lnm', targets: { required: ['report'], if_available: [] } });
+    expect(JSON.parse(lastCall(fetchMock)[1].body as string)).toEqual({
+      pipeline_id: 'stroke-lnm',
+      targets: { required: ['report'], if_available: [] },
+    });
+  });
+
+  it('keeps the reasons of a refused plan on the error', async () => {
+    const reasons = [{ code: 'target_unreachable', message: 'm', target: 'report' }];
+    stubFetch(new Response(JSON.stringify({ detail: 'd', code: 'target_unreachable', reasons }), { status: 422 }));
+    const error = await createRun(api, 'c1', { pipeline_id: 'stroke-lnm' }).catch((e: unknown) => e);
+    expect((error as ApiError).payload).toMatchObject({ reasons });
+  });
+});
+

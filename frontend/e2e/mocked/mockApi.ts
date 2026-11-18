@@ -1,9 +1,14 @@
 /**
- * Mocked `/api` for the `mocked` Playwright project (card F0-31).
+ * Mocked `/api` for the `mocked` Playwright project (cards F0-31 and F1-22).
  *
  * The shapes follow docs/api/openapi-v1.json. Every request is answered from memory through
  * Playwright route interception, so the tests need no backend. The same wizard runs against
  * the real Compose stack in the `real-stack` project (e2e/real/, card F0-31a, e2e/README.md).
+ *
+ * The plan preview is a small stand-in for the server's planner: enough slots and wiring
+ * (functional disconnection needs the lesion intake; normalisation only applies to CT input) to
+ * show every slot state the wizard and the run page display. It is not the real resolution
+ * algorithm; that one is tested by the backend and by the real-stack specs.
  */
 import type { Page, Route } from '@playwright/test';
 
@@ -48,14 +53,26 @@ const impl = (id: string, extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
-const SLOTS = [
+interface MockSlot {
+  name: string;
+  title: string;
+  position: number;
+  optional: boolean;
+  when?: { inputs_present: string[] };
+  consumes: unknown[];
+  produces: { port: string; type: string }[];
+  implementations: ReturnType<typeof impl>[];
+  default_implementation: string | null;
+}
+
+const SLOTS: MockSlot[] = [
   {
     name: 'lesion-intake',
     title: 'Lesion intake and QC',
     position: 0,
     optional: false,
     consumes: [],
-    produces: [],
+    produces: [{ port: 'lesion_qc', type: 'lesion_qc' }],
     implementations: [impl('lesion-qc', { is_default: true, is_pipeline_default: true })],
     default_implementation: 'lesion-qc',
   },
@@ -66,7 +83,7 @@ const SLOTS = [
     optional: false,
     when: { inputs_present: ['ct', 'lesion_native'] },
     consumes: [],
-    produces: [],
+    produces: [{ port: 'lesion_mask_mni', type: 'lesion_mask_mni' }],
     implementations: [impl('ct-lesion-to-mni152', { is_default: true, is_pipeline_default: true })],
     default_implementation: 'ct-lesion-to-mni152',
   },
@@ -76,7 +93,7 @@ const SLOTS = [
     position: 2,
     optional: true,
     consumes: [],
-    produces: [],
+    produces: [{ port: 'fdisconnection_map', type: 'fdisconnection_map' }],
     implementations: [
       impl('fdc-stub', { is_default: true, is_pipeline_default: true, stub: true }),
       impl('fdc-alt', { title: 'Alternative connectome' }),
@@ -89,12 +106,161 @@ const SLOTS = [
     position: 3,
     optional: true,
     consumes: [],
-    produces: [],
+    produces: [{ port: 'profile', type: 'cognet_profile' }],
     // Nothing mounted in this deployment: shown as unavailable, run still starts (optional).
     implementations: [],
     default_implementation: null,
   },
 ];
+
+const SLOT_IDS: Record<string, string> = {
+  'lesion-intake': 's1',
+  normalisation: 's2',
+  'functional-disconnection': 's3',
+  'cognitive-profile': 's4',
+};
+const ATTEMPT_IDS: Record<string, string> = { 'lesion-intake': 'a1', normalisation: 'a2', 'functional-disconnection': 'a3' };
+
+const preset = (
+  id: string,
+  title: string,
+  inputSets: string[],
+  required: string[],
+  extra: Record<string, unknown> = {},
+) => ({
+  id,
+  version: '1.0.0',
+  sha256: 'a'.repeat(64),
+  title,
+  description: `${title} (mocked).`,
+  input_sets: inputSets,
+  targets: { required, if_available: [] as string[] },
+  implementations: {},
+  is_default: false,
+  available: true,
+  plans: inputSets.map((input_set) => ({ input_set, available: true, slots: [], reasons: [] })),
+  ...extra,
+});
+
+/** Presets of the mocked deployment when `presets: true`: two accept the CT mode, two the MNI mode. */
+const PRESETS = [
+  preset('full', 'Full analysis', ['ct-and-native-mask', 'mni-mask'], ['lesion-intake'], { is_default: true }),
+  preset('mni-mask-analysis', 'Disconnection analysis of an MNI lesion mask', ['mni-mask'], ['functional-disconnection']),
+  preset('ct-normalisation', 'CT normalisation only', ['ct-and-native-mask'], ['normalisation']),
+];
+
+interface PlanBody {
+  input_roles: string[];
+  preset?: { id: string; version?: string | null } | null;
+  targets?: { required: string[]; if_available: string[] } | null;
+  implementations?: Record<string, string>;
+}
+
+interface Decision {
+  name: string;
+  status: 'selected' | 'skipped' | 'unavailable';
+  reason?: string;
+  plan_role?: string;
+  required_by?: string | null;
+  implementation?: string;
+  chosen_by?: string;
+}
+
+interface Plan {
+  feasible: boolean;
+  mode: 'full' | 'preset' | 'free';
+  input_set: string;
+  preset: { id: string; version: string; sha256: string } | null;
+  targets: { required: string[]; if_available: string[] };
+  slots: Decision[];
+  reasons: Record<string, unknown>[];
+}
+
+const applies = (slot: MockSlot, roles: string[]) => {
+  const present = slot.when?.inputs_present;
+  return !present || present.every((role) => roles.includes(role));
+};
+
+function planFor(body: PlanBody, presetsOn: boolean): Plan {
+  const roles = body.input_roles;
+  const chosenPreset = presetsOn && body.preset ? PRESETS.find((p) => p.id === body.preset?.id) : undefined;
+  const targets = body.targets ?? chosenPreset?.targets ?? null;
+  const required = new Set(targets?.required ?? []);
+  const optional = new Set(targets?.if_available ?? []);
+  const reasons: Record<string, unknown>[] = [];
+  const roleOf = new Map<string, string>();
+
+  for (const slot of SLOTS) {
+    const ok = applies(slot, roles);
+    if (!targets) {
+      if (ok) roleOf.set(slot.name, slot.optional ? 'if_available' : 'target');
+    } else if (required.has(slot.name)) {
+      if (ok) roleOf.set(slot.name, 'target');
+      else {
+        reasons.push({
+          code: 'target_not_applicable',
+          message: `The target '${slot.name}' does not run with this input set.`,
+          target: slot.name,
+          slot: slot.name,
+        });
+      }
+    } else if (optional.has(slot.name) && ok) {
+      roleOf.set(slot.name, 'if_available');
+    }
+  }
+  // Closure: functional disconnection needs the lesion intake.
+  const fd = roleOf.get('functional-disconnection');
+  const neededBy = new Map<string, string>();
+  if (fd && !roleOf.has('lesion-intake')) {
+    roleOf.set('lesion-intake', fd === 'target' ? 'upstream' : 'if_available');
+    neededBy.set('lesion-intake', 'functional-disconnection');
+  }
+  if (targets && roleOf.size === 0 && reasons.length === 0) {
+    reasons.push({ code: 'empty_request', message: 'The request has no target that applies.' });
+  }
+
+  const slots: Decision[] = SLOTS.map((slot): Decision => {
+    const role = roleOf.get(slot.name);
+    if (!role) {
+      return applies(slot, roles)
+        ? { name: slot.name, status: 'skipped', reason: 'not_requested' }
+        : { name: slot.name, status: 'skipped', reason: 'condition_false' };
+    }
+    const wanted = body.implementations?.[slot.name];
+    const chosen = wanted ?? slot.default_implementation ?? undefined;
+    if (!chosen || slot.implementations.length === 0) {
+      if (role !== 'if_available') {
+        reasons.push({
+          code: 'no_implementation',
+          message: `The slot '${slot.name}' has no enabled implementation.`,
+          slot: slot.name,
+          target: slot.name,
+          required_by: neededBy.get(slot.name) ?? slot.name,
+        });
+      }
+      return { name: slot.name, status: 'unavailable', reason: 'no_implementation', plan_role: role };
+    }
+    return {
+      name: slot.name,
+      status: 'selected',
+      plan_role: role,
+      required_by: neededBy.get(slot.name) ?? null,
+      implementation: chosen,
+      chosen_by: wanted ? 'user' : 'deployment_default',
+    };
+  });
+
+  const slotTarget = (name: string) => `${name}.${SLOTS.find((s) => s.name === name)?.produces[0]?.port ?? 'out'}`;
+  return {
+    feasible: reasons.length === 0,
+    mode: body.targets ? 'free' : chosenPreset ? 'preset' : 'full',
+    input_set: roles.includes('ct') ? 'ct-and-native-mask' : 'mni-mask',
+    preset: chosenPreset ? { id: chosenPreset.id, version: chosenPreset.version, sha256: chosenPreset.sha256 } : null,
+    targets: { required: [...required].map(slotTarget), if_available: [...optional].map(slotTarget) },
+    slots,
+    reasons,
+  };
+}
 
 export interface RecordedRequest {
   method: string;
@@ -107,41 +273,66 @@ export interface MockHandle {
   requests: RecordedRequest[];
 }
 
-function runDetail(status: 'running' | 'succeeded', overrides: Record<string, unknown>, inputSet: string, chosen: string) {
-  const ct = inputSet === 'ct-and-native-mask';
+export interface MockOptions {
+  /** Offer presets (full analysis, MNI-mask analysis, CT normalisation); default none: the wizard offers the full plan. */
+  presets?: boolean;
+  /** `free_mode_allowed` of `GET /config`; default false. */
+  freeMode?: boolean;
+  /** Refuse the first run creation although the preview said feasible (bundles, manifests, parameters). */
+  refuseCreateOnce?: boolean;
+}
+
+function runDetail(status: 'running' | 'succeeded', plan: Plan) {
   const done = status === 'succeeded';
   return {
     id: 'r1',
     case_id: 'c1',
     pipeline_id: 'stroke-lnm',
     pipeline_version: '0.1.0',
-    input_set: inputSet,
+    input_set: plan.input_set,
     status,
     created_at: NOW,
     finished_at: done ? NOW : null,
-    slots: [
-      { id: 's1', slot: 'lesion-intake', position: 0, optional: false, status: 'selected', implementation_id: 'lesion-qc', step_name: 'lesion-qc', step_version: '1.0.0', chosen_by: 'deployment_default', stub: false },
-      ct
-        ? { id: 's2', slot: 'normalisation', position: 1, optional: false, status: 'selected', implementation_id: 'ct-lesion-to-mni152', step_name: 'ct-lesion-to-mni152', step_version: '1.0.0', chosen_by: 'deployment_default', stub: false }
-        : { id: 's2', slot: 'normalisation', position: 1, optional: false, status: 'skipped', reason: 'condition_false' },
-      { id: 's3', slot: 'functional-disconnection', position: 2, optional: true, status: 'selected', implementation_id: chosen, step_name: chosen, step_version: '1.0.0', chosen_by: chosen === 'fdc-stub' ? 'deployment_default' : 'user', stub: chosen === 'fdc-stub' },
-      { id: 's4', slot: 'cognitive-profile', position: 3, optional: true, status: 'unavailable', reason: 'no_implementation' },
-    ],
-    steps: [
-      { id: 'a1', run_slot_id: 's1', slot: 'lesion-intake', attempt: 1, trigger: 'initial', status: 'succeeded', queued_at: NOW, log_available: true },
-      ...(ct ? [{ id: 'a2', run_slot_id: 's2', slot: 'normalisation', attempt: 1, trigger: 'initial', status: done ? 'succeeded' : 'running', queued_at: NOW, log_available: false }] : []),
-      { id: 'a3', run_slot_id: 's3', slot: 'functional-disconnection', attempt: 1, trigger: 'initial', status: done ? 'succeeded' : 'running', queued_at: NOW, log_available: false },
-    ],
-    ...overrides,
+    plan: { mode: plan.mode, preset: plan.preset, targets: plan.targets },
+    slots: plan.slots.map((slot, position) => ({
+      id: SLOT_IDS[slot.name],
+      slot: slot.name,
+      position,
+      optional: SLOTS[position].optional,
+      status: slot.status,
+      reason: slot.reason ?? null,
+      plan_role: slot.plan_role ?? null,
+      ...(slot.status === 'selected'
+        ? {
+            implementation_id: slot.implementation,
+            step_name: slot.implementation,
+            step_version: '1.0.0',
+            chosen_by: slot.chosen_by,
+            stub: slot.implementation === 'fdc-stub',
+          }
+        : {}),
+    })),
+    steps: plan.slots
+      .filter((slot) => slot.status === 'selected')
+      .map((slot) => ({
+        id: ATTEMPT_IDS[slot.name],
+        run_slot_id: SLOT_IDS[slot.name],
+        slot: slot.name,
+        attempt: 1,
+        trigger: 'initial',
+        status: done || slot.name === 'lesion-intake' ? 'succeeded' : 'running',
+        queued_at: NOW,
+        log_available: slot.name === 'lesion-intake',
+      })),
   };
 }
 
 /** Installs the mocked API on the page. The run is `running` on its first read and `succeeded` afterwards. */
-export async function installMockApi(page: Page): Promise<MockHandle> {
+export async function installMockApi(page: Page, options: MockOptions = {}): Promise<MockHandle> {
   const requests: RecordedRequest[] = [];
-  let inputSet = 'mni-mask';
-  let chosen = 'fdc-stub';
+  let created: Plan = planFor({ input_roles: ['lesion_mni'] }, false);
   let runReads = 0;
+  let createAttempts = 0;
 
   const json = (route: Route, body: unknown, status = 200) =>
     route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
@@ -161,8 +352,25 @@ export async function installMockApi(page: Page): Promise<MockHandle> {
     });
 
     if (method === 'GET' && path === '/auth/me') return json(route, USER);
+    if (method === 'GET' && path === '/v1/config') {
+      return json(route, {
+        deployment_profile: options.freeMode ? 'on-premise' : 'research-public',
+        run_plan_policy: options.freeMode ? 'free_for_researchers' : 'presets_only',
+        free_mode_allowed: Boolean(options.freeMode),
+      });
+    }
     if (method === 'GET' && path === '/v1/pipelines') return json(route, [PIPELINE]);
     if (method === 'GET' && path === '/v1/pipelines/stroke-lnm/versions/0.1.0/slots') return json(route, SLOTS);
+    if (method === 'GET' && path === '/v1/pipelines/stroke-lnm/versions/0.1.0/presets') {
+      return json(route, options.presets ? PRESETS : []);
+    }
+    if (method === 'POST' && path === '/v1/pipelines/stroke-lnm/versions/0.1.0/plan') {
+      const body = JSON.parse(request.postData() ?? '{}') as PlanBody;
+      if (body.targets && !options.freeMode) {
+        return json(route, { detail: 'Free mode is not allowed', code: 'free_mode_not_allowed' }, 403);
+      }
+      return json(route, planFor(body, Boolean(options.presets)));
+    }
     if (method === 'GET' && path === '/v1/cases') return json(route, []);
     if (method === 'POST' && path === '/v1/cases') {
       return json(route, { id: 'c1', subject_label: 'sub-0001', session_label: 'ses-01', created_at: NOW, updated_at: NOW, inputs: [] }, 201);
@@ -172,15 +380,28 @@ export async function installMockApi(page: Page): Promise<MockHandle> {
       return json(route, { id: `in-${input[1]}`, role: input[1], artefact_type: 'x', created_at: NOW }, 201);
     }
     if (method === 'POST' && path === '/v1/cases/c1/runs') {
-      const body = JSON.parse(request.postData() ?? '{}') as { input_roles?: string[]; implementations?: Record<string, string> };
-      inputSet = body.input_roles?.includes('ct') ? 'ct-and-native-mask' : 'mni-mask';
-      chosen = body.implementations?.['functional-disconnection'] ?? 'fdc-stub';
+      createAttempts += 1;
+      if (options.refuseCreateOnce && createAttempts === 1) {
+        return json(
+          route,
+          {
+            detail: 'The step image is not available',
+            code: 'step_contract_too_old',
+            slot: 'functional-disconnection',
+            reasons: [
+              { code: 'step_contract_too_old', message: 'The step image is not available', slot: 'functional-disconnection' },
+            ],
+          },
+          409,
+        );
+      }
+      created = planFor(JSON.parse(request.postData() ?? '{}') as PlanBody, Boolean(options.presets));
       runReads = 0;
-      return json(route, runDetail('running', {}, inputSet, chosen), 201);
+      return json(route, runDetail('running', created), 201);
     }
     if (method === 'GET' && path === '/v1/runs/r1') {
       runReads += 1;
-      return json(route, runDetail(runReads > 1 ? 'succeeded' : 'running', {}, inputSet, chosen));
+      return json(route, runDetail(runReads > 1 ? 'succeeded' : 'running', created));
     }
     if (method === 'GET' && path === '/v1/runs/r1/artifacts') {
       return json(

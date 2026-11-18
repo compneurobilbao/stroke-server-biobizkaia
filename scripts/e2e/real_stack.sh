@@ -47,7 +47,10 @@ cmd_env() {
     echo "AUTH_SECRET_KEY=$secret"
     echo "NOTIFICATIONS_EMAIL_ENABLED=false"
     echo "APP_PUBLIC_BASE_URL=$BASE_URL"
-    echo "DEPLOYMENT_PROFILE=research-public"
+    # on-premise: its run-plan policy is free_for_researchers, which the custom-plan spec needs
+    # (research-public and mask-only are fixed to presets_only). Nothing else in this stack
+    # depends on the profile; it is stored on new cases and decides the policy.
+    echo "DEPLOYMENT_PROFILE=on-premise"
     echo "COMPOSE_PROFILES=pipelines"
     echo "PIPELINES_DIR=/app/$SERVICE_DIR/pipelines"
     echo "STEP_MANIFESTS_DIR=/app/$SERVICE_DIR/step-manifests"

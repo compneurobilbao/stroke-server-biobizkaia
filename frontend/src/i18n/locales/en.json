@@ -265,7 +265,8 @@
       "notUsed": "Not used in this mode",
       "unavailable": "Unavailable",
       "unavailableOptional": "No implementation is available in this deployment. This optional step will be skipped.",
-      "unavailableRequired": "No implementation is available in this deployment. A run that needs this step cannot start."
+      "unavailableRequired": "No implementation is available in this deployment. A run that needs this step cannot start.",
+      "fixed": "Fixed by this analysis"
     },
     "list": {
       "title": "Cases",
@@ -290,7 +291,8 @@
       "step": {
         "mode": "Mode and case data",
         "files": "Files",
-        "steps": "Pipeline steps"
+        "steps": "Implementations",
+        "analysis": "Analysis"
       },
       "modeLegend": "Input mode",
       "mode": {
@@ -309,18 +311,20 @@
       "locked": "The case has been created; these values can no longer be changed here.",
       "filesHint": "Select the files for this mode (.nii.gz only).",
       "uploaded": "Uploaded",
-      "stepsHint": "Each step uses the deployment default unless you pick another implementation.",
+      "stepsHint": "Each step of the chosen analysis uses the default implementation unless you pick another one.",
       "pipeline": "Pipeline",
       "noPipeline": "No loaded pipeline accepts this input mode.",
       "loading": "Loading pipeline steps...",
-      "blocked": "This mode cannot start in this deployment because a required step is unavailable: {{slots}}.",
       "back": "Back",
       "next": "Next",
       "start": "Create case and start run",
       "starting": "Starting...",
       "failed": "Could not create the case or start the run.",
       "pipelinesFailed": "Could not load the pipelines.",
-      "slotsFailed": "Could not load the pipeline steps."
+      "slotsFailed": "Could not load the pipeline steps.",
+      "analysis": "Analysis",
+      "presetsFailed": "Could not load the analyses. The full plan is offered instead.",
+      "refused": "The server refused to start this run:"
     },
     "run": {
       "title": "Run",
@@ -348,7 +352,8 @@
       "chosenBy": {
         "user": "chosen by you",
         "deployment_default": "deployment default",
-        "pipeline_default": "pipeline default"
+        "pipeline_default": "pipeline default",
+        "preset": "set by the analysis"
       },
       "trigger": {
         "initial": "initial",
@@ -358,7 +363,8 @@
       "reason": {
         "condition_false": "Skipped: not needed for this input mode.",
         "upstream_absent": "Skipped: an earlier step produced no output.",
-        "no_implementation": "No implementation was available."
+        "no_implementation": "No implementation was available.",
+        "not_requested": "Not part of this plan."
       },
       "showLog": "Show log",
       "refreshLog": "Refresh log",
@@ -377,7 +383,90 @@
       "synthetic": "synthetic",
       "download": "Download",
       "downloadArtifact": "Download {{port}}",
-      "downloadFailed": "Could not download the file."
+      "downloadFailed": "Could not download the file.",
+      "plan": "Plan",
+      "planPreset": "Preset",
+      "planCustom": "Custom plan",
+      "planFull": "Full plan",
+      "planRequired": "Required",
+      "planIfAvailable": "If available",
+      "notRequested": "Not part of this plan ({{count}})",
+      "externalTool": "External tool",
+      "upstream": "External tool: {{tool}}",
+      "inputOrigin": "Origin of {{role}}",
+      "declaredByUser": "Declared by the user (not verified)",
+      "origin": {
+        "manual": "drawn by hand",
+        "externalTool": "external tool {{tool}} {{version}}"
+      },
+      "runAgain": "Run again with the same plan"
+    },
+    "analysis": {
+      "hint": "Choose what to run on this case. The plan below shows which steps will run and why.",
+      "legend": "Analysis",
+      "recommended": "Recommended",
+      "unavailable": "Unavailable",
+      "unavailableNoReason": "This analysis cannot run in this deployment at the moment.",
+      "full": "Full plan",
+      "fullHint": "Every step that applies to this input mode.",
+      "custom": "Custom",
+      "customHint": "Choose the outputs you want; the steps they need are added automatically.",
+      "outputs": "Outputs",
+      "outputsHint": "Required: the run is refused when it cannot be produced. If available: produced when possible, skipped otherwise.",
+      "produces": "Produces",
+      "request": "{{slot}}: request",
+      "notRequested": "Not requested",
+      "required": "Required",
+      "ifAvailable": "If available",
+      "chooseOutput": "Choose at least one output to see the plan.",
+      "chooseAnalysis": "Choose an analysis to see the plan."
+    },
+    "plan": {
+      "title": "Plan",
+      "idle": "The plan appears here once the analysis is chosen.",
+      "updating": "Updating the plan...",
+      "previewFailed": "Could not compute the plan.",
+      "feasible": "This plan can run in this deployment.",
+      "infeasible": "This plan cannot run. See the reasons below.",
+      "refused": "Why this plan cannot run:",
+      "thePlan": "the plan",
+      "role": {
+        "target": "Requested",
+        "upstream": "Added by the plan",
+        "if_available": "If available"
+      },
+      "state": {
+        "target": "Requested",
+        "upstream": "Added: needed by {{slot}}",
+        "if_available": "If available",
+        "not_requested": "Not part of this plan",
+        "condition_false": "Does not apply to this input mode",
+        "upstream_absent": "Skipped: an earlier step has no output",
+        "unavailable": "Unavailable: no implementation is enabled"
+      },
+      "reason": {
+        "free_mode_not_allowed": "Choosing your own outputs is not allowed for your account in this deployment. Pick one of the analyses.",
+        "preset_not_found": "The analysis {{target}} does not exist for this pipeline version.",
+        "preset_not_enabled": "The analysis {{target}} is not enabled in this deployment.",
+        "preset_input_set_mismatch": "The analysis {{target}} does not accept the files of this input mode.",
+        "preset_and_targets": "An analysis and custom outputs cannot be combined.",
+        "unknown_target": "The output {{target}} does not exist in this pipeline.",
+        "ambiguous_target": "The output {{target}} matches more than one result of this pipeline. Choose a more specific one.",
+        "target_not_applicable": "{{target}} is not produced with the files of this input mode.",
+        "target_not_guaranteed": "{{target}} is not always produced. Ask for it as \"If available\" instead of \"Required\".",
+        "target_unreachable": "{{target}} cannot be produced here: {{slot}} needs {{port}} and no step can provide it with these files.",
+        "conflicting_targets": "{{slot}} is requested both as required and as if available. Choose one.",
+        "empty_request": "Nothing to run: none of the chosen outputs applies to these files.",
+        "implementation_fixed_by_preset": "The analysis fixes the implementation of {{slot}}; it cannot be changed.",
+        "implementation_not_enabled": "The implementation chosen for {{slot}} is not enabled in this deployment.",
+        "no_implementation": "{{slot}} has no enabled implementation in this deployment and {{requiredBy}} needs it.",
+        "slot_unsatisfiable": "{{slot}} cannot run because a step it depends on is not available.",
+        "step_contract_too_old": "The installed version of the step for {{slot}} cannot read the run record of this plan. A newer version of that step is needed.",
+        "invalid_parameters": "The parameters of {{slot}} are not valid for this case.",
+        "bundle_unavailable": "A reference data bundle needed by {{slot}} is not available.",
+        "manifest_unavailable": "The step image for {{slot}} is not available in this deployment.",
+        "no_implementation_plain": "{{slot}} has no enabled implementation in this deployment."
+      }
     }
   },
   "viewer": {

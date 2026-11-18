@@ -1,6 +1,7 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import type { PlanSlot } from '../../api/v1';
 import { makeSlots } from '../../test/casesMock';
 import { SlotSelector } from './SlotSelector';
 import { blockingSlots, defaultChoices, overrides } from './slots';
@@ -67,5 +68,54 @@ describe('slot helpers', () => {
     expect(blockingSlots(slots, CT).map((s) => s.name)).toEqual(['normalisation']);
     expect(blockingSlots(slots, MNI)).toEqual([]);
     expect(blockingSlots(makeSlots({ normalisationMounted: true }), CT)).toEqual([]);
+  });
+});
+
+describe('SlotSelector within a plan', () => {
+  const plan: PlanSlot[] = [
+    { name: 'lesion-intake', status: 'selected', plan_role: 'upstream', implementation: 'lesion-qc' },
+    { name: 'normalisation', status: 'skipped', reason: 'not_requested' },
+    { name: 'functional-disconnection', status: 'selected', plan_role: 'if_available', implementation: 'fdc-stub' },
+  ];
+
+  it('lists only the planned slots, with their role, and not the slots outside the plan', () => {
+    const slots = makeSlots();
+    render(<SlotSelector slots={slots} roles={MNI} value={defaultChoices(slots)} plan={plan} onChange={() => {}} />);
+    expect(screen.queryByText('CT lesion to MNI152')).not.toBeInTheDocument();
+    const intake = screen.getByRole('combobox', { name: 'Lesion intake and QC' }).closest('li') as HTMLElement;
+    expect(within(intake).getByText('Added by the plan')).toBeInTheDocument();
+    const functional = screen.getByRole('combobox', { name: 'Functional disconnection' }).closest('li') as HTMLElement;
+    expect(within(functional).getByText('If available')).toBeInTheDocument();
+  });
+
+  it('shows a choice fixed by the preset read-only', async () => {
+    const slots = makeSlots();
+    const onChange = vi.fn();
+    render(
+      <SlotSelector
+        slots={slots}
+        roles={MNI}
+        value={{ 'functional-disconnection': 'fdc-alt' }}
+        plan={plan}
+        fixed={{ 'functional-disconnection': 'fdc-alt' }}
+        onChange={onChange}
+      />,
+    );
+    expect(screen.queryByRole('combobox', { name: 'Functional disconnection' })).not.toBeInTheDocument();
+    const row = screen.getByText('Functional disconnection').closest('li') as HTMLElement;
+    expect(within(row).getByText(/Fixed by this analysis/)).toHaveTextContent('Alternative connectome');
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('keeps marking a planned slot without an implementation as unavailable', () => {
+    const slots = makeSlots();
+    const withNormalisation: PlanSlot[] = [
+      ...plan.filter((s) => s.name !== 'normalisation'),
+      { name: 'normalisation', status: 'unavailable', reason: 'no_implementation', plan_role: 'upstream' },
+    ];
+    render(<SlotSelector slots={slots} roles={CT} value={{}} plan={withNormalisation} onChange={() => {}} />);
+    const row = screen.getByText('CT lesion to MNI152').closest('li') as HTMLElement;
+    expect(row).toHaveAttribute('data-state', 'unavailable');
+    expect(within(row).queryByRole('combobox')).not.toBeInTheDocument();
   });
 });
