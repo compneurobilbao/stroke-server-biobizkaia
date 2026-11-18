@@ -12,9 +12,16 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from app.api.v1.deps import Orchestration, audit_event, authorize, get_orchestration
+from app.api.v1.deps import (
+    Orchestration,
+    audit_event,
+    authorize,
+    effective_min_validation,
+    get_orchestration,
+)
 from app.api.v1.errors import v1_error
 from app.api.v1.pipelines import version_key
+from app.core.validation import NOT_VALIDATED_CODE, below_minimum
 from app.db.session import get_db
 from app.models._common import utcnow
 from app.models.preset_setting import PresetSetting
@@ -108,6 +115,19 @@ def set_implementation(
             "implementation_not_found",
             "No loaded pipeline allows this implementation in this slot",
         )
+    if body.enabled:
+        # Owner decision 8: nothing below the deployment's minimum level is enabled.
+        # Disabling is never refused.
+        level = orch.validation.level(pipeline_id, slot, implementation_id)
+        minimum = effective_min_validation()
+        if below_minimum(level, minimum):
+            raise v1_error(
+                422,
+                NOT_VALIDATED_CODE,
+                f"This implementation is {level}; this deployment enables only "
+                f"implementations that are at least {minimum}",
+                slot,
+            )
     now = utcnow()
     if body.is_default:
         db.execute(

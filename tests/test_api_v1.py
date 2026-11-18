@@ -19,6 +19,7 @@ from sqlalchemy import select
 from app.api.v1.deps import Orchestration, get_orchestration, get_run_queue
 from app.api.v1.openapi import build_openapi
 from app.core.config import get_settings
+from app.core.validation import StaticValidationLevels
 from app.main import app
 from app.models import (
     Artifact,
@@ -90,6 +91,8 @@ class V1Env:
             steps=StaticStepCatalog(MANIFESTS.values()),
             bundles=NoBundles(),
             platform_version="0.0.0-test",
+            # the synthetic pipeline has no registry: its implementations count as validated
+            validation=StaticValidationLevels(default="validated"),
         )
         self.queue = FakeQueue()
         self.executor = FakeExecutor(script)

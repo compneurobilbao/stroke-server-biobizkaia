@@ -140,6 +140,18 @@ def test_manifest_is_valid_contract_1_2_real_step():
     assert doc["reference_test"]["generator"] == "tests/make_reference.py"
 
 
+def test_upstream_block_matches_the_dockerfile_and_the_third_party_list():
+    """F1-23 worked example: the block names the engine image pinned in the Dockerfile."""
+    doc = yaml.safe_load(MANIFEST.read_text(encoding="utf-8"))
+    up = doc["upstream"]
+    dockerfile = (MANIFEST.parent / "Dockerfile").read_text(encoding="utf-8")
+    base = next(x for x in dockerfile.splitlines() if x.startswith("FROM ")).split()[1]
+    assert up["image"] == f"docker.io/{base}"
+    assert up["licence"] == "MIT" and up["homepage"].startswith("https://")
+    third = {t["name"]: t["spdx"] for t in doc["licence"]["third_party"]}
+    assert third[up["name"]] == up["licence"]
+
+
 def test_output_type_is_the_one_of_the_stub():
     stub = yaml.safe_load(
         (REPO / "steps/stubs/fdisconnection-stub/step.yaml").read_text(encoding="utf-8")

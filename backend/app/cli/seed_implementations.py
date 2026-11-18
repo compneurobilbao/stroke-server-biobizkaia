@@ -12,6 +12,13 @@ chosen profile (enabled or not, default or not). Defaults:
   registry back to the profile.
 * A profile that enables a planned implementation is refused, and so is any profile other
   than ``ci`` that enables a stub (the same rules as ``pipelines/stroke-lnm/registry.py check``).
+* A profile that enables an implementation below the deployment's minimum validation level
+  is refused with ``implementation_not_validated`` (card F1-23, run-plans.md 4.4). The
+  minimum is ``unvalidated`` for the ``ci`` profile and otherwise the ``MIN_IMPLEMENTATION_VALIDATION``
+  of the deployment (``DEPLOYMENT_PROFILE``: ``validated`` on ``research-public`` and ``mask-only``,
+  ``reference-tested`` by default on ``on-premise``). ``--skip-below-minimum`` seeds those
+  implementations disabled (and not default) with a warning instead of refusing, so that a
+  public deployment can still seed the rest of the profile.
 * ``--dry-run`` reports what would change and rolls back.
 * Presets follow the same rules. The preset files are found the way the API finds them
   (``orchestrator.catalog.resolve_presets_dir``: ``PRESETS_DIR``, else the pipelines
@@ -42,6 +49,13 @@ import yaml
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.validation import (
+    NOT_VALIDATED_CODE,
+    VALIDATION_LEVELS,
+    below_minimum,
+    implementation_level,
+    min_implementation_validation,
+)
 from app.models.preset_setting import PresetSetting
 from app.models.reference_bundle import SlotImplementationSetting
 from orchestrator.catalog import resolve_presets_dir, scan_presets
@@ -52,6 +66,37 @@ STUB_PROFILES = frozenset({"ci"})
 
 class SeedError(Exception):
     pass
+
+
+def seed_minimum(profile: str, env: dict[str, str] | None = None) -> str:
+    """Lowest validation level the seeded ``profile`` may enable: ``unvalidated`` for the ci
+    profile, else the deployment's ``MIN_IMPLEMENTATION_VALIDATION``."""
+    if profile in STUB_PROFILES:
+        return VALIDATION_LEVELS[0]
+    environ = os.environ if env is None else env
+    deployment = environ.get("DEPLOYMENT_PROFILE") or "research-public"
+    try:
+        return min_implementation_validation(deployment, environ)
+    except RuntimeError as exc:
+        raise SeedError(str(exc)) from None
+
+
+def below_minimum_entries(
+    registry: dict[str, Any], profile: str, minimum: str
+) -> dict[tuple[str, str], str]:
+    """(slot, implementation id) -> level, for the implementations ``profile`` enables
+    below ``minimum``."""
+    spec = registry["profiles"][profile]
+    out: dict[tuple[str, str], str] = {}
+    for slot, ids in spec.get("enabled", {}).items():
+        for impl_id in ids:
+            entry = registry["implementations"].get(slot, {}).get(impl_id)
+            if entry is None:
+                continue
+            level = implementation_level(entry)
+            if below_minimum(level, minimum):
+                out[(slot, impl_id)] = level
+    return out
 
 
 @dataclass(frozen=True)
@@ -127,8 +172,11 @@ def preset_profile_errors(
     return errors
 
 
-def profile_errors(registry: dict[str, Any], profile: str) -> list[str]:
-    """Rules a profile must satisfy before it may be written to the database."""
+def profile_errors(
+    registry: dict[str, Any], profile: str, minimum: str | None = None
+) -> list[str]:
+    """Rules a profile must satisfy before it may be written to the database. With
+    ``minimum`` (a validation level) an enabled implementation below it is an error."""
     errors: list[str] = []
     impls = registry["implementations"]
     profile_settings(registry, profile)  # unknown profile -> SeedError
@@ -149,6 +197,14 @@ def profile_errors(registry: dict[str, Any], profile: str) -> list[str]:
     for slot, impl_id in spec.get("default", {}).items():
         if impl_id not in spec.get("enabled", {}).get(slot, []):
             errors.append(f"default {slot}/{impl_id} is not enabled")
+    if minimum is not None:
+        for (slot, impl_id), level in below_minimum_entries(
+            registry, profile, minimum
+        ).items():
+            errors.append(
+                f"{NOT_VALIDATED_CODE}: {slot}/{impl_id} is {level}, below the "
+                f"minimum {minimum} of this deployment"
+            )
     return errors
 
 
@@ -190,12 +246,19 @@ def seed_registry(
     *,
     reset: bool = False,
     preset_ids: list[str] | None = None,
+    minimum: str | None = None,
+    skip_below_minimum: bool = False,
 ) -> list[Change]:
     """Write the rows of one registry (implementations, then presets); the caller commits
     or rolls back. ``preset_ids`` are the preset files of the pipeline (default: the
-    presets the profile enables)."""
+    presets the profile enables). ``minimum`` is the lowest validation level to enable
+    (default: ``seed_minimum(profile)``); below it the profile is refused, or with
+    ``skip_below_minimum`` those implementations are seeded disabled."""
     pid = registry["pipeline"]["id"]
-    errors = profile_errors(registry, profile)
+    if minimum is None:
+        minimum = seed_minimum(profile)
+    below = below_minimum_entries(registry, profile, minimum)
+    errors = profile_errors(registry, profile, None if skip_below_minimum else minimum)
     if preset_ids is not None:
         errors += preset_profile_errors(registry, profile, preset_ids)
     if errors:
@@ -222,6 +285,31 @@ def seed_registry(
         key = (want["slot"], want["implementation_id"])
         row = rows.get(key)
         entry = registry["implementations"][want["slot"]][want["implementation_id"]]
+        if key in below and (row is None or reset):  # only with skip_below_minimum
+            want = {**want, "enabled": False, "is_default": False}
+            changes.append(
+                Change(
+                    "warning",
+                    pid,
+                    *key,
+                    f"{NOT_VALIDATED_CODE}: {below[key]} is below the minimum "
+                    f"{minimum}; seeded disabled",
+                )
+            )
+        elif (
+            row is not None
+            and row.enabled
+            and below_minimum(implementation_level(entry), minimum)
+        ):
+            changes.append(
+                Change(
+                    "warning",
+                    pid,
+                    *key,
+                    f"enabled in the database but {implementation_level(entry)} is "
+                    f"below the minimum {minimum} (admin change, left as is)",
+                )
+            )
         if want["enabled"] and PLACEHOLDER_DIGEST in entry["image"]:
             changes.append(
                 Change(
@@ -375,6 +463,12 @@ def main(argv: list[str] | None = None, session_factory=None) -> int:
         action="store_true",
         help="overwrite existing rows (admin changes included) with the profile",
     )
+    parser.add_argument(
+        "--skip-below-minimum",
+        action="store_true",
+        help="seed implementations below the deployment's minimum validation level "
+        "disabled, with a warning, instead of refusing the profile",
+    )
     parser.add_argument("--pipeline", help="only this pipeline id")
     parser.add_argument(
         "--presets-dir",
@@ -417,6 +511,7 @@ def main(argv: list[str] | None = None, session_factory=None) -> int:
                     args.profile,
                     reset=args.reset,
                     preset_ids=preset_ids.get(registry["pipeline"]["id"], []),
+                    skip_below_minimum=args.skip_below_minimum,
                 )
             if args.dry_run:
                 db.rollback()

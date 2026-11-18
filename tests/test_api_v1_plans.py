@@ -33,6 +33,7 @@ from app.api.v1.errors import refusal_status
 from app.api.v1.openapi import build_openapi
 from app.cli import seed_implementations as seed
 from app.core.config import free_mode_allowed, run_plan_policy
+from app.core.validation import DirectoryValidationLevels, StaticValidationLevels
 from app.main import app
 from app.models import (
     AuditEvent,
@@ -268,7 +269,15 @@ def make_synthetic(client, monkeypatch, *, report_contract="1.2"):
     assert attached == set(PRESET_FILES), "every synthetic preset must be valid"
     env = Env(
         client,
-        Orchestration(pipelines, steps, NoBundles(), "0.0.0-test", presets),
+        Orchestration(
+            pipelines,
+            steps,
+            NoBundles(),
+            "0.0.0-test",
+            presets,
+            # the synthetic pipeline has no registry: its implementations count as validated
+            StaticValidationLevels(default="validated"),
+        ),
         monkeypatch,
     )
     env.policy("free_for_researchers")
@@ -1175,7 +1184,14 @@ def real(client, monkeypatch):
             patched.append(m)
         steps = StaticStepCatalog(patched)
         presets = DirectoryPresetRegistry(ROOT / "pipelines", pipelines, steps)
-        return Orchestration(pipelines, steps, NoBundles(), "0.0.0-test", presets)
+        return Orchestration(
+            pipelines,
+            steps,
+            NoBundles(),
+            "0.0.0-test",
+            presets,
+            DirectoryValidationLevels(ROOT / "pipelines"),
+        )
 
     env = Env(client, build("1.2"), monkeypatch)
     env.build = build

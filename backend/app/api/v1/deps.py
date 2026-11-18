@@ -32,6 +32,11 @@ from app.api.v1.errors import (
     run_not_found,
 )
 from app.core.config import Settings, free_mode_allowed, run_plan_policy
+from app.core.validation import (
+    DirectoryValidationLevels,
+    StaticValidationLevels,
+    min_implementation_validation,
+)
 from app.models.audit_event import AuditEvent
 from app.models.case import Case, DeploymentProfile
 from app.models.pipeline_run import LEGACY_PIPELINE_ID, PipelineRun
@@ -179,6 +184,13 @@ def effective_run_plan_policy() -> str:
     return run_plan_policy(deployment_profile())
 
 
+def effective_min_validation() -> str:
+    """``MIN_IMPLEMENTATION_VALIDATION`` of this deployment (run-plans.md 4.4), read from
+    the environment on each call. Raises ``RuntimeError`` for an unknown value and for any
+    value below ``validated`` on a public profile."""
+    return min_implementation_validation(deployment_profile())
+
+
 def may_use_free_mode(user: User) -> bool:
     """Whether ``user`` may start runs with targets under this deployment's policy."""
     return free_mode_allowed(effective_run_plan_policy(), user.role)
@@ -207,6 +219,11 @@ class Orchestration:
     bundles: BundleResolver
     platform_version: str
     presets: PresetRegistry = field(default_factory=StaticPresetRegistry)
+    # Validation level of every implementation (registry.yaml), for the admin enable
+    # check (card F1-23); without registry data an implementation is unvalidated.
+    validation: DirectoryValidationLevels | StaticValidationLevels = field(
+        default_factory=StaticValidationLevels
+    )
 
 
 @lru_cache(maxsize=1)
@@ -234,6 +251,7 @@ def _default_orchestration() -> Orchestration:
         ),
         platform_version=env.get("PLATFORM_VERSION", "0.0.0-dev"),
         presets=DirectoryPresetRegistry(presets_dir, pipelines, steps, recorded),
+        validation=DirectoryValidationLevels(pipelines_dir),
     )
 
 
