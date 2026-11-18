@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { PlanReason, PlanSlot } from '../../api/v1';
+import type { PlanReason, PlanSlot, Slot } from '../../api/v1';
 import { PIPELINE, makePreset, makeRun, makeSlots } from '../../test/casesMock';
 import {
   CUSTOM_KEY,
@@ -11,6 +11,7 @@ import {
   inputSetName,
   isOfferedKey,
   isPlanned,
+  missingOptionalInputs,
   planReasonsOf,
   planSlotState,
   presetKey,
@@ -216,5 +217,62 @@ describe('implementation choices within a plan', () => {
     expect(implementationOverrides(slots, { 'functional-disconnection': 'fdc-alt' }, null)).toEqual({
       'functional-disconnection': 'fdc-alt',
     });
+  });
+});
+
+describe('optional inputs whose producer is not planned', () => {
+  const slot = (name: string, position: number, consumes: Slot['consumes'] = []): Slot => ({
+    name,
+    position,
+    optional: false,
+    consumes,
+    implementations: [],
+  });
+  const slots: Slot[] = [
+    slot('lesion-intake', 0),
+    slot('normalisation', 1),
+    slot('cognitive-profile', 2),
+    slot('report', 3, [
+      { port: 'lesion_qc', type: 'lesion_qc', from: ['lesion-intake.lesion_qc'] },
+      { port: 'ct_mni', type: 'ct_mni', optional: true, from: ['normalisation.ct_mni'] },
+      { port: 'cognet_profile', type: 'cognet_profile', optional: true, from: ['cognitive-profile.profile'] },
+      { port: 'lesion_mask', type: 'lesion_mask_mni', optional: true, from: ['inputs.lesion_mni', 'normalisation.lesion_mask_mni'] },
+      { port: 'provenance', type: 'x', optional: true, from: ['run.provenance'] },
+      { port: 'old_server', type: 'x', optional: true },
+    ]),
+  ];
+  const selected = (name: string): PlanSlot => ({ name, status: 'selected', plan_role: 'target', implementation: 'x' });
+  const skipped = (name: string, reason: PlanSlot['reason']): PlanSlot => ({ name, status: 'skipped', reason });
+
+  it('names the optional port and the producers that will not run', () => {
+    const plan = [selected('lesion-intake'), skipped('normalisation', 'not_requested'), skipped('cognitive-profile', 'not_requested'), selected('report')];
+    expect(missingOptionalInputs(slots, plan, MNI)).toEqual([
+      { consumer: 'report', port: 'ct_mni', producers: ['normalisation'] },
+      { consumer: 'report', port: 'cognet_profile', producers: ['cognitive-profile'] },
+    ]);
+  });
+
+  it('reports nothing when the producer is planned, and an unplanned consumer says nothing', () => {
+    const plan = [selected('lesion-intake'), selected('normalisation'), selected('cognitive-profile'), selected('report')];
+    expect(missingOptionalInputs(slots, plan, MNI)).toEqual([]);
+    expect(missingOptionalInputs(slots, [selected('lesion-intake'), skipped('report', 'not_requested')], MNI)).toEqual([]);
+  });
+
+  it('counts a planned producer that is unavailable as not running', () => {
+    const plan: PlanSlot[] = [
+      selected('report'),
+      selected('normalisation'),
+      { name: 'cognitive-profile', status: 'unavailable', reason: 'no_implementation', plan_role: 'if_available' },
+    ];
+    expect(missingOptionalInputs(slots, plan, MNI).map((m) => m.port)).toEqual(['cognet_profile']);
+  });
+
+  it('skips a producer that does not apply to the input mode, and ports fed by supplied inputs or the platform', () => {
+    const plan = [selected('report'), skipped('normalisation', 'condition_false'), selected('cognitive-profile')];
+    expect(missingOptionalInputs(slots, plan, MNI)).toEqual([]);
+    // a supplied file feeds the port even when the other producer is out
+    const out = [selected('report'), skipped('normalisation', 'not_requested'), selected('cognitive-profile')];
+    expect(missingOptionalInputs(slots, out, MNI).map((m) => m.port)).toEqual(['ct_mni']);
+    expect(missingOptionalInputs(slots, out, ['ct', 'lesion_native']).map((m) => m.port)).toEqual(['ct_mni', 'lesion_mask']);
   });
 });

@@ -5,13 +5,14 @@ import { errorText } from '../../api/client';
 import { getCase, listCaseRuns, type CaseDetail, type RunRead } from '../../api/v1';
 import { useFormatters } from '../../shared/useFormatters';
 import { useAuth } from '../auth/AuthContext';
-import { originText } from './RunPlanSummary';
+import { InputOriginEditor } from './CaseOrigins';
+import { originRoles } from './origin';
 import { RunStatusBadge } from './RunStatusBadge';
 
 export function CaseDetailPage() {
   const { caseId = '' } = useParams();
   const { t } = useTranslation();
-  const { api } = useAuth();
+  const { api, user } = useAuth();
   const { date } = useFormatters();
   const [item, setItem] = useState<CaseDetail | null>(null);
   const [runs, setRuns] = useState<RunRead[]>([]);
@@ -44,6 +45,11 @@ export function CaseDetailPage() {
     );
   }
 
+  // The origin is declared with the inputs, which cannot change after the first run (API rule, 409 case_has_runs).
+  const isOwner = user !== null && item.owner_user_id === user.id;
+  const canEditOrigin = isOwner && runs.length === 0;
+  const hasMaskInputs = (item.inputs ?? []).some((input) => originRoles([input.role]).length > 0);
+
   return (
     <>
       <section className="card">
@@ -71,14 +77,26 @@ export function CaseDetailPage() {
                 {(item.inputs ?? []).map((input) => (
                   <li key={input.role} data-testid={`input-${input.role}`}>
                     {t(`cases.roles.${input.role}`, { defaultValue: input.role })}
-                    {input.origin && (
-                      <span className="hint block">
-                        {t('cases.run.declaredByUser')}: {originText(t, input.origin)}
-                      </span>
-                    )}
+                    <InputOriginEditor
+                      caseId={item.id}
+                      input={input}
+                      editable={canEditOrigin}
+                      onSaved={(saved) =>
+                        setItem((previous) =>
+                          previous
+                            ? { ...previous, inputs: (previous.inputs ?? []).map((i) => (i.role === saved.role ? saved : i)) }
+                            : previous,
+                        )
+                      }
+                    />
                   </li>
                 ))}
               </ul>
+            )}
+            {hasMaskInputs && runs.length > 0 && (
+              <p className="hint" data-testid="origin-locked">
+                {t('cases.detail.originLocked')}
+              </p>
             )}
           </dd>
         </dl>

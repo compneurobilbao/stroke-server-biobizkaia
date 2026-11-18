@@ -437,5 +437,35 @@ test.describe('case creation wizard (real stack)', () => {
       tool,
       version,
     });
+
+    // Card F1-22c / F1-24: run again on the same case, with no new upload. The inputs cannot change
+    // after the first run (so neither can the declared origin), and one run of a case is active at a time.
+    const caseId = /\/cases\/([0-9a-f-]{36})$/.exec((await page.getByRole('link', { name: 'Open case' }).getAttribute('href')) ?? '')?.[1];
+    expect(caseId).toBeTruthy();
+    const refused = await page.request.patch(`/api/v1/cases/${caseId}/inputs/lesion_mni`, {
+      headers,
+      data: { origin: null },
+    });
+    expect(refused.status()).toBe(409);
+    expect(((await refused.json()) as { code: string }).code).toBe('case_has_runs');
+
+    const uploads: string[] = [];
+    page.on('request', (r) => {
+      if (r.method() === 'PUT' || (r.method() === 'POST' && /\/api\/v1\/cases$/.test(r.url()))) uploads.push(r.url());
+    });
+    await page.getByRole('button', { name: 'Run again with the same plan' }).click();
+    await expect(page.getByRole('heading', { name: 'New run on this case' })).toBeVisible();
+    await expect(page.getByLabel('Lesion mask in MNI space (.nii.gz)')).toHaveCount(0);
+    await chooseAnalysis(page);
+    await startRun(page);
+    expect(uploads, 'nothing is uploaded and no case is created').toEqual([]);
+
+    const second = /\/runs\/([0-9a-f-]{36})$/.exec(page.url())?.[1];
+    expect(second).toBeTruthy();
+    expect(second).not.toBe(runId);
+    const runs = (await (await page.request.get(`/api/v1/cases/${caseId}/runs`, { headers })).json()) as Array<{ id: string }>;
+    expect(runs.map((r) => r.id).sort()).toEqual([runId, second].sort());
+    // While it is active, running again on the case is not offered.
+    await expect(page.getByRole('button', { name: 'Run again with the same plan' })).toBeDisabled();
   });
 });

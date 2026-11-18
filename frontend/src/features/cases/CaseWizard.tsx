@@ -51,6 +51,14 @@ export const MODE_ROLES: Record<WizardMode, readonly string[]> = {
 
 const STEPS = ['mode', 'files', 'analysis', 'steps'] as const;
 type Step = (typeof STEPS)[number];
+/** A new run on an existing case has its mode and files already: only the analysis and the implementations. */
+const SAME_CASE_STEPS: readonly Step[] = ['analysis', 'steps'];
+
+/** An existing case to run on again: its inputs are reused, never uploaded again. */
+export interface SameCase {
+  caseId: string;
+  roles: string[];
+}
 
 /** Wait after the last change before the plan preview is requested. */
 export const PREVIEW_DEBOUNCE_MS = 250;
@@ -78,10 +86,14 @@ export function CaseWizard() {
   const { api } = useAuth();
   const { setMessage } = useMessage();
   const navigate = useNavigate();
-  // "Run again with the same plan" opens the wizard with the recorded request.
-  const rerun = (useLocation().state as { rerun?: RerunRequest } | null)?.rerun ?? null;
+  // "Run again with the same plan" opens the wizard with the recorded request, on the same case
+  // (`sameCase`: inputs reused) or on a new one.
+  const locationState = useLocation().state as { rerun?: RerunRequest; sameCase?: SameCase } | null;
+  const rerun = locationState?.rerun ?? null;
+  const sameCase = locationState?.sameCase ?? null;
+  const stepList: readonly Step[] = sameCase ? SAME_CASE_STEPS : STEPS;
 
-  const [step, setStep] = useState<Step>('mode');
+  const [step, setStep] = useState<Step>(stepList[0]);
   const [mode, setMode] = useState<WizardMode>(rerun?.mode ?? 'ct');
   const [sex, setSex] = useState<'' | Sex>('');
   const [ageBand, setAgeBand] = useState('');
@@ -102,11 +114,11 @@ export function CaseWizard() {
   const [createError, setCreateError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   // Kept across attempts so that a retry after a failed upload or run creation reuses the case.
-  const caseId = useRef<string | null>(null);
-  const uploaded = useRef<Set<string>>(new Set());
+  const caseId = useRef<string | null>(sameCase?.caseId ?? null);
+  const uploaded = useRef<Set<string>>(new Set(sameCase?.roles ?? []));
   const [locked, setLocked] = useState(false);
 
-  const roles = MODE_ROLES[mode];
+  const roles = sameCase ? sameCase.roles : MODE_ROLES[mode];
   const pipeline = useMemo(() => {
     const matching = (pipelines ?? []).filter((p) => acceptsRoles(p, roles));
     return matching.sort((a, b) => compareVersions(b.version, a.version))[0] ?? null;
@@ -215,8 +227,8 @@ export function CaseWizard() {
     [slots, selectedKey, options, custom, roles, picks, selectedPreset],
   );
   const requestKey = request ? JSON.stringify(request) : '';
-  const stepIndex = STEPS.indexOf(step);
-  const previewActive = stepIndex >= STEPS.indexOf('analysis');
+  const stepIndex = stepList.indexOf(step);
+  const previewActive = stepIndex >= stepList.indexOf('analysis');
 
   // Live plan preview: requested after every change, debounced; a newer change drops the older answer.
   useEffect(() => {
@@ -330,10 +342,16 @@ export function CaseWizard() {
 
   return (
     <section className="card wizard" aria-labelledby="wizard-title">
-      <h2 id="wizard-title">{t('cases.wizard.title')}</h2>
-      <p className="hint">{t('cases.wizard.privacy')}</p>
+      <h2 id="wizard-title">{sameCase ? t('cases.wizard.titleAgain') : t('cases.wizard.title')}</h2>
+      {sameCase ? (
+        <p className="hint" data-testid="same-case-note">
+          {t('cases.wizard.sameCase')}
+        </p>
+      ) : (
+        <p className="hint">{t('cases.wizard.privacy')}</p>
+      )}
       <ol className="wizard-steps" aria-label={t('cases.wizard.progress')}>
-        {STEPS.map((s, index) => (
+        {stepList.map((s, index) => (
           <li key={s} aria-current={s === step ? 'step' : undefined} className={s === step ? 'current' : ''}>
             {index + 1}. {t(`cases.wizard.step.${s}`)}
           </li>
@@ -515,7 +533,7 @@ export function CaseWizard() {
           type="button"
           className="secondary"
           disabled={stepIndex === 0 || busy}
-          onClick={() => setStep(STEPS[stepIndex - 1])}
+          onClick={() => setStep(stepList[stepIndex - 1])}
         >
           {t('cases.wizard.back')}
         </button>
@@ -526,7 +544,7 @@ export function CaseWizard() {
               (step === 'files' && (missingFiles.length > 0 || invalidOrigins.length > 0)) ||
               (step === 'analysis' && (!optionsReady || !slots || request === null))
             }
-            onClick={() => setStep(STEPS[stepIndex + 1])}
+            onClick={() => setStep(stepList[stepIndex + 1])}
           >
             {t('cases.wizard.next')}
           </button>

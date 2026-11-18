@@ -727,6 +727,14 @@ span.block { display: block; margin-top: 4px; }
 .plan-slot[data-plan-state="not_requested"], .plan-slot[data-plan-state="condition_false"] { opacity: .7; }
 .plan-reasons { margin-top: 10px; padding: 10px 14px; border-left: 4px solid #b7791f; background: #fffbea; border-radius: 8px; }
 .plan-reasons ul { margin: 6px 0 0; padding-left: 18px; }
+.plan-missing { margin-top: 10px; padding: 10px 14px; border-left: 4px solid #9aa5b1; background: #f4f6f8; border-radius: 8px; }
+.plan-missing ul { margin: 6px 0 0; padding-left: 18px; }
+.impl-badges { list-style: none; padding: 0; margin: 6px 0 0; display: flex; flex-direction: column; gap: 4px; }
+.impl-badges li { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: .9rem; }
+.impl-badges li[data-current="true"] .impl-name { font-weight: 600; }
+.impl-badges .tag { margin-left: 0; }
+.origin-edit { margin-top: 8px; }
+button.small { padding: 4px 10px; font-size: .85rem; margin-top: 4px; }
 .create-error { margin-top: 12px; }
 .slot-fixed { margin: 4px 0 8px; }
 .timeline-collapsed { list-style: none; }

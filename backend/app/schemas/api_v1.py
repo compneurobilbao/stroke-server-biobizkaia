@@ -44,9 +44,16 @@ TargetName = Annotated[str, StringConstraints(min_length=1, max_length=128)]
 
 
 class PortRead(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     port: str
     type: str
     optional: bool = False
+    # Where a consumed port takes its data from (`consumes[].from` of the pipeline): entries
+    # `inputs.<name>` or `<slot>.<port>`, alternatives in order. Null on produced ports.
+    # Serialised as "from" (card F1-22a); lets a client tell which optional inputs of a
+    # planned slot have no producer in the plan.
+    from_: list[str] | None = Field(default=None, alias="from")
 
 
 class SlotImplementationRead(BaseModel):
@@ -67,6 +74,10 @@ class SlotImplementationRead(BaseModel):
     validation_level: Literal["unvalidated", "reference-tested", "validated"] | None = None
     experimental: bool = False
     unavailable_reason: Literal["implementation_not_validated"] | None = None
+    # Copy of the step manifest's `upstream` block (external tools, contract 1.2: name,
+    # version, licence, homepage, ...); null for a step that wraps no external tool or whose
+    # manifest is not loaded (card F1-22b).
+    upstream: dict[str, Any] | None = None
 
 
 class SlotRead(BaseModel):

@@ -36,12 +36,16 @@ export interface SlotImplementation {
   experimental?: boolean;
   /** Set for an enabled setting below the deployment's minimum level (listed to administrators only). */
   unavailable_reason?: 'implementation_not_validated' | null;
+  /** The external tool the implementation wraps (step contract 1.2 `upstream` block); null for none. */
+  upstream?: UpstreamInfo | null;
 }
 
 export interface SlotPort {
   port: string;
   type: string;
   optional?: boolean;
+  /** Sources of a consumed port: `inputs.<name>` or `<slot>.<port>` (alternatives in order); absent on produced ports. */
+  from?: string[] | null;
 }
 
 export interface Slot {
@@ -50,6 +54,7 @@ export interface Slot {
   description?: string | null;
   position: number;
   optional: boolean;
+  consumes?: SlotPort[];
   produces?: SlotPort[];
   when?: { inputs_present?: string[] } | Record<string, unknown> | null;
   default_implementation?: string | null;
@@ -68,6 +73,7 @@ export interface InputFile {
 
 export interface CaseRead {
   id: string;
+  owner_user_id?: string;
   subject_label: string;
   session_label: string;
   sex?: Sex | null;
@@ -336,6 +342,10 @@ export const putInput = (api: ApiClient, caseId: string, role: string, file: Fil
   if (origin) form.append('origin', JSON.stringify(origin));
   return api.json<InputFile>(`/v1/cases/${enc(caseId)}/inputs/${enc(role)}`, { method: 'PUT', body: form });
 };
+
+/** Change or clear (`null`) the declared origin of an input without uploading it again; refused (409 `case_has_runs`) once the case has a run. */
+export const patchInputOrigin = (api: ApiClient, caseId: string, role: string, origin: InputOrigin | null) =>
+  api.json<InputFile>(`/v1/cases/${enc(caseId)}/inputs/${enc(role)}`, { method: 'PATCH', json: { origin } });
 
 export const createRun = (api: ApiClient, caseId: string, body: RunCreate) =>
   api.json<RunDetail>(`/v1/cases/${enc(caseId)}/runs`, { method: 'POST', json: body });

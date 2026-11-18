@@ -262,6 +262,13 @@
       "default": "deployment default",
       "stub": "stub",
       "experimental": "experimental",
+      "candidates": "Candidate implementations",
+      "externalTool": "External tool: {{tool}}",
+      "level": {
+        "unvalidated": "unvalidated",
+        "reference-tested": "reference-tested",
+        "validated": "validated"
+      },
       "optional": "Optional",
       "notUsed": "Not used in this mode",
       "unavailable": "Unavailable",
@@ -276,6 +283,8 @@
       "empty": "No cases yet.",
       "failed": "Could not load the cases.",
       "case": "Case",
+      "origin": "Declared origin of the masks",
+      "noOrigin": "Not declared",
       "created": "Created"
     },
     "detail": {
@@ -283,10 +292,17 @@
       "failed": "Could not load the case.",
       "inputs": "Inputs",
       "runs": "Runs",
+      "editOrigin": "Edit origin",
+      "saveOrigin": "Save origin",
+      "cancelEdit": "Cancel",
+      "originFailed": "Could not save the origin.",
+      "originLocked": "The declared origin cannot be changed after the first run.",
       "noRuns": "This case has no runs."
     },
     "wizard": {
       "title": "New case",
+      "titleAgain": "New run on this case",
+      "sameCase": "The files of this case are reused; nothing is uploaded again. Choose the analysis for the new run.",
       "privacy": "A case stores only a platform-generated label, an optional sex and an age band. Do not enter names or identifiers. File names are not stored.",
       "progress": "Wizard progress",
       "step": {
@@ -413,7 +429,9 @@
         "manual": "drawn by hand",
         "externalTool": "external tool {{tool}} {{version}}"
       },
-      "runAgain": "Run again with the same plan"
+      "runAgain": "Run again with the same plan",
+      "runAgainNewFiles": "Run again with new files",
+      "runAgainActive": "A run of this case is active: run again once it has finished."
     },
     "analysis": {
       "hint": "Choose what to run on this case. The plan below shows which steps will run and why.",
@@ -444,6 +462,8 @@
       "infeasible": "This plan cannot run. See the reasons below.",
       "refused": "Why this plan cannot run:",
       "thePlan": "the plan",
+      "missingHeading": "Optional inputs that will be missing:",
+      "missingInput": "{{consumer}} will run without the optional input \"{{port}}\": {{producers}} will not run in this plan. Add it to the plan to include it.",
       "role": {
         "target": "Requested",
         "upstream": "Added by the plan",

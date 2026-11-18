@@ -26,6 +26,58 @@ describe('SlotSelector', () => {
     expect(screen.getByRole('option', { name: 'Alternative connectome (experimental)' })).toBeInTheDocument();
   });
 
+  it('shows the external tool and the validation level of each candidate', () => {
+    const slots = makeSlots();
+    slots[2].implementations[0] = { ...slots[2].implementations[0], validation_level: 'validated', experimental: false };
+    slots[2].implementations[1] = {
+      ...slots[2].implementations[1],
+      validation_level: 'reference-tested',
+      experimental: true,
+      upstream: { name: 'ext-tool', version: '2.3.4', licence: 'MIT' },
+    };
+    render(<SlotSelector slots={slots} roles={MNI} value={defaultChoices(slots)} onChange={() => {}} />);
+    const row = screen.getByRole('combobox', { name: 'Functional disconnection' }).closest('li') as HTMLElement;
+    const list = within(row).getByRole('list', { name: 'Candidate implementations' });
+    const stub = list.querySelector('[data-impl="fdc-stub"]') as HTMLElement;
+    expect(within(stub).getByTestId('impl-level')).toHaveTextContent('validated');
+    expect(within(stub).queryByTestId('impl-external')).not.toBeInTheDocument();
+    expect(stub).toHaveAttribute('data-current', 'true');
+    const alt = list.querySelector('[data-impl="fdc-alt"]') as HTMLElement;
+    expect(within(alt).getByTestId('impl-external')).toHaveTextContent('External tool: ext-tool 2.3.4 (MIT)');
+    expect(within(alt).getByTestId('impl-level')).toHaveTextContent('reference-tested - experimental');
+    expect(alt).not.toHaveAttribute('data-current');
+  });
+
+  it('marks the picked candidate as the current one', () => {
+    const slots = makeSlots();
+    slots[2].implementations[1] = { ...slots[2].implementations[1], validation_level: 'unvalidated' };
+    render(<SlotSelector slots={slots} roles={MNI} value={{ 'functional-disconnection': 'fdc-alt' }} onChange={() => {}} />);
+    const row = screen.getByRole('combobox', { name: 'Functional disconnection' }).closest('li') as HTMLElement;
+    expect(row.querySelector('[data-impl="fdc-alt"]')).toHaveAttribute('data-current', 'true');
+    expect(within(row).getByTestId('impl-level')).toHaveTextContent('unvalidated');
+  });
+
+  it('lists nothing for candidates that carry no level and no external tool (older server)', () => {
+    const slots = makeSlots();
+    render(<SlotSelector slots={slots} roles={MNI} value={defaultChoices(slots)} onChange={() => {}} />);
+    expect(screen.queryByRole('list', { name: 'Candidate implementations' })).not.toBeInTheDocument();
+  });
+
+  it('shows the badges of the preset-fixed implementation only', () => {
+    const slots = makeSlots();
+    slots[2].implementations[0] = { ...slots[2].implementations[0], upstream: { name: 'other', version: '9' } };
+    slots[2].implementations[1] = { ...slots[2].implementations[1], upstream: { name: 'ext-tool', version: '1' } };
+    const plan: PlanSlot[] = [
+      { name: 'functional-disconnection', status: 'selected', plan_role: 'target', implementation: 'fdc-alt' },
+    ];
+    render(
+      <SlotSelector slots={slots} roles={MNI} value={{}} plan={plan} fixed={{ 'functional-disconnection': 'fdc-alt' }} onChange={() => {}} />,
+    );
+    const externals = screen.getAllByTestId('impl-external');
+    expect(externals).toHaveLength(1);
+    expect(externals[0]).toHaveTextContent('ext-tool 1');
+  });
+
   it('reports the implementation the user picks', async () => {
     const slots = makeSlots();
     const onChange = vi.fn();

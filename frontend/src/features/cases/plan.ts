@@ -199,3 +199,48 @@ export function reasonKey(reason: PlanReason): string {
   const plain = reason.code === 'no_implementation' && (!reason.required_by || reason.required_by === reason.slot);
   return `cases.plan.reason.${plain ? 'no_implementation_plain' : reason.code}`;
 }
+
+/** An optional input of a planned slot that will be missing because no slot that could produce it is planned. */
+export interface MissingInput {
+  /** Slot that consumes the port. */
+  consumer: string;
+  port: string;
+  /** Slots that could have produced it (alternatives), none of them planned. */
+  producers: string[];
+}
+
+/**
+ * Optional inputs of the planned slots whose producers are all outside the plan (design 3.6: "the report will
+ * not include the COGNET profile"). A port fed by an input the user supplied, or by the platform, is not
+ * missing; a port fed only by supplied files that were not given is not reported either (the user chose the
+ * files, not the plan), nor is one whose producers do not apply to these files.
+ */
+export function missingOptionalInputs(
+  slots: readonly Slot[],
+  plan: readonly PlanSlot[],
+  roles: readonly string[],
+): MissingInput[] {
+  const planned = new Set(plan.filter((slot) => slot.status === 'selected').map((slot) => slot.name));
+  // A producer that cannot apply to these files is not something the user could add to the plan.
+  const inapplicable = new Set(
+    plan.filter((slot) => slot.status === 'skipped' && slot.reason === 'condition_false').map((slot) => slot.name),
+  );
+  const result: MissingInput[] = [];
+  for (const slot of [...slots].sort((a, b) => a.position - b.position)) {
+    if (!planned.has(slot.name)) continue;
+    for (const port of slot.consumes ?? []) {
+      if (!port.optional || !port.from || port.from.length === 0) continue;
+      const producers: string[] = [];
+      let fed = false;
+      for (const source of port.from) {
+        const [head, tail = ''] = source.split('.', 2);
+        if (head === 'inputs') fed ||= roles.includes(tail);
+        else if (head === 'run') fed = true;
+        else if (planned.has(head)) fed = true;
+        else if (!inapplicable.has(head) && !producers.includes(head)) producers.push(head);
+      }
+      if (!fed && producers.length > 0) result.push({ consumer: slot.name, port: port.port, producers });
+    }
+  }
+  return result;
+}

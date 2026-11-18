@@ -33,3 +33,10 @@ export function originOf(draft: OriginDraft | undefined): InputOrigin | null {
   if (draft.kind === 'manual') return { kind: 'manual' };
   return { kind: 'external-tool', tool: draft.tool, version: draft.version };
 }
+
+/** Draft of an origin already stored (to edit it); an unknown kind reads as not declared. */
+export function draftOf(origin: InputOrigin | null | undefined): OriginDraft {
+  if (origin?.kind === 'manual') return { kind: 'manual', tool: '', version: '' };
+  if (origin?.kind === 'external-tool') return { kind: 'external-tool', tool: origin.tool ?? '', version: origin.version ?? '' };
+  return EMPTY_ORIGIN;
+}

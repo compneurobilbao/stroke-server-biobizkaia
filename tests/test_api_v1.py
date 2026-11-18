@@ -211,7 +211,12 @@ def test_pipeline_slots_list_only_enabled_implementations(v1):
         norm["implementations"][0]["enabled"]
         and norm["implementations"][0]["available"]
     )
-    assert norm["consumes"][0] == {"port": "ct", "type": "ct_native", "optional": False}
+    assert norm["consumes"][0] == {
+        "port": "ct",
+        "type": "ct_native",
+        "optional": False,
+        "from": ["inputs.ct"],
+    }
     assert c.get(base, headers=v1.alice).json()["slots"][0]["name"] == "intake"
 
     assert (
@@ -224,6 +229,52 @@ def test_pipeline_slots_list_only_enabled_implementations(v1):
         ]
         == "pipeline_not_found"
     )
+
+
+def test_slot_ports_expose_their_sources(v1):
+    """`consumes[].from` is listed (a string or a list in the pipeline, always a list in the
+    API) so that a client can tell which optional inputs have no producer in a plan."""
+    v1.enable_all()
+    base = f"/api/v1/pipelines/{PIPE}/versions/1.0.0"
+    slots = {s["name"]: s for s in v1.client.get(f"{base}/slots", headers=v1.alice).json()}
+    intake = {c["port"]: c for c in slots["intake"]["consumes"]}
+    assert intake["lesion_mni"]["from"] == ["inputs.lesion_mni"]
+    assert intake["lesion_mni"]["optional"] is True
+    disc = slots["disconnection"]["consumes"][0]
+    assert disc["from"] == ["normalisation.lesion_mask_mni", "intake.lesion_mask_mni"]
+    # produced ports have no source; the pipeline detail carries the same listing
+    assert all(p["from"] is None for p in slots["intake"]["produces"])
+    detail = v1.client.get(base, headers=v1.alice).json()["slots"]
+    assert detail == list(slots.values())
+
+
+def test_slot_listing_exposes_the_upstream_block_of_external_tools(v1):
+    """`upstream` (contract 1.2) of the step manifest is listed per implementation; it is
+    null for a step that wraps no external tool (card F1-22b)."""
+    import copy
+
+    manifests = copy.deepcopy(MANIFESTS)
+    block = {
+        "name": "ext-tool",
+        "version": "2.3.4",
+        "licence": "MIT",
+        "homepage": "https://example.org/ext-tool",
+    }
+    manifests["norm-step"]["upstream"] = block
+    patched = Orchestration(
+        pipelines=v1.services.pipelines,
+        steps=StaticStepCatalog(manifests.values()),
+        bundles=v1.services.bundles,
+        platform_version=v1.services.platform_version,
+        validation=v1.services.validation,
+    )
+    app.dependency_overrides[get_orchestration] = lambda: patched
+    v1.enable_all()
+    url = f"/api/v1/pipelines/{PIPE}/versions/1.0.0/slots"
+    slots = {s["name"]: s for s in v1.client.get(url, headers=v1.alice).json()}
+    assert slots["normalisation"]["implementations"][0]["upstream"] == block
+    assert slots["intake"]["implementations"][0]["upstream"] is None
+    assert slots["disconnection"]["implementations"][0]["upstream"] is None
 
 
 def test_disabled_implementations_are_visible_to_admins_only(v1):

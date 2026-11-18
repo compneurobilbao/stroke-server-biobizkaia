@@ -524,3 +524,72 @@ describe('run again with the same plan', () => {
     expect(modeRadio(/Full analysis/)).toBeChecked();
   });
 });
+
+describe('analysis step: optional inputs that will be missing', () => {
+  /** The functional disconnection optionally consumes the cognitive profile, a slot a preset can leave out. */
+  function slotsWithOptionalProducer() {
+    const slots = makeSlots();
+    slots[2] = {
+      ...slots[2],
+      consumes: [
+        { port: 'cognet_profile', type: 'cognet_profile', optional: true, from: ['cognitive-profile.profile'] },
+        { port: 'lesion_mask', type: 'lesion_mask_mni', optional: true, from: ['inputs.lesion_mni'] },
+      ],
+    };
+    slots.push({
+      name: 'cognitive-profile',
+      title: 'Cognitive profile',
+      position: 3,
+      optional: true,
+      implementations: [
+        {
+          id: 'cog',
+          step_name: 'cog',
+          step_version: '1.0.0',
+          available: true,
+          enabled: true,
+          is_default: true,
+          is_pipeline_default: true,
+        },
+      ],
+      default_implementation: 'cog',
+    });
+    return slots;
+  }
+
+  it('tells which optional input of a planned step is missing because its producer is not planned', async () => {
+    mockApi({ presets: presetList(), slots: slotsWithOptionalProducer() });
+    await openAnalysis('mni');
+    // the full plan includes the cognitive profile: nothing is missing
+    await waitFor(() => expect(preview('cognitive-profile')).toBeTruthy());
+    expect(screen.queryByTestId('plan-missing-inputs')).not.toBeInTheDocument();
+
+    await userEvent.click(modeRadio(/Disconnection analysis of an MNI lesion mask/));
+    const note = await screen.findByTestId('plan-missing-inputs');
+    expect(note).toHaveTextContent(
+      'Functional disconnection will run without the optional input "cognet profile": Cognitive profile will not run in this plan. Add it to the plan to include it.',
+    );
+    // the supplied lesion mask feeds the other optional port
+    expect(note.querySelectorAll('li')).toHaveLength(1);
+  });
+
+  it('says nothing about missing inputs for a plan that cannot run', async () => {
+    mockApi({
+      presets: presetList(),
+      slots: slotsWithOptionalProducer(),
+      plan: () => ({
+        feasible: false,
+        mode: 'preset',
+        input_set: 'mni-mask',
+        slots: [
+          { name: 'functional-disconnection', status: 'selected', plan_role: 'target', implementation: 'fdc-stub' },
+          { name: 'cognitive-profile', status: 'skipped', reason: 'not_requested' },
+        ],
+        reasons: [NO_IMPLEMENTATION],
+      }),
+    });
+    await openAnalysis('mni');
+    await screen.findByRole('alert');
+    expect(screen.queryByTestId('plan-missing-inputs')).not.toBeInTheDocument();
+  });
+});

@@ -246,4 +246,58 @@ describe('case wizard', () => {
       expect(screen.queryByTestId('origin-field-ct')).not.toBeInTheDocument();
     });
   });
+  describe('run again on the same case', () => {
+    const SAME_CASE = {
+      rerun: { mode: 'mni', planMode: 'full', presetId: null, custom: {} },
+      sameCase: { caseId: 'c1', roles: ['lesion_mni'] },
+    };
+
+    function renderSameCase() {
+      window.localStorage.setItem(TOKEN_KEY, 'jwt-123');
+      return render(
+        <MemoryRouter initialEntries={[{ pathname: '/cases/new', state: SAME_CASE }]}>
+          <App />
+        </MemoryRouter>,
+      );
+    }
+
+    it('creates the run on the existing case without creating a case or uploading', async () => {
+      const { calls: all } = mockApi({ run: makeRun({ input_set: 'mni-mask' }) });
+      renderSameCase();
+      await screen.findByRole('heading', { name: 'New run on this case' });
+      await screen.findByRole('group', { name: 'Analysis' });
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Next' })).toBeEnabled());
+      await next();
+      await screen.findByRole('combobox', { name: 'Functional disconnection' });
+      await start();
+      expect(await screen.findByRole('heading', { name: 'Run' })).toBeInTheDocument();
+      expect(calls(all, 'POST', '/v1/cases')).toHaveLength(0);
+      expect(all.filter((c) => c.method === 'PUT')).toHaveLength(0);
+      expect(JSON.parse(calls(all, 'POST', '/v1/cases/c1/runs')[0].body as string)).toEqual({
+        pipeline_id: 'stroke-lnm',
+        pipeline_version: '0.1.0',
+        input_roles: ['lesion_mni'],
+        implementations: {},
+      });
+    });
+
+    it('shows the refusal when another run of the case is active, and can go back to the analysis', async () => {
+      const { calls: all } = mockApi({
+        routes: {
+          'POST /v1/cases/c1/runs': () =>
+            jsonResponse({ detail: 'Another run of this case is active', code: 'active_run_exists' }, 409),
+        },
+      });
+      renderSameCase();
+      await screen.findByRole('group', { name: 'Analysis' });
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Next' })).toBeEnabled());
+      await next();
+      await screen.findByRole('combobox', { name: 'Functional disconnection' });
+      await start();
+      expect(await screen.findByText('Another run of this case is active')).toBeInTheDocument();
+      expect(calls(all, 'POST', '/v1/cases')).toHaveLength(0);
+      await userEvent.click(screen.getByRole('button', { name: 'Back' }));
+      expect(await screen.findByRole('group', { name: 'Analysis' })).toBeInTheDocument();
+    });
+  });
 });

@@ -10,6 +10,7 @@ import {
   getStepLog,
   listPresets,
   listSlots,
+  patchInputOrigin,
   previewPlan,
   putInput,
   resumeRun,
@@ -76,6 +77,18 @@ describe('v1 client', () => {
     expect(init.method).toBe('PUT');
     const form = init.body as FormData;
     expect([...form.keys()]).toEqual(['file']);
+  });
+
+  it('changes or clears the declared origin with a PATCH and no file', async () => {
+    const fetchMock = stubFetch(new Response(JSON.stringify({ id: 'i1' }), { status: 200 }));
+    await patchInputOrigin(api, 'c1', 'lesion_mni', { kind: 'external-tool', tool: 'example-tool', version: '1.0' });
+    let [url, init] = lastCall(fetchMock);
+    expect(url).toBe('/api/v1/cases/c1/inputs/lesion_mni');
+    expect(init.method).toBe('PATCH');
+    expect(JSON.parse(init.body as string)).toEqual({ origin: { kind: 'external-tool', tool: 'example-tool', version: '1.0' } });
+    await patchInputOrigin(api, 'c1', 'lesion_mni', null);
+    [url, init] = lastCall(fetchMock);
+    expect(JSON.parse(init.body as string)).toEqual({ origin: null });
   });
 
   it('starts a run with the chosen implementations and input roles', async () => {
