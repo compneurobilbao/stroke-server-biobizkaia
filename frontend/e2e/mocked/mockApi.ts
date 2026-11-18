@@ -282,7 +282,7 @@ export interface MockOptions {
   refuseCreateOnce?: boolean;
 }
 
-function runDetail(status: 'running' | 'succeeded', plan: Plan) {
+function runDetail(status: 'running' | 'succeeded', plan: Plan, inputs: Array<Record<string, unknown>> = []) {
   const done = status === 'succeeded';
   return {
     id: 'r1',
@@ -294,6 +294,7 @@ function runDetail(status: 'running' | 'succeeded', plan: Plan) {
     created_at: NOW,
     finished_at: done ? NOW : null,
     plan: { mode: plan.mode, preset: plan.preset, targets: plan.targets },
+    inputs,
     slots: plan.slots.map((slot, position) => ({
       id: SLOT_IDS[slot.name],
       slot: slot.name,
@@ -333,6 +334,9 @@ export async function installMockApi(page: Page, options: MockOptions = {}): Pro
   let created: Plan = planFor({ input_roles: ['lesion_mni'] }, false);
   let runReads = 0;
   let createAttempts = 0;
+  // Origins declared at upload (multipart field `origin`), by role: shown on the run, as the API does.
+  const declared: Record<string, unknown> = {};
+  const inputsOf = () => Object.entries(declared).map(([role, origin]) => ({ role, input_file_id: `in-${role}`, origin }));
 
   const json = (route: Route, body: unknown, status = 200) =>
     route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
@@ -377,7 +381,13 @@ export async function installMockApi(page: Page, options: MockOptions = {}): Pro
     }
     const input = /^\/v1\/cases\/c1\/inputs\/([a-z_]+)$/.exec(path);
     if (method === 'PUT' && input) {
-      return json(route, { id: `in-${input[1]}`, role: input[1], artefact_type: 'x', created_at: NOW }, 201);
+      const sent = /name="origin"?
+?
+([^
+]*)/.exec(request.postData() ?? '');
+      const origin = sent ? (JSON.parse(sent[1]) as unknown) : null;
+      declared[input[1]] = origin;
+      return json(route, { id: `in-${input[1]}`, role: input[1], artefact_type: 'x', created_at: NOW, origin }, 201);
     }
     if (method === 'POST' && path === '/v1/cases/c1/runs') {
       createAttempts += 1;
@@ -397,11 +407,11 @@ export async function installMockApi(page: Page, options: MockOptions = {}): Pro
       }
       created = planFor(JSON.parse(request.postData() ?? '{}') as PlanBody, Boolean(options.presets));
       runReads = 0;
-      return json(route, runDetail('running', created), 201);
+      return json(route, runDetail('running', created, inputsOf()), 201);
     }
     if (method === 'GET' && path === '/v1/runs/r1') {
       runReads += 1;
-      return json(route, runDetail(runReads > 1 ? 'succeeded' : 'running', created));
+      return json(route, runDetail(runReads > 1 ? 'succeeded' : 'running', created, inputsOf()));
     }
     if (method === 'GET' && path === '/v1/runs/r1/artifacts') {
       return json(

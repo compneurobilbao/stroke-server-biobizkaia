@@ -41,6 +41,8 @@ orchestrator:
   in the `ci` and `deployment` profiles) and checks that the run reaches `succeeded` with
   normalisation `succeeded` and not a stub.
 
+- **Declared origin** (card F1-24): the wizard's file step lets the user declare how a supplied mask was made (drawn by hand, or an external tool with name and version; free text is refused). The mocked spec checks the multipart `origin` field that is sent and the origin shown on the run page; the real-stack spec uploads an MNI mask with a declared external tool, runs the QC-and-report preset, and asserts the run page, `report.json` (`declared_origins`) and the 1.2 run provenance.
+
 The read-only viewer (card F0-32) has its own specs. `mocked/viewer.spec.ts` serves small synthetic NIfTI volumes generated in memory (`mocked/nifti.ts`) and checks, in real Chromium with WebGL, that the viewer opens from the run page, that artefacts are fetched with the token in the header and never in a URL, that no request leaves the application origin (offline requirement), that opacity, visibility and threshold change the drawn picture, and the no-background message. The real-stack MNI-mask spec ends by opening the viewer on the finished run.
 
 ## Running the mocked specs locally

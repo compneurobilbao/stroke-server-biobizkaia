@@ -311,6 +311,18 @@
       "locked": "The case has been created; these values can no longer be changed here.",
       "filesHint": "Select the files for this mode (.nii.gz only).",
       "uploaded": "Uploaded",
+      "origin": {
+        "legend": "How was this mask made? (optional)",
+        "kind": "Origin of the mask",
+        "none": "Not declared",
+        "manual": "Drawn by hand",
+        "externalTool": "Created with an external tool",
+        "tool": "Tool name",
+        "version": "Tool version",
+        "needBoth": "Enter the tool name and its version.",
+        "invalid": "Use only letters, digits and . _ + - (up to 64 characters). Do not enter names or identifiers.",
+        "hint": "This is shown on the run page and in the report as declared by the user. The platform cannot verify it. Enter only a tool name and version, never names or identifiers."
+      },
       "stepsHint": "Each step of the chosen analysis uses the default implementation unless you pick another one.",
       "pipeline": "Pipeline",
       "noPipeline": "No loaded pipeline accepts this input mode.",

@@ -376,4 +376,66 @@ test.describe('case creation wizard (real stack)', () => {
     // No report was requested.
     await expect(page.getByText('No report yet.')).toBeVisible();
   });
+
+  test('lesion mask already in MNI: a declared external-tool origin reaches the run page and report.json', async ({
+    page,
+  }) => {
+    // Card F1-24. The origin is declared by the user and never verified: it travels from the
+    // wizard through input_files.origin and the 1.2 run provenance into the report step.
+    test.setTimeout(RUN_TIMEOUT_MS + 120_000);
+    const tool = 'example-segmenter';
+    const version = '2.1.0';
+    await openWizard(page);
+    await page.getByRole('radio', { name: /Lesion mask already in MNI/ }).check();
+    await page.getByRole('button', { name: 'Next' }).click();
+    await page.getByLabel('Lesion mask in MNI space (.nii.gz)').setInputFiles(MNI_MASK);
+    await expect(page.getByText(/shown on the run page and in the report as declared by the user/)).toBeVisible();
+    await page.getByLabel('Origin of the mask').selectOption('external-tool');
+    await page.getByLabel('Tool name').fill(tool);
+    await page.getByLabel('Tool version').fill(version);
+    await page.getByRole('button', { name: 'Next' }).click();
+    // The QC-and-report preset keeps the run short; the report step still gets the 1.2 record.
+    await page.getByRole('radio', { name: /Lesion QC and report/ }).check();
+    await chooseAnalysis(page);
+    await startRun(page);
+
+    await waitForRunSuccess(page);
+    const origin = page.getByTestId('origin-lesion_mni');
+    await expect(origin).toContainText('Declared by the user');
+    await expect(origin).toContainText(`external tool ${tool} ${version}`);
+
+    // report.json is the canonical content of the report: it lists the declared origin.
+    const token = await page.evaluate(() => window.localStorage.getItem('neuroimagen_access_token'));
+    const runId = /\/runs\/([0-9a-f-]{36})$/.exec(page.url())?.[1];
+    expect(runId).toBeTruthy();
+    const headers = { Authorization: `Bearer ${token}` };
+    const artifacts = (await (await page.request.get(`/api/v1/runs/${runId}/artifacts`, { headers })).json()) as Array<{
+      id: string;
+      port: string;
+    }>;
+    const reportJson = artifacts.find((a) => a.port === 'report_json');
+    expect(reportJson, 'the report step produced report_json').toBeDefined();
+    const download = await page.request.get(`/api/v1/runs/${runId}/artifacts/${reportJson?.id}/download`, { headers });
+    expect(download.ok()).toBe(true);
+    const report = (await download.json()) as {
+      declared_origins?: Array<{ name: string; origin: { kind: string; tool?: string; version?: string } }>;
+      notes?: string[];
+    };
+    expect(report.declared_origins).toEqual([
+      expect.objectContaining({ name: 'lesion_mni', origin: { kind: 'external-tool', tool, version } }),
+    ]);
+    expect(report.notes).toContain('input_origin_declared_by_user');
+
+    // The run provenance (contract 1.2) carries the same declaration.
+    const provenance = (await (await page.request.get(`/api/v1/runs/${runId}/provenance`, { headers })).json()) as {
+      contract_version: string;
+      inputs: Array<{ name: string; origin?: unknown }>;
+    };
+    expect(provenance.contract_version).toBe('1.2');
+    expect(provenance.inputs.find((i) => i.name === 'lesion_mni')?.origin).toEqual({
+      kind: 'external-tool',
+      tool,
+      version,
+    });
+  });
 });

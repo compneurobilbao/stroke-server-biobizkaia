@@ -134,10 +134,14 @@ class V1Env:
         assert r.status_code == 201, r.text
         return r.json()["id"]
 
-    def upload(self, case_id, role, headers=None, data=None, name="x.nii.gz"):
+    def upload(
+        self, case_id, role, headers=None, data=None, name="x.nii.gz", origin=None
+    ):
+        form = {} if origin is None else {"origin": origin}
         return self.client.put(
             f"/api/v1/cases/{case_id}/inputs/{role}",
             files={"file": (name, data or nifti_gz(role.encode()), "application/gzip")},
+            data=form,
             headers=headers or self.alice,
         )
 

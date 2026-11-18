@@ -311,6 +311,18 @@
       "locked": "El caso ya se ha creado; estos valores no se pueden cambiar aquí.",
       "filesHint": "Seleccione los archivos de este modo (solo .nii.gz).",
       "uploaded": "Subido",
+      "origin": {
+        "legend": "¿Cómo se obtuvo esta máscara? (opcional)",
+        "kind": "Origen de la máscara",
+        "none": "No declarado",
+        "manual": "Dibujada a mano",
+        "externalTool": "Creada con una herramienta externa",
+        "tool": "Nombre de la herramienta",
+        "version": "Versión de la herramienta",
+        "needBoth": "Indica el nombre de la herramienta y su versión.",
+        "invalid": "Usa solo letras, dígitos y . _ + - (hasta 64 caracteres). No escribas nombres ni identificadores.",
+        "hint": "Se muestra en la página de la ejecución y en el informe como declarado por el usuario. La plataforma no puede verificarlo. Indica solo el nombre y la versión de la herramienta, nunca nombres ni identificadores."
+      },
       "stepsHint": "Cada paso del análisis elegido usa la implementación predeterminada salvo que elija otra.",
       "pipeline": "Pipeline",
       "noPipeline": "Ningún pipeline cargado acepta este modo de entrada.",

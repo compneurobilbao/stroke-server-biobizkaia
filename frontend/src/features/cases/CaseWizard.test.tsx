@@ -162,4 +162,88 @@ describe('case wizard', () => {
     expect(calls(all, 'POST', '/v1/cases')).toHaveLength(1);
     expect(all.filter((c) => c.method === 'PUT')).toHaveLength(1);
   });
+
+  describe('declared origin of a supplied mask', () => {
+    async function toFilesStep() {
+      await screen.findByRole('heading', { name: 'New case' });
+      await userEvent.click(screen.getByRole('radio', { name: /Lesion mask already in MNI/ }));
+      await next();
+    }
+    const maskLabel = 'Lesion mask in MNI space (.nii.gz)';
+
+    it('says that the origin is declared by the user and sends none by default', async () => {
+      const { calls: all } = mockApi({ run: makeRun({ input_set: 'mni-mask' }) });
+      renderWizard();
+      await toFilesStep();
+      expect(screen.getByText(/shown on the run page and in the report as declared by the user/i)).toBeInTheDocument();
+      expect(screen.getByLabelText('Origin of the mask')).toHaveValue('');
+      expect(screen.queryByLabelText('Tool name')).not.toBeInTheDocument();
+      await userEvent.upload(screen.getByLabelText(maskLabel), mask());
+      await next();
+      await acceptAnalysis();
+      await screen.findByRole('combobox', { name: 'Functional disconnection' });
+      await start();
+      await screen.findByRole('heading', { name: 'Run' });
+      const form = all.filter((c) => c.method === 'PUT')[0].body as FormData;
+      expect([...form.keys()]).toEqual(['file']);
+    });
+
+    it('sends a manual origin with the upload', async () => {
+      const { calls: all } = mockApi({ run: makeRun({ input_set: 'mni-mask' }) });
+      renderWizard();
+      await toFilesStep();
+      await userEvent.selectOptions(screen.getByLabelText('Origin of the mask'), 'manual');
+      expect(screen.queryByLabelText('Tool name')).not.toBeInTheDocument();
+      await userEvent.upload(screen.getByLabelText(maskLabel), mask());
+      await next();
+      await acceptAnalysis();
+      await screen.findByRole('combobox', { name: 'Functional disconnection' });
+      await start();
+      await screen.findByRole('heading', { name: 'Run' });
+      const form = all.filter((c) => c.method === 'PUT')[0].body as FormData;
+      expect([...form.keys()]).toEqual(['file', 'origin']);
+      expect(JSON.parse(form.get('origin') as string)).toEqual({ kind: 'manual' });
+    });
+
+    it('sends an external tool with name and version, and blocks Next until both are valid', async () => {
+      const { calls: all } = mockApi({ run: makeRun({ input_set: 'mni-mask' }) });
+      renderWizard();
+      await toFilesStep();
+      await userEvent.upload(screen.getByLabelText(maskLabel), mask());
+      expect(screen.getByRole('button', { name: 'Next' })).toBeEnabled();
+      await userEvent.selectOptions(screen.getByLabelText('Origin of the mask'), 'external-tool');
+      expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled();
+      expect(screen.getByText('Enter the tool name and its version.')).toBeInTheDocument();
+
+      await userEvent.type(screen.getByLabelText('Tool name'), 'drawn by someone');
+      await userEvent.type(screen.getByLabelText('Tool version'), '1.0');
+      expect(screen.getByRole('alert')).toHaveTextContent(/Use only letters, digits/);
+      expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled();
+
+      await userEvent.clear(screen.getByLabelText('Tool name'));
+      await userEvent.type(screen.getByLabelText('Tool name'), 'example-tool');
+      expect(screen.getByRole('button', { name: 'Next' })).toBeEnabled();
+      await next();
+      await acceptAnalysis();
+      await screen.findByRole('combobox', { name: 'Functional disconnection' });
+      await start();
+      await screen.findByRole('heading', { name: 'Run' });
+      const form = all.filter((c) => c.method === 'PUT')[0].body as FormData;
+      expect(JSON.parse(form.get('origin') as string)).toEqual({
+        kind: 'external-tool',
+        tool: 'example-tool',
+        version: '1.0',
+      });
+    });
+
+    it('offers it for the lesion mask of the CT mode and not for the CT scan', async () => {
+      mockApi();
+      renderWizard();
+      await screen.findByRole('heading', { name: 'New case' });
+      await next();
+      expect(screen.getAllByLabelText('Origin of the mask')).toHaveLength(1);
+      expect(screen.getByTestId('origin-field-lesion_native')).toBeInTheDocument();
+      expect(screen.queryByTestId('origin-field-ct')).not.toBeInTheDocument();
+    });
+  });
 });
