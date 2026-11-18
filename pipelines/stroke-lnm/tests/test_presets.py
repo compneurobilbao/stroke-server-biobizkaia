@@ -47,7 +47,7 @@ from orchestrator.planning import (  # noqa: E402
 
 PRESETS = ["full", "mni-mask-analysis", "ct-normalisation", "lesion-qc-report"]
 CT, MNI = "ct-and-native-mask", "mni-mask"
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 ALL_SLOTS = [
     "lesion-intake",
     "normalisation",
@@ -104,10 +104,10 @@ def test_registry_check_validates_the_presets(documents):
 
 
 def test_presets_are_attached_to_the_pipeline_version(presets):
-    """P1-P8 through the orchestrator's own loader: all four are offered for 0.3.0."""
+    """P1-P8 through the orchestrator's own loader: all four are offered for 0.4.0."""
     assert [p.id for p in presets.presets("stroke-lnm", VERSION)] == sorted(PRESETS)
     for preset in presets.presets("stroke-lnm", VERSION):
-        assert preset.version == "1.1.0"
+        assert preset.version == "1.2.0"
         assert preset.sha256 == hashlib.sha256((HERE / "presets" / f"{preset.id}.yaml").read_bytes()).hexdigest()
 
 

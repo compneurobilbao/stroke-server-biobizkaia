@@ -129,11 +129,11 @@ PARAMS = {"sex": "female", "age_band": "60-64", "control_count": 16}
 # --- manifest, bundle and reference data (no engine needed) ---------------------------------
 
 
-def test_manifest_is_valid_contract_1_1_real_step():
+def test_manifest_is_valid_contract_1_2_real_step():
     issues = contracts.validator().validate_files([MANIFEST])
     assert [i.message for i in issues if i.severity == "error"] == []
     doc = yaml.safe_load(MANIFEST.read_text(encoding="utf-8"))
-    assert doc["contract_version"] == "1.1"
+    assert doc["contract_version"] == "1.2"
     assert doc["provides"] == "functional-disconnection"
     assert doc.get("stub", False) is False
     assert doc["outputs"][0]["type"] == "fdisconnection_map"

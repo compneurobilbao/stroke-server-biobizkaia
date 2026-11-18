@@ -8,7 +8,7 @@
 contract_version: "1.0"
 kind: Pipeline
 id: stroke-lnm
-version: 0.3.0
+version: 0.4.0
 title: Lesion network mapping v0
 description: >-
   Lesion intake and QC, normalisation of CT lesions to MNI152 (skipped when an MNI mask is
@@ -19,6 +19,9 @@ description: >-
   Version 0.3.0: research-report 0.3.0 declares contract 1.2, so presets and custom plans that
   include the report run; the report states the plan, the external tools and the declared
   origins of supplied inputs.
+  Version 0.4.0: the functional-disconnection slot pins flnm-fast 1.1.0, which declares contract 1.2
+  and the `upstream` block of the external engine it wraps (first implementation with
+  `origin: external` in the registry).
 
 inputs:
   - name: ct
@@ -90,7 +93,7 @@ slots:
       default: flnm-fast
       allowed:
         - id: flnm-fast
-          step: {name: flnm-fast, version: 1.0.0}
+          step: {name: flnm-fast, version: 1.1.0}
           image: docker.io/compneurobilbaolab/step-flnm-fast@sha256:0000000000000000000000000000000000000000000000000000000000000000
           parameter_bindings:
             sex: case.sex

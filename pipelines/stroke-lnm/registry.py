@@ -4,7 +4,13 @@
     registry.py check [--dir DIR]
         pipeline.yaml and registry.yaml agree (slots, implementation ids, steps, images);
         profiles only enable existing, non-planned implementations; stubs are enabled only
-        in the ci profile; defaults are enabled. The presets in DIR/presets validate against
+        in the ci profile; defaults are enabled; no profile other than ci enables an
+        implementation below the validation level `reference-tested`.
+        An entry with `origin: external` (card F1-23, run-plans.md 4.2 to 4.4) must carry a
+        `licence_review`, a `validation` status and, in the step manifest, contract 1.2 with an
+        `upstream` block whose image is pinned by digest in the Dockerfile; `build: local`
+        goes with an image the licence forbids redistributing. The manifest is read from this
+        repository (sources of this repository) or from the fetched sources (`--external DIR`). The presets in DIR/presets validate against
         this pipeline version (contract rules P1 and P3-P8, contracts/validate.py), are named
         after their file, and `profiles.<p>.presets` enables only presets that exist (with the
         default among the enabled ones).
@@ -42,6 +48,7 @@ import shutil
 import subprocess
 import sys
 from collections.abc import Iterable
+from datetime import date
 from pathlib import Path
 
 import yaml
@@ -52,6 +59,204 @@ DIGEST_REF = re.compile(
     r"^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]+)?(/[a-z0-9]+([._-][a-z0-9]+)*)+@sha256:[a-f0-9]{64}$"
 )
 PLACEHOLDER = "@sha256:" + "0" * 64
+REPO_ROOT = HERE.parents[1]
+
+# Registry fields of card F1-23. The level rule is the same as backend/app/core/validation.py
+# (a test keeps them identical).
+VALIDATION_LEVELS = ("unvalidated", "reference-tested", "validated")
+ORIGINS = ("internal", "external")
+BUILDS = ("published", "local")
+REDISTRIBUTION = ("allowed", "forbidden")
+LICENCE_REVIEW_KEYS = ("code", "weights", "image_redistribution", "notes", "reviewed")
+# Lowest level a profile may enable (run-plans.md 4.4): only the ci profile takes unvalidated.
+PROFILE_MIN_VALIDATION = {"ci": "unvalidated"}
+DEFAULT_PROFILE_MIN_VALIDATION = "reference-tested"
+
+
+def validation_level(entry: dict) -> str:
+    """Validation level of a registry entry (run-plans.md 4.4): its `validation.status` when
+    declared; otherwise `validated` for a real step of the lab's own (reviewed through the
+    plan's protocol: `origin` absent or `internal`) and `unvalidated` for stubs, planned
+    entries and external entries without a status."""
+    declared = (entry.get("validation") or {}).get("status")
+    if declared in VALIDATION_LEVELS:
+        return declared
+    if entry.get("kind") == "real" and entry.get("origin", "internal") == "internal":
+        return "validated"
+    return "unvalidated"
+
+
+def level_rank(level: str) -> int:
+    return VALIDATION_LEVELS.index(level)
+
+
+def _version_tuple(text: str) -> tuple[int, ...]:
+    return tuple(int(x) for x in re.findall(r"\d+", str(text))[:3])
+
+
+def _from_images(dockerfile: str) -> list[str] | None:
+    """Base image references of the FROM lines (stage aliases and scratch excluded); None if
+    a reference is built from a variable and so cannot be checked."""
+    aliases: set[str] = set()
+    images: list[str] = []
+    for line in dockerfile.splitlines():
+        m = re.match(r"\s*FROM\s+(?:--\S+\s+)*(\S+)(?:\s+AS\s+(\S+))?\s*$", line, re.I)
+        if not m:
+            continue
+        ref, alias = m.group(1), m.group(2)
+        is_stage = ref.lower() in aliases
+        if alias:
+            aliases.add(alias.lower())
+        if ref.lower() == "scratch" or is_stage:
+            continue
+        if "$" in ref:
+            return None
+        images.append(ref)
+    return images
+
+
+def _manifest_path(entry: dict, root: Path, external: Path | None) -> Path | None:
+    source = entry["source"]
+    stem = Path(source["dockerfile"]).parent
+    if source.get("repository") == "this":
+        return root / stem / "step.yaml"
+    if external is None:
+        return None
+    return _external_dir(external, source["repository"]) / stem / "step.yaml"
+
+
+def external_errors(
+    name: str,
+    impl_id: str,
+    entry: dict,
+    *,
+    root: Path = REPO_ROOT,
+    external: Path | None = None,
+) -> list[str]:
+    """Rules of the F1-23 fields (run-plans.md 4.2 to 4.4): `origin`, `build`, `validation` and
+    `licence_review` of any entry, then, for `origin: external`, what the manifest and the
+    Dockerfile must show."""
+    where = f"slot {name}, {impl_id}"
+    errors: list[str] = []
+    origin = entry.get("origin", "internal")
+    external_origin = origin == "external"
+    if origin not in ORIGINS:
+        errors.append(f"{where}: unknown origin {origin!r}")
+    build = entry.get("build", "published")
+    if build not in BUILDS:
+        errors.append(f"{where}: unknown build {build!r}")
+    if build == "local" and not external_origin:
+        errors.append(f"{where}: build: local is for origin: external entries")
+    validation = entry.get("validation")
+    if validation is not None:
+        status = validation.get("status") if isinstance(validation, dict) else None
+        if status not in VALIDATION_LEVELS:
+            errors.append(f"{where}: validation.status must be one of {list(VALIDATION_LEVELS)}")
+        elif entry["kind"] == "stub" and status != "unvalidated":
+            errors.append(f"{where}: a stub is unvalidated")
+        elif status == "validated":
+            record = validation.get("record")
+            if not record or not (root / str(record)).is_file():
+                errors.append(
+                    f"{where}: a validated implementation needs validation.record, "
+                    "a file of the repository"
+                )
+    review = entry.get("licence_review")
+    if review is not None or external_origin:
+        if not isinstance(review, dict):
+            errors.append(f"{where}: an external implementation needs a licence_review")
+            review = {}
+        for key in LICENCE_REVIEW_KEYS:
+            if not str(review.get(key, "")).strip():
+                errors.append(f"{where}: licence_review.{key} is missing")
+        extra = set(review) - set(LICENCE_REVIEW_KEYS)
+        if extra:
+            errors.append(f"{where}: unknown licence_review keys {sorted(extra)}")
+        redistribution = review.get("image_redistribution")
+        if redistribution and redistribution not in REDISTRIBUTION:
+            errors.append(
+                f"{where}: licence_review.image_redistribution must be one of {list(REDISTRIBUTION)}"
+            )
+        reviewed = str(review.get("reviewed", "")).strip()
+        if reviewed:
+            try:
+                date.fromisoformat(reviewed)
+            except ValueError:
+                errors.append(f"{where}: licence_review.reviewed must be a YYYY-MM-DD date")
+        if redistribution == "forbidden" and build != "local":
+            errors.append(
+                f"{where}: the licence forbids publishing the image, so the entry must be build: local"
+            )
+        if build == "local" and redistribution != "forbidden":
+            errors.append(
+                f"{where}: build: local is only for licence_review.image_redistribution: forbidden"
+            )
+    if not external_origin:
+        return errors
+    if validation is None:
+        errors.append(f"{where}: an external implementation needs a validation status")
+    if entry["kind"] == "stub":
+        errors.append(f"{where}: a stub cannot be external")
+    if entry["kind"] != "real":
+        return errors  # planned: no manifest to read yet
+    path = _manifest_path(entry, root, external)
+    if path is None:
+        errors.append(
+            f"{where}: the manifest of {entry['source']['repository']} is not available; "
+            "pass --external with the fetched sources (registry.py fetch)"
+        )
+        return errors
+    if not path.is_file():
+        errors.append(f"{where}: manifest {path} not found")
+        return errors
+    try:
+        manifest = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        return errors + [f"{where}: manifest {path} does not parse: {exc}"]
+    if (manifest.get("name"), manifest.get("version")) != (
+        entry["step"]["name"],
+        entry["step"]["version"],
+    ):
+        errors.append(
+            f"{where}: the manifest declares {manifest.get('name')} {manifest.get('version')}, "
+            "not the registry's step"
+        )
+    if _version_tuple(manifest.get("contract_version", "0")) < (1, 2):
+        errors.append(f"{where}: an external step declares contract 1.2 or later (upstream block)")
+    upstream = manifest.get("upstream")
+    if not isinstance(upstream, dict):
+        errors.append(f"{where}: the manifest has no upstream block")
+        return errors
+    if not DIGEST_REF.match(str(upstream.get("image", ""))):
+        errors.append(f"{where}: upstream.image is not pinned by digest")
+    third = {t.get("name"): t.get("spdx") for t in manifest.get("licence", {}).get("third_party", [])}
+    if third.get(upstream.get("name")) != upstream.get("licence"):
+        errors.append(
+            f"{where}: the upstream tool is not listed in licence.third_party with the same licence"
+        )
+    if str(review.get("code", "")).strip() and review["code"] != upstream.get("licence"):
+        errors.append(f"{where}: licence_review.code differs from upstream.licence")
+    if level_rank(validation_level(entry)) >= 1 and "reference_test" not in manifest:
+        errors.append(f"{where}: reference-tested and validated need a reference_test in the manifest")
+    dockerfile = path.parent / Path(entry["source"]["dockerfile"]).name
+    if not dockerfile.is_file():
+        errors.append(f"{where}: {dockerfile} not found")
+        return errors
+    images = _from_images(dockerfile.read_text(encoding="utf-8"))
+    if images is None:
+        errors.append(
+            f"{where}: a FROM line of the Dockerfile uses a variable; the upstream digest cannot be checked"
+        )
+        return errors
+    unpinned = [i for i in images if not re.search(r"@sha256:[a-f0-9]{64}$", i)]
+    if unpinned or not images:
+        errors.append(
+            f"{where}: every base image of the Dockerfile is pinned by digest (not {unpinned or 'none'})"
+        )
+    digest = str(upstream.get("image", "")).rsplit("@", 1)[-1]
+    if not any(i.endswith("@" + digest) for i in images):
+        errors.append(f"{where}: upstream.image digest is not the base image of the Dockerfile")
+    return errors
 
 
 def load(directory: Path = HERE) -> tuple[dict, dict]:
@@ -126,9 +331,14 @@ def check(
     pipeline: dict,
     registry: dict,
     presets: dict[str, tuple[dict, bytes]] | None = None,
+    *,
+    root: Path = REPO_ROOT,
+    external: Path | None = None,
 ) -> list[str]:
     """Problems of the two documents; with ``presets`` (``load_presets``) also those of
-    the presets and of the profiles' ``presets`` entries."""
+    the presets and of the profiles' ``presets`` entries. ``root`` is the repository (step
+    manifests and Dockerfiles of ``repository: this`` sources), ``external`` the directory
+    of the fetched external sources."""
     errors: list[str] = []
     ident = {"id": pipeline["id"], "version": pipeline["version"]}
     if registry.get("pipeline") != ident:
@@ -138,6 +348,7 @@ def check(
     if set(slots) != set(reg_slots):
         errors.append(f"slots differ: {sorted(slots)} vs {sorted(reg_slots)}")
     kinds: dict[tuple[str, str], str] = {}
+    levels: dict[tuple[str, str], str] = {}
     for name, slot in slots.items():
         reg = reg_slots.get(name, {})
         allowed = {a["id"]: a for a in slot["implementations"]["allowed"]}
@@ -145,6 +356,8 @@ def check(
             errors.append(f"slot {name}: implementation ids differ ({sorted(allowed)} vs {sorted(reg)})")
         for impl_id, entry in reg.items():
             kinds[(name, impl_id)] = entry["kind"]
+            levels[(name, impl_id)] = validation_level(entry)
+            errors += external_errors(name, impl_id, entry, root=root, external=external)
             if impl_id in allowed:
                 for field in ("step", "image"):
                     if allowed[impl_id][field] != entry[field]:
@@ -165,6 +378,12 @@ def check(
                     errors.append(f"profile {pname}: planned implementation {name}/{impl_id} is enabled")
                 elif kind == "stub" and pname != "ci":
                     errors.append(f"profile {pname}: stub {name}/{impl_id} is enabled outside ci")
+                minimum = PROFILE_MIN_VALIDATION.get(pname, DEFAULT_PROFILE_MIN_VALIDATION)
+                if kind is not None and level_rank(levels[(name, impl_id)]) < level_rank(minimum):
+                    errors.append(
+                        f"profile {pname}: {name}/{impl_id} is {levels[(name, impl_id)]}, "
+                        f"below the minimum {minimum} (implementation_not_validated)"
+                    )
         for name, impl_id in profile["default"].items():
             if impl_id not in profile["enabled"].get(name, []):
                 errors.append(f"profile {pname}: default {name}/{impl_id} is not enabled")
@@ -225,9 +444,6 @@ def materialize(pipeline: dict, registry: dict, digests: dict[str, str]) -> tupl
         for allowed in slot["implementations"]["allowed"]:
             allowed["image"] = reg[allowed["id"]]["image"]
     return pipeline, registry
-
-
-REPO_ROOT = HERE.parents[1]
 
 
 def sources(registry: dict) -> dict[str, dict]:
@@ -296,6 +512,12 @@ def main(argv: list[str] | None = None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     for name in ("check", "materialize", "fetch", "build"):
         sub.add_parser(name).add_argument("--dir", type=Path, default=HERE)
+    sub.choices["check"].add_argument(
+        "--external",
+        type=Path,
+        default=None,
+        help="fetched external sources (registry.py fetch), to read the manifests of external-origin steps",
+    )
     sub.choices["fetch"].add_argument("--dest", type=Path, required=True)
     b = sub.choices["build"]
     b.add_argument("--external", type=Path, required=True)
@@ -306,7 +528,9 @@ def main(argv: list[str] | None = None) -> int:
     sub.choices["materialize"].add_argument("--out", type=Path, required=True)
     args = ap.parse_args(argv)
     pipeline, registry = load(args.dir)
-    errors = check(pipeline, registry, load_presets(args.dir))
+    errors = check(
+        pipeline, registry, load_presets(args.dir), external=getattr(args, "external", None)
+    )
     if errors:
         print("\n".join(f"ERROR {e}" for e in errors), file=sys.stderr)
         return 1
