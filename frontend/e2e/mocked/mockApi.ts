@@ -381,10 +381,7 @@ export async function installMockApi(page: Page, options: MockOptions = {}): Pro
     }
     const input = /^\/v1\/cases\/c1\/inputs\/([a-z_]+)$/.exec(path);
     if (method === 'PUT' && input) {
-      const sent = /name="origin"?
-?
-([^
-]*)/.exec(request.postData() ?? '');
+      const sent = /name="origin"\r?\n\r?\n([^\r\n]*)/.exec(request.postData() ?? '');
       const origin = sent ? (JSON.parse(sent[1]) as unknown) : null;
       declared[input[1]] = origin;
       return json(route, { id: `in-${input[1]}`, role: input[1], artefact_type: 'x', created_at: NOW, origin }, 201);
