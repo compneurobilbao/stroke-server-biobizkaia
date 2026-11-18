@@ -1,7 +1,7 @@
-contract_version: "1.1"
+contract_version: "1.2"
 kind: Step
 name: flnm-fast
-version: 1.0.0
+version: 1.1.0
 title: Functional lesion network mapping (flnm-fast)
 description: >-
   Functional lesion network z-map of one lesion. The packaged engine (image
@@ -14,10 +14,23 @@ description: >-
   connectivity data is a reference bundle of type normative-fc (docs/reference-data.md).
   The case sex and age band come from the case metadata through parameter bindings; the step
   never receives exact ages or identifiers. Values are signed z scores of lesion-to-parcel
-  connectivity: positive where a parcel is positively coupled with the lesion site.
+  connectivity: positive where a parcel is positively coupled with the lesion site. Version
+  1.1.0 declares contract 1.2 and the `upstream` block (the wrapped engine image, pinned by
+  digest); the engine, its digest and the behaviour of the step are unchanged from 1.0.0,
+  including the known defect of the engine (lowest overlapped parcel dropped; see the
+  warning and the single-parcel rejection below).
 provides: functional-disconnection
 image:
   repository: docker.io/compneurobilbaolab/step-flnm-fast
+upstream:
+  name: flnm-fast (lesion_zmaps engine)
+  version: "1.0"
+  homepage: https://hub.docker.com/r/compneurobilbaolab/flnm-fast
+  image: docker.io/compneurobilbaolab/flnm-fast@sha256:7370e5d9ee5c67fe7e7cf1bf6ae94d4579ee0fcf07cbf99bd3e5a39af2fd8173
+  licence: MIT
+  citation: >-
+    flnm-fast lesion_zmaps engine 1.0 (Docker image compneurobilbaolab/flnm-fast; no
+    publication; cite the image and its digest)
 licence:
   spdx: MIT
   third_party:

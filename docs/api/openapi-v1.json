@@ -480,8 +480,18 @@
       },
       "ImplementationAdminRead": {
         "properties": {
+          "below_minimum": {
+            "default": false,
+            "title": "Below Minimum",
+            "type": "boolean"
+          },
           "enabled": {
             "title": "Enabled",
+            "type": "boolean"
+          },
+          "experimental": {
+            "default": false,
+            "title": "Experimental",
             "type": "boolean"
           },
           "image": {
@@ -535,6 +545,22 @@
               }
             ],
             "title": "Updated By User Id"
+          },
+          "validation_level": {
+            "anyOf": [
+              {
+                "enum": [
+                  "unvalidated",
+                  "reference-tested",
+                  "validated"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Validation Level"
           }
         },
         "required": [
@@ -2311,6 +2337,11 @@
             ],
             "title": "Effective Parameters"
           },
+          "experimental": {
+            "default": false,
+            "title": "Experimental",
+            "type": "boolean"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -2444,6 +2475,22 @@
               }
             ],
             "title": "Upstream"
+          },
+          "validation_level": {
+            "anyOf": [
+              {
+                "enum": [
+                  "unvalidated",
+                  "reference-tested",
+                  "validated"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Validation Level"
           }
         },
         "required": [
@@ -2464,6 +2511,11 @@
           },
           "enabled": {
             "title": "Enabled",
+            "type": "boolean"
+          },
+          "experimental": {
+            "default": false,
+            "title": "Experimental",
             "type": "boolean"
           },
           "id": {
@@ -2511,6 +2563,34 @@
               }
             ],
             "title": "Title"
+          },
+          "unavailable_reason": {
+            "anyOf": [
+              {
+                "const": "implementation_not_validated",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable Reason"
+          },
+          "validation_level": {
+            "anyOf": [
+              {
+                "enum": [
+                  "unvalidated",
+                  "reference-tested",
+                  "validated"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Validation Level"
           }
         },
         "required": [

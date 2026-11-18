@@ -261,6 +261,7 @@
     "slots": {
       "default": "predeterminado del despliegue",
       "stub": "simulado",
+      "experimental": "experimental",
       "optional": "Opcional",
       "notUsed": "No se usa en este modo",
       "unavailable": "No disponible",
@@ -404,6 +405,7 @@
       "planIfAvailable": "Si está disponible",
       "notRequested": "No forman parte de este plan ({{count}})",
       "externalTool": "Herramienta externa",
+      "experimental": "Experimental",
       "upstream": "Herramienta externa: {{tool}}",
       "inputOrigin": "Origen de {{role}}",
       "declaredByUser": "Declarado por el usuario (no verificado)",

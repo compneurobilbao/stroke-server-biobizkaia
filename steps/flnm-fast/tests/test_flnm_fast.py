@@ -129,15 +129,27 @@ PARAMS = {"sex": "female", "age_band": "60-64", "control_count": 16}
 # --- manifest, bundle and reference data (no engine needed) ---------------------------------
 
 
-def test_manifest_is_valid_contract_1_1_real_step():
+def test_manifest_is_valid_contract_1_2_real_step():
     issues = contracts.validator().validate_files([MANIFEST])
     assert [i.message for i in issues if i.severity == "error"] == []
     doc = yaml.safe_load(MANIFEST.read_text(encoding="utf-8"))
-    assert doc["contract_version"] == "1.1"
+    assert doc["contract_version"] == "1.2"
     assert doc["provides"] == "functional-disconnection"
     assert doc.get("stub", False) is False
     assert doc["outputs"][0]["type"] == "fdisconnection_map"
     assert doc["reference_test"]["generator"] == "tests/make_reference.py"
+
+
+def test_upstream_block_matches_the_dockerfile_and_the_third_party_list():
+    """F1-23 worked example: the block names the engine image pinned in the Dockerfile."""
+    doc = yaml.safe_load(MANIFEST.read_text(encoding="utf-8"))
+    up = doc["upstream"]
+    dockerfile = (MANIFEST.parent / "Dockerfile").read_text(encoding="utf-8")
+    base = next(x for x in dockerfile.splitlines() if x.startswith("FROM ")).split()[1]
+    assert up["image"] == f"docker.io/{base}"
+    assert up["licence"] == "MIT" and up["homepage"].startswith("https://")
+    third = {t["name"]: t["spdx"] for t in doc["licence"]["third_party"]}
+    assert third[up["name"]] == up["licence"]
 
 
 def test_output_type_is_the_one_of_the_stub():

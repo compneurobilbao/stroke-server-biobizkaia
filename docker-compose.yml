@@ -80,6 +80,7 @@ services:
       BUNDLE_ROOT: ${BUNDLE_ROOT:-/app/data/bundles}
       DEPLOYMENT_PROFILE: ${DEPLOYMENT_PROFILE:-research-public}
       RUN_PLAN_POLICY: ${RUN_PLAN_POLICY:-}
+      MIN_IMPLEMENTATION_VALIDATION: ${MIN_IMPLEMENTATION_VALIDATION:-}
       PLATFORM_VERSION: ${PLATFORM_VERSION:-0.0.0-dev}
     depends_on:
       postgres:

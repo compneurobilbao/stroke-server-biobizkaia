@@ -93,17 +93,30 @@ class Enablement:
     enabled: Mapping[str, frozenset[str]] = field(default_factory=dict)
     defaults: Mapping[str, frozenset[str]] = field(default_factory=dict)
     presets: frozenset[str] = frozenset()
+    # Implementation ids whose setting is enabled but whose validation level is below the
+    # deployment's minimum (card F1-23): never in ``enabled`` or ``defaults``; a user
+    # choice of one is refused with ``implementation_not_validated``.
+    not_validated: Mapping[str, frozenset[str]] = field(default_factory=dict)
 
     @classmethod
     def from_settings(
-        cls, implementations: Iterable[Any], presets: Iterable[Any] = ()
+        cls,
+        implementations: Iterable[Any],
+        presets: Iterable[Any] = (),
+        not_validated: Iterable[tuple[str, str]] = (),
     ) -> Enablement:
         """From rows with ``slot``, ``implementation_id``, ``enabled``, ``is_default``
-        and rows with ``preset_id``, ``enabled``."""
+        and rows with ``preset_id``, ``enabled``. ``not_validated`` are (slot,
+        implementation id) pairs below the deployment's minimum validation level: an
+        enabled row for one of them counts as not enabled."""
         enabled: dict[str, set[str]] = {}
         defaults: dict[str, set[str]] = {}
+        blocked_ids: dict[str, set[str]] = {}
+        below = set(not_validated)
         for row in implementations:
-            if row.enabled:
+            if row.enabled and (row.slot, row.implementation_id) in below:
+                blocked_ids.setdefault(row.slot, set()).add(row.implementation_id)
+            elif row.enabled:
                 enabled.setdefault(row.slot, set()).add(row.implementation_id)
                 if row.is_default:
                     defaults.setdefault(row.slot, set()).add(row.implementation_id)
@@ -111,6 +124,7 @@ class Enablement:
             {k: frozenset(v) for k, v in enabled.items()},
             {k: frozenset(v) for k, v in defaults.items()},
             frozenset(p.preset_id for p in presets if p.enabled),
+            {k: frozenset(v) for k, v in blocked_ids.items()},
         )
 
 
@@ -286,6 +300,13 @@ def choose_implementation(
             else None
         )
     if requested is not None:
+        if requested in enablement.not_validated.get(name, frozenset()):
+            return PlanReason(
+                "implementation_not_validated",
+                f"implementation '{requested}' of slot '{name}' is below the minimum validation "
+                "level of this deployment",
+                slot=name,
+            )
         if requested not in enabled:
             return PlanReason(
                 "implementation_not_enabled",

@@ -33,7 +33,11 @@ def _registry_tool():
 
 
 @pytest.fixture()
-def factory(tmp_path):
+def factory(tmp_path, monkeypatch):
+    # The profile of the registry's `deployment` enables flnm-fast (reference-tested): seed as
+    # the lab instance, whose default minimum is reference-tested (card F1-23).
+    monkeypatch.setenv("DEPLOYMENT_PROFILE", "on-premise")
+    monkeypatch.delenv("MIN_IMPLEMENTATION_VALIDATION", raising=False)
     engine = pgdb.new_engine(tmp_path, "seed.db")
     return sessionmaker(bind=engine, autocommit=False, autoflush=False)
 

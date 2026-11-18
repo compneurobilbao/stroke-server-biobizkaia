@@ -8,22 +8,55 @@
 # images; CI builds the steps and writes the local digests at run time
 # (`registry.py materialize`). Nothing here is ever pulled while a digest is a placeholder.
 registry_version: 1
-pipeline: {id: stroke-lnm, version: 0.3.0}
+pipeline: {id: stroke-lnm, version: 0.4.0}
 
 # kind: real     a merged step that runs on real data
 #       stub     synthetic output, only enabled in the ci profile (and demo deployments)
 #       planned  no merged code: defined by the pipeline, never mounted
+#
+# Optional fields (card F1-23, docs/design/run-plans.md 4.2 to 4.4; `registry.py check`):
+#   origin: internal|external   default internal. An external entry wraps a third-party tool:
+#                               its manifest declares contract 1.2 and the `upstream` block, its
+#                               Dockerfile pins the upstream image by digest, and the entry needs
+#                               licence_review and validation.
+#   licence_review: {status: reviewed|pending, code, weights, image_redistribution:
+#                    allowed|forbidden, notes, reviewed: <date>, reviewed_by}
+#                               `pending`: not yet confirmed (no `reviewed`, no `reviewed_by`);
+#                               `reviewed` needs both. `reviewed_by` is the responsible person,
+#                               not the wrapper author.
+#   validation: {status: unvalidated|reference-tested|validated, record: <repository file>,
+#                reviewed_by, notes}
+#                               Every real implementation needs an explicit status; nothing is
+#                               validated implicitly. `validated` needs a record (a document in
+#                               the repository, no data) and `reviewed_by`. Stubs and planned
+#                               entries are unvalidated.
+#   build: published|local      `local` (never pushed or built by CI, never a public-registry image): the licence forbids publishing an image containing the
+#                               tool; each deployment builds the wrapper itself and the image is
+#                               never pushed to the public registry (owner decision 7).
+# A deployment does not enable, and its runs do not use, an implementation below its minimum
+# validation level (MIN_IMPLEMENTATION_VALIDATION, docs/configuration.md); the `deployment`
+# profile here enables nothing below reference-tested. No step is `validated` until a validation
+# record is signed off by the responsible scientist, so the public profiles (minimum validated)
+# enable nothing yet and the lab instance runs as DEPLOYMENT_PROFILE=on-premise.
 implementations:
   lesion-intake:
     lesion-qc:
       step: {name: lesion-qc, version: 1.0.0}
       kind: real
+      validation:
+        status: reference-tested
+        notes: >-
+          The step's reference test runs in CI on synthetic or public data. No signed validation record exists, so it is not validated.
       image: docker.io/compneurobilbaolab/step-lesion-qc@sha256:0000000000000000000000000000000000000000000000000000000000000000
       source: {repository: this, dockerfile: steps/lesion-qc/Dockerfile}
   normalisation:
     ct-lesion-to-mni152:
       step: {name: ct-lesion-to-mni152, version: 1.0.0}
       kind: real
+      validation:
+        status: reference-tested
+        notes: >-
+          The step's reference test runs in CI on synthetic or public data. No signed validation record exists, so it is not validated. Known limitation: the step's regression floor on its reference case is Dice 0.40.
       image: docker.io/compneurobilbaolab/step-ct-lesion-to-mni152@sha256:0000000000000000000000000000000000000000000000000000000000000000
       source:
         repository: compneurobilbao/CTLesion2MNI152
@@ -31,8 +64,32 @@ implementations:
         dockerfile: step/Dockerfile
   functional-disconnection:
     flnm-fast:
-      step: {name: flnm-fast, version: 1.0.0}
+      step: {name: flnm-fast, version: 1.1.0}
       kind: real
+      origin: external
+      licence_review:
+        status: pending  # to be confirmed by the image author; then `reviewed` and `reviewed_by`
+        code: MIT
+        weights: >-
+          No model weights. The normative functional connectivity data is a reference bundle
+          (type normative-fc, docs/reference-data.md) whose cohort terms apply; real cohort
+          data is not redistributable and is installed locally, never in the image.
+        image_redistribution: allowed
+        notes: >-
+          Licence taken from the declaration of the wrapped engine image (MIT, recorded in
+          the step manifest); the image has no source repository to confirm it against, so the
+          image author should confirm it. Known engine defect, kept as it is (the engine is
+          not changed here): the lowest-numbered lesion-overlapped parcel is dropped from the
+          weighting. The wrapper records the warning lowest_overlapped_parcel_omitted in every
+          run and refuses single-parcel lesions (lesion_single_parcel) until the image author
+          decides how to fix the engine.
+      validation:
+        status: reference-tested
+        notes: >-
+          The reference test of the step (synthetic normative cohort, expected map computed
+          independently of the engine) passes in CI for this image. No agreement with reference
+          results on lab reference cases has been recorded, so it is not validated, and the
+          dropped-parcel defect above is a reason to keep it experimental.
       image: docker.io/compneurobilbaolab/step-flnm-fast@sha256:0000000000000000000000000000000000000000000000000000000000000000
       source:
         repository: this
@@ -47,6 +104,10 @@ implementations:
     lnm-tracts:
       step: {name: lnm-tracts, version: 1.0.0}
       kind: real
+      validation:
+        status: reference-tested
+        notes: >-
+          The step's reference test runs in CI on synthetic or public data. No signed validation record exists, so it is not validated.
       image: docker.io/compneurobilbaolab/step-lnm-tracts@sha256:0000000000000000000000000000000000000000000000000000000000000000
       source:
         repository: compneurobilbao/lnm
@@ -56,6 +117,10 @@ implementations:
     cognet-stroke:
       step: {name: cognet-stroke, version: 1.0.0}
       kind: real
+      validation:
+        status: reference-tested
+        notes: >-
+          The step's reference test runs in CI on synthetic or public data. No signed validation record exists, so it is not validated.
       image: docker.io/compneurobilbaolab/step-cognet-stroke@sha256:0000000000000000000000000000000000000000000000000000000000000000
       source:
         repository: compneurobilbao/COGNET-STROKE
@@ -65,11 +130,19 @@ implementations:
     research-report:
       step: {name: research-report, version: 0.3.0}
       kind: real
+      validation:
+        status: reference-tested
+        notes: >-
+          The step's reference test runs in CI on synthetic or public data. No signed validation record exists, so it is not validated.
       image: docker.io/compneurobilbaolab/step-research-report@sha256:0000000000000000000000000000000000000000000000000000000000000000
       source: {repository: this, dockerfile: steps/report/Dockerfile}
     research-report-es:
       step: {name: research-report, version: 0.3.0}
       kind: real
+      validation:
+        status: reference-tested
+        notes: >-
+          The step's reference test runs in CI on synthetic or public data. No signed validation record exists, so it is not validated.
       image: docker.io/compneurobilbaolab/step-research-report@sha256:0000000000000000000000000000000000000000000000000000000000000000
       source: {repository: this, dockerfile: steps/report/Dockerfile}
 

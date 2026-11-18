@@ -57,6 +57,7 @@ REFUSAL_UNPROCESSABLE = frozenset(
     {
         "unknown_slot",
         "implementation_not_enabled",
+        "implementation_not_validated",
         "input_type_mismatch",
         "no_matching_input_set",
         "input_not_in_case",

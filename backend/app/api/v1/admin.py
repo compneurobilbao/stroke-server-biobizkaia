@@ -12,9 +12,16 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from app.api.v1.deps import Orchestration, audit_event, authorize, get_orchestration
+from app.api.v1.deps import (
+    Orchestration,
+    audit_event,
+    authorize,
+    effective_min_validation,
+    get_orchestration,
+)
 from app.api.v1.errors import v1_error
 from app.api.v1.pipelines import version_key
+from app.core.validation import NOT_VALIDATED_CODE, below_minimum
 from app.db.session import get_db
 from app.models._common import utcnow
 from app.models.preset_setting import PresetSetting
@@ -47,7 +54,13 @@ def _allowed(orch: Orchestration):
     return out
 
 
-def _read(key, step, row: SlotImplementationSetting | None) -> ImplementationAdminRead:
+def _read(
+    key,
+    step,
+    row: SlotImplementationSetting | None,
+    level: str | None = None,
+    below_minimum_: bool = False,
+) -> ImplementationAdminRead:
     return ImplementationAdminRead(
         pipeline_id=key[0],
         slot=key[1],
@@ -57,6 +70,9 @@ def _read(key, step, row: SlotImplementationSetting | None) -> ImplementationAdm
         image=step[2],
         enabled=bool(row and row.enabled),
         is_default=bool(row and row.is_default),
+        validation_level=level,
+        experimental=level == "reference-tested",
+        below_minimum=below_minimum_,
         updated_at=row.updated_at if row else None,
         updated_by_user_id=row.updated_by_user_id if row else None,
     )
@@ -76,11 +92,16 @@ def list_implementations(
         (r.pipeline_id, r.slot, r.implementation_id): r
         for r in db.scalars(select(SlotImplementationSetting))
     }
-    return [
-        _read(key, step, rows.get(key))
-        for key, step in sorted(_allowed(orch).items())
-        if pipeline_id is None or key[0] == pipeline_id
-    ]
+    minimum = effective_min_validation()
+    out = []
+    for key, step in sorted(_allowed(orch).items()):
+        if pipeline_id is not None and key[0] != pipeline_id:
+            continue
+        level = orch.validation.level(*key)
+        out.append(
+            _read(key, step, rows.get(key), level, below_minimum(level, minimum))
+        )
+    return out
 
 
 @router.put(
@@ -108,6 +129,19 @@ def set_implementation(
             "implementation_not_found",
             "No loaded pipeline allows this implementation in this slot",
         )
+    if body.enabled:
+        # Owner decision 8: nothing below the deployment's minimum level is enabled.
+        # Disabling is never refused.
+        level = orch.validation.level(pipeline_id, slot, implementation_id)
+        minimum = effective_min_validation()
+        if below_minimum(level, minimum):
+            raise v1_error(
+                422,
+                NOT_VALIDATED_CODE,
+                f"This implementation is {level}; this deployment enables only "
+                f"implementations that are at least {minimum}",
+                slot,
+            )
     now = utcnow()
     if body.is_default:
         db.execute(
@@ -154,7 +188,8 @@ def set_implementation(
     )
     db.commit()
     db.refresh(row)
-    return _read(key, step, row)
+    level = orch.validation.level(*key)
+    return _read(key, step, row, level, below_minimum(level, effective_min_validation()))
 
 
 # ----------------------------------------------------------------------- presets

@@ -23,6 +23,7 @@ from app.api.v1.deps import (
     deployment_profile,
     effective_run_plan_policy,
     get_orchestration,
+    not_validated_implementations,
     require_free_mode,
 )
 from app.api.v1.errors import v1_error
@@ -228,7 +229,9 @@ def list_presets(
     preset are all listed, ascending."""
     authorize(current_user, "pipeline.list")
     pipeline = find_pipeline(orch, pipeline_id, version)
-    deployment = enablement(db, pipeline.id)
+    deployment = enablement(
+        db, pipeline.id, not_validated_implementations(orch, pipeline)
+    )
     defaults = {
         row.preset_id
         for row in db.scalars(
@@ -320,7 +323,11 @@ def preview_plan(
         presets=orch.presets,
     )
     evaluation = evaluate(
-        pipeline, input_set, request, enablement(db, pipeline.id), orch.steps
+        pipeline,
+        input_set,
+        request,
+        enablement(db, pipeline.id, not_validated_implementations(orch, pipeline)),
+        orch.steps,
     )
     return PlanPreviewRead(
         feasible=evaluation.feasible,

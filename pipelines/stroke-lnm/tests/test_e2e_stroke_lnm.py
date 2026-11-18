@@ -87,7 +87,7 @@ def test_committed_pipeline_is_valid_and_lists_every_slot():
     definition = load_pipeline(HERE / "pipeline.yaml")
     assert [s["name"] for s in definition.slots] == SLOTS
     assert definition.match_input_set(["lesion_mni"]) == "mni-mask"
-    assert definition.version == "0.3.0"
+    assert definition.version == "0.4.0"
 
 
 def test_report_does_not_need_tract_disconnection():
@@ -202,7 +202,7 @@ class Stack:
         self.orch = build_orchestrator(
             self.Session, self.store_root, settings=_Settings(), env=env
         )
-        self.pipeline = self.orch.pipelines.get("stroke-lnm", "0.3.0")
+        self.pipeline = self.orch.pipelines.get("stroke-lnm", "0.4.0")
         assert self.pipeline is not None
         # the presets of the materialized tree (registry.py materialize copies them unchanged)
         self.presets = DirectoryPresetRegistry(PIPELINES_DIR, self.orch.pipelines, self.orch.steps)
@@ -431,6 +431,10 @@ def test_run_with_the_real_functional_disconnection_step(stack, mni_case, tmp_pa
     slots = assert_complete_record(stack, record, fdisconnection="flnm-fast")
     chosen = slots["functional-disconnection"]["implementation"]
     assert (chosen["id"], chosen["chosen_by"], chosen["stub"]) == ("flnm-fast", "user", False)
+    # F1-23: the manifest's upstream block (contract 1.2) is copied into the slot record
+    assert chosen["upstream"]["name"] == "flnm-fast (lesion_zmaps engine)"
+    assert chosen["upstream"]["licence"] == "MIT"
+    assert chosen["upstream"]["image"].startswith("docker.io/compneurobilbaolab/flnm-fast@sha256:")
 
     import nibabel as nib
     import numpy as np
@@ -649,7 +653,7 @@ def _runs_of(stack, case_id) -> int:
 
 @needs_e2e
 def test_the_presets_are_attached_to_the_materialized_pipeline(stack):
-    attached = stack.presets.presets("stroke-lnm", "0.3.0")
+    attached = stack.presets.presets("stroke-lnm", "0.4.0")
     assert [p.id for p in attached] == sorted(PRESET_IDS)
     for preset in attached:
         raw = (Path(PIPELINES_DIR) / "stroke-lnm" / "presets" / f"{preset.id}.yaml").read_bytes()
@@ -676,7 +680,7 @@ def test_ct_normalisation_preset_runs_intake_and_normalisation_only(stack, tmp_p
         "mode": "preset",
         "preset": {
             "id": "ct-normalisation",
-            "version": "1.1.0",
+            "version": "1.2.0",
             "sha256": hashlib.sha256(preset_file.read_bytes()).hexdigest(),
         },
         "targets": {"required": ["lesion-intake.lesion_qc", "normalisation.lesion_mask_mni"]},
@@ -707,7 +711,7 @@ def test_ct_normalisation_preset_runs_intake_and_normalisation_only(stack, tmp_p
         assert (run.plan_mode, run.preset_id, run.preset_version) == (
             "preset",
             "ct-normalisation",
-            "1.1.0",
+            "1.2.0",
         )
         rows = {
             r.slot: r for r in db.scalars(select(RunSlot).where(RunSlot.pipeline_run_id == run_id))
@@ -761,7 +765,7 @@ def _finished_preset_run(stack, case_id, preset_id, tmp_path):
     preset_file = Path(PIPELINES_DIR) / "stroke-lnm" / "presets" / f"{preset_id}.yaml"
     sha256 = hashlib.sha256(preset_file.read_bytes()).hexdigest()
     assert record["contract_version"] == "1.2"
-    assert record["plan"]["preset"] == {"id": preset_id, "version": "1.1.0", "sha256": sha256}
+    assert record["plan"]["preset"] == {"id": preset_id, "version": "1.2.0", "sha256": sha256}
     # the report reads the run record as it is (it declares contract 1.2) and states the plan
     assert report["generator"] == {"step": "research-report", "version": "0.3.0"}
     assert report["report_version"] == "1.1"

@@ -19,6 +19,13 @@ describe('SlotSelector', () => {
     expect(screen.getByRole('option', { name: 'fdc-stub 1.0.0 (deployment default, stub)' })).toBeInTheDocument();
   });
 
+  it('labels a reference-tested implementation as experimental', () => {
+    const slots = makeSlots();
+    slots[2].implementations[1] = { ...slots[2].implementations[1], validation_level: 'reference-tested', experimental: true };
+    render(<SlotSelector slots={slots} roles={MNI} value={defaultChoices(slots)} onChange={() => {}} />);
+    expect(screen.getByRole('option', { name: 'Alternative connectome (experimental)' })).toBeInTheDocument();
+  });
+
   it('reports the implementation the user picks', async () => {
     const slots = makeSlots();
     const onChange = vi.fn();

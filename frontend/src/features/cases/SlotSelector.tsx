@@ -37,7 +37,11 @@ export function SlotSelector({ slots, roles, value, onChange, disabled, plan, fi
 
   function label(impl: SlotImplementation, isDefault: boolean): string {
     const base = impl.title || `${impl.step_name} ${impl.step_version}`;
-    const flags = [isDefault ? t('cases.slots.default') : '', impl.stub ? t('cases.slots.stub') : ''].filter(Boolean);
+    const flags = [
+      isDefault ? t('cases.slots.default') : '',
+      impl.stub ? t('cases.slots.stub') : '',
+      impl.experimental ? t('cases.slots.experimental') : '',
+    ].filter(Boolean);
     const text = flags.length ? `${base} (${flags.join(', ')})` : base;
     return isSelectable(impl) ? text : `${text} - ${t('cases.slots.unavailable')}`;
   }
