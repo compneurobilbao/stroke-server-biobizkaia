@@ -114,7 +114,7 @@ def test_presets_are_attached_to_the_pipeline_version(presets):
 def test_the_presets_are_written_for_the_current_pipeline_range():
     for name in PRESETS:
         data = yaml.safe_load((HERE / "presets" / f"{name}.yaml").read_text(encoding="utf-8"))
-        assert data["pipeline"] == {"id": "stroke-lnm", "versions": ">=0.2.0, <0.4.0"}
+        assert data["pipeline"] == {"id": "stroke-lnm", "versions": ">=0.2.0, <0.5.0"}
 
 
 def test_the_profiles_enable_every_preset_with_one_default(documents):
