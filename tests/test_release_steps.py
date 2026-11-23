@@ -132,12 +132,14 @@ class FakeDocker:
             if tag in self.remote:
                 return done(json.dumps({"digest": self.remote[tag]}))
             return done(err=f"{tag}: not found", rc=1)
-        if cmd[:4] == ["docker", "buildx", "imagetools", "create"]:
-            tag = cmd[cmd.index("--tag") + 1]
-            self.remote[tag] = self.built
+        if cmd[:2] == ["docker", "push"]:
+            self.remote[cmd[2]] = self.built
             return done()
         if cmd[:3] == ["docker", "image", "inspect"]:
-            return done(f"localhost:5000/release/x@{self.built}\n")
+            if "{{.Id}}" in cmd:
+                return done("sha256:" + "9" * 64 + "\n")
+            repository = cmd[3].rsplit(":", 1)[0]
+            return done(f"{repository}@{self.built}\n")
         if cmd[:2] == ["docker", "run"] and cmd[-1] == "/opt/step/step.yaml":
             image = cmd[-2]
             name, version = image.split("/")[-1].split(":")
@@ -145,12 +147,7 @@ class FakeDocker:
         return done()
 
     def pushed(self) -> list[str]:
-        return [
-            " ".join(c)
-            for c in self.calls
-            if c[:2] == ["docker", "push"]
-            or c[:4] == ["docker", "buildx", "imagetools", "create"]
-        ]
+        return [" ".join(c) for c in self.calls if c[:2] == ["docker", "push"]]
 
 
 def make_ctx(tmp_path, fake, dry_run=False):
@@ -159,7 +156,6 @@ def make_ctx(tmp_path, fake, dry_run=False):
         repo_root=REPO,
         external=external,
         work=tmp_path / "work",
-        local_registry="localhost:5000",
         dry_run=dry_run,
         namespace=NS,
         run=fake,
@@ -181,22 +177,19 @@ def test_publish_pushes_the_tag_and_records_the_digest(tmp_path, lesion_qc):
     # the reference test ran against the built image before anything went to the public registry
     cmds = [" ".join(c) for c in fake.calls]
     assert any(c.startswith("docker build") for c in cmds)
-    assert [c[0] for c in map(str.split, cmds)].count("docker") >= 4
+    # order: build, then the reference test (stub of the SDK runner), then the push
+    assert cmds.index(
+        next(c for c in cmds if c.startswith("docker build"))
+    ) < cmds.index(next(c for c in cmds if c.startswith("docker push")))
+    assert any(c.startswith("stroke-step-reftest") for c in cmds)
 
 
-def test_dry_run_never_pushes_publicly(tmp_path, lesion_qc):
+def test_dry_run_never_pushes(tmp_path, lesion_qc):
     fake = FakeDocker()
     entry = release.release_one(lesion_qc, make_ctx(tmp_path, fake, dry_run=True))
     assert entry["status"] == "dry-run" and "reference" not in entry
     assert not fake.remote
-    assert not any(
-        c[:4] == ["docker", "buildx", "imagetools", "create"] for c in fake.calls
-    )
-    assert all(
-        "compneurobilbaolab" not in " ".join(c)
-        for c in fake.calls
-        if c[:2] == ["docker", "push"]
-    )
+    assert not fake.pushed()
 
 
 def test_existing_tag_is_not_rebuilt_nor_overwritten(tmp_path, lesion_qc):
@@ -209,16 +202,16 @@ def test_existing_tag_is_not_rebuilt_nor_overwritten(tmp_path, lesion_qc):
     assert not any(c[:2] == ["docker", "build"] for c in fake.calls)
 
 
-def test_tag_that_appears_with_another_digest_is_refused(tmp_path, lesion_qc):
-    """Race: the tag does not exist at the start and exists with another digest at push time."""
+def test_tag_that_appears_during_the_build_is_refused(tmp_path, lesion_qc):
+    """Race: the tag does not exist at the start and exists when the push is about to happen."""
     tag = f"{NS}/step-lesion-qc:1.0.0"
     fake = FakeDocker(built=D["a"])
     ctx = make_ctx(tmp_path, fake)
     original = release.publish
 
-    def late(t, c, staged, digest):
+    def late(t, c, local):
         fake.remote[tag] = D["c"]
-        return original(t, c, staged, digest)
+        return original(t, c, local)
 
     release.publish, saved = late, release.publish
     try:
@@ -226,9 +219,8 @@ def test_tag_that_appears_with_another_digest_is_refused(tmp_path, lesion_qc):
             release.release_one(lesion_qc, ctx)
     finally:
         release.publish = saved
-    assert not any(
-        c[:4] == ["docker", "buildx", "imagetools", "create"] for c in fake.calls
-    )
+    assert not fake.pushed()
+    assert fake.remote[tag] == D["c"]
 
 
 def test_unknown_remote_state_stops_a_real_release(tmp_path, lesion_qc):
@@ -308,9 +300,9 @@ def test_run_release_collects_digests_and_stops_at_the_first_failure(
 
 def test_summary_marks_dry_runs():
     text = release.summary_markdown(
-        [{"step": "a@1", "status": "dry-run", "digest": D["a"]}], True
+        [{"step": "a@1", "status": "dry-run", "image_id": D["a"]}], True
     )
-    assert "DRY RUN" in text and "local only" in text
+    assert "DRY RUN" in text and "not pushed" in text
 
 
 # --------------------------------------------------------------------------- pin and published

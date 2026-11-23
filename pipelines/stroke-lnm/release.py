@@ -7,16 +7,16 @@
 
     release.py run --external DIR --work DIR --digests-out FILE --report-out FILE
                    [--steps all|NAME,NAME] [--dry-run] [--namespace docker.io/ORG]
-                   [--local-registry HOST:PORT] [--dest-override localhost:PORT/PATH]
+                   [--dest-override localhost:PORT/PATH]
         For each selected step: prepare its reference case, build the image from the pinned
         source (this repository, or the external repository fetched by ``registry.py fetch``
         into DIR), check the manifest inside the image, run the step's reference test
-        against that image, push it to a throwaway local registry, and (unless --dry-run)
-        copy it to ``<repository>:<step version>`` on the public registry with the manifest
-        digest unchanged. The tag is immutable: a tag that already exists is never
-        overwritten. Existing tag, same digest: nothing to do. Existing tag, different
-        digest: the release stops with an error. A step whose tag already exists before the
-        build is not rebuilt (its published digest is recorded, status ``already-published``).
+        against that image and (unless --dry-run) push that same image to
+        ``<repository>:<step version>`` on the public registry, reading the digest back from the
+        registry. The tag is immutable: a tag that already exists is never overwritten (it is
+        checked before the build and again right before the push; an existing tag is an
+        error at the second check). A step whose tag already exists before the build is not
+        rebuilt: its published digest is recorded, status ``already-published``.
 
         FILE (``--digests-out``) is the digests file of ``registry.py pin`` and
         ``registry.py materialize`` (``{"<name>@<version>": "<repository>@sha256:<digest>"}``);
@@ -129,7 +129,6 @@ class Context:
     repo_root: Path
     external: Path
     work: Path
-    local_registry: str
     dry_run: bool
     namespace: str
     revision: str = ""
@@ -368,44 +367,31 @@ def build_image(t: Target, ctx: Context, local: str) -> None:
     _stream(ctx, *cmd, str(context))
 
 
-def push_local(t: Target, ctx: Context, local: str) -> tuple[str, str]:
-    """Push to the throwaway registry; return (reference there, manifest digest)."""
-    staged = f"{ctx.local_registry}/release/{t.name}:{t.version}"
-    _run(ctx, "docker", "tag", local, staged)
-    _run(ctx, "docker", "push", staged)
-    ref = _run(
-        ctx,
-        "docker",
-        "image",
-        "inspect",
-        staged,
-        "--format",
-        "{{index .RepoDigests 0}}",
-    ).stdout.strip()
-    match = SHA.search(ref)
-    if not match:
-        raise ReleaseError(f"{t.key}: unexpected image reference {ref!r}")
-    return ref, match.group(0)
-
-
-def publish(t: Target, ctx: Context, staged_ref: str, digest: str) -> str:
-    """Copy the staged manifest to the public tag, never overwriting. Returns the status."""
+def publish(t: Target, ctx: Context, local: str) -> tuple[str, str]:
+    """Push the tested local image to the public tag, never overwriting an existing one.
+    Returns (status, manifest digest as read back from the registry)."""
     tag = t.tag_in(ctx)
     existing = remote_digest(ctx, tag)  # again: the tag may have appeared during the build
     if existing is not None:
-        if existing == digest:
-            return "unchanged"
         raise ReleaseError(
-            f"{t.key}: {tag} already exists with digest {existing}, this build is {digest}. "
-            "Tags are immutable: release a new step version instead."
+            f"{t.key}: {tag} already exists (digest {existing}) and this build was not "
+            "pushed. Tags are immutable: release a new step version instead."
         )
-    _run(ctx, "docker", "buildx", "imagetools", "create", "--tag", tag, staged_ref)
+    _run(ctx, "docker", "tag", local, tag)
+    _run(ctx, "docker", "push", tag)
+    repository = ctx.destination(t)
+    refs = _run(
+        ctx, "docker", "image", "inspect", tag, "--format", "{{range .RepoDigests}}{{println .}}{{end}}"
+    ).stdout.split()
+    mine = [r for r in refs if r.startswith(repository + "@")]
+    match = SHA.search(mine[0]) if mine else None
+    if not match:
+        raise ReleaseError(f"{t.key}: no digest of {repository} after the push ({refs})")
+    digest = match.group(0)
     after = remote_digest(ctx, tag)
     if after != digest:
-        raise ReleaseError(
-            f"{t.key}: {tag} has digest {after} after the push, expected {digest}"
-        )
-    return "published"
+        raise ReleaseError(f"{t.key}: {tag} has digest {after} after the push, the push reported {digest}")
+    return "published", digest
 
 
 def release_one(t: Target, ctx: Context) -> dict:
@@ -436,13 +422,13 @@ def release_one(t: Target, ctx: Context) -> dict:
     build_image(t, ctx, local)
     check_image_manifest(t, ctx, local)
     entry["reference_test"] = reference_test(t, ctx, local, manifest)
-    staged_ref, digest = push_local(t, ctx, local)
-    entry["digest"] = digest
     if ctx.dry_run:
         entry["status"] = "dry-run"
+        entry["image_id"] = _run(ctx, "docker", "image", "inspect", local, "--format", "{{.Id}}").stdout.strip()
         entry["note"] = "built and tested, not pushed to the public registry"
         return entry
-    entry["status"] = publish(t, ctx, staged_ref, digest)
+    entry["status"], digest = publish(t, ctx, local)
+    entry["digest"] = digest
     entry["reference"] = f"{ctx.destination(t)}@{digest}"
     return entry
 
@@ -491,7 +477,7 @@ def summary_markdown(report: list[dict], dry_run: bool) -> str:
     ]
     for e in report:
         image = e.get("reference") or (
-            f"`{e['digest']}` (local only)" if e.get("digest") else ""
+            f"`{e['image_id']}` (local image id, not pushed)" if e.get("image_id") else ""
         )
         lines.append(
             f"| {e['step']} | {e['status']} | {e.get('reference_test', '')} | "
@@ -513,7 +499,6 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--namespace", default=DEFAULT_NAMESPACE)
     run.add_argument("--external", type=Path, required=True)
     run.add_argument("--work", type=Path, required=True)
-    run.add_argument("--local-registry", default="localhost:5000")
     run.add_argument("--dry-run", action="store_true")
     run.add_argument("--dest-override", default="", help="publish below this localhost registry (CI rehearsal)")
     run.add_argument("--digests-out", type=Path, required=True)
@@ -547,7 +532,6 @@ def main(argv: list[str] | None = None) -> int:
             repo_root=REPO_ROOT,
             external=args.external.resolve(),
             work=args.work.resolve(),
-            local_registry=args.local_registry,
             dry_run=args.dry_run,
             namespace=args.namespace,
             revision=os.environ.get("GITHUB_SHA", ""),

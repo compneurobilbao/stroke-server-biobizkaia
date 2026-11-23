@@ -8,14 +8,14 @@ name: Release step images
 #   * tag `steps-v*`     publishes every step (a tag on develop or main only).
 #   * pull_request       always a dry run: builds every step from its pinned source and runs its
 #                        reference test, and rehearses the publishing path (immutable tags,
-#                        digest-preserving copy) against a second throwaway registry. Nothing
+#                        digest read back from the registry) against a second throwaway registry. Nothing
 #                        reaches Docker Hub and no secret is used.
 #
 # What it does for each step (pipelines/stroke-lnm/release.py): builds from the pinned source
 # (this repository, or the external repository at the commit pinned in registry.yaml), checks the
-# manifest inside the image, runs the step's reference test against that image, stages the image
-# in a throwaway registry and only then copies it to Docker Hub with the digest unchanged. A tag
-# that already exists is never overwritten. `build: local` entries are never built or pushed.
+# manifest inside the image, runs the step's reference test against that image and only then
+# pushes that same image to Docker Hub and reads the digest back. A tag that already exists is
+# never overwritten. `build: local` entries are never built or pushed.
 # The digests go to the job summary and the artifact `step-digests`; they are written into the
 # repository by `registry.py pin` (docs/deployment.md, "Publishing step images").
 #
@@ -59,11 +59,6 @@ jobs:
     name: release-steps
     runs-on: ubuntu-24.04
     timeout-minutes: 150
-    services:
-      registry:
-        image: registry:2
-        ports:
-          - 5000:5000
     env:
       WORK: ${{ github.workspace }}/release-work
       STEPS: ${{ github.event_name == 'workflow_dispatch' && inputs.steps || 'all' }}
@@ -155,7 +150,7 @@ jobs:
           run 2
           grep -q '"status": "already-published"' "$WORK/rehearsal-report-2.json"
           cmp "$WORK/rehearsal-digests-1.json" "$WORK/rehearsal-digests-2.json"
-          # the copy kept the digest: the public tag resolves to the staged manifest
+          # the digest in the digests file is the one the registry serves for the tag
           ref=$(python -c "import json,sys; print(next(iter(json.load(open(sys.argv[1])).values())))" "$WORK/rehearsal-digests-1.json")
           docker buildx imagetools inspect "$ref" > /dev/null
           # an existing tag is never overwritten: publishing another digest under it is refused
@@ -164,13 +159,13 @@ jobs:
           spec = importlib.util.spec_from_file_location("release", "pipelines/stroke-lnm/release.py")
           release = importlib.util.module_from_spec(spec); sys.modules["release"] = release; spec.loader.exec_module(release)
           ctx = release.Context(repo_root=release.REPO_ROOT, external=release.REPO_ROOT, work=release.REPO_ROOT,
-                                local_registry="localhost:5000", dry_run=False,
+                                dry_run=False,
                                 namespace="docker.io/compneurobilbaolab", dest_override="localhost:5001/rehearsal")
           target = release.targets(release.registry.load(release.HERE)[1], ["lesion-qc"])[0]
           # the tag now holds another image than a build of this step would produce
           other = release.remote_digest(ctx, target.tag_in(ctx))
           try:
-              release.publish(target, ctx, "localhost:5000/other/step-lesion-qc@sha256:" + "0" * 64, "sha256:" + "0" * 64)
+              release.publish(target, ctx, "stroke-release/lesion-qc:1.0.0")
           except release.ReleaseError as exc:
               assert "immutable" in str(exc), exc
               print("refused to overwrite an existing tag:", exc)
