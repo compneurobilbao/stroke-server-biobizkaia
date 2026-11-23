@@ -6,13 +6,17 @@
 # The base is the public engine image, used unchanged and pinned by digest (it has no source
 # repository; the image is the deliverable). This file only adds the SDK, the contract
 # wrapper and the manifest on top, as small layers: the engine's own Python, numpy, nibabel,
-# pandas and scipy are not reinstalled or upgraded.
-FROM compneurobilbaolab/flnm-fast@sha256:7370e5d9ee5c67fe7e7cf1bf6ae94d4579ee0fcf07cbf99bd3e5a39af2fd8173
+# pandas and scipy are not reinstalled or upgraded. (The 2.x base also carries the uv binary
+# that its own entry point uses; this step does not use it.)
+FROM compneurobilbaolab/flnm-fast@sha256:eb3f88383d1594fa4ca8ec3c2b1c4207a13b8a46b391cf8c12d3cda196f40d9b
 
 # PYTHONDONTWRITEBYTECODE: the root file system is read-only at run time; bytecode is
 # pre-compiled below instead. STEP_CONTRACTS_DIR tells the SDK where the schemas are.
-# (PYTHONUNBUFFERED, PIP_NO_CACHE_DIR and PIP_DISABLE_PIP_VERSION_CHECK come from the base.)
+# (PYTHONUNBUFFERED comes from the base. The engine 2.x base installs its packages with uv and
+# no longer sets the pip variables, so they are set here for the pip commands below.)
 ENV PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PYTHONPATH=/opt/step/src \
     STEP_CONTRACTS_DIR=/opt/step/contracts
 

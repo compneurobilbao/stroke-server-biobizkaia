@@ -8,7 +8,7 @@
 # images; CI builds the steps and writes the local digests at run time
 # (`registry.py materialize`). Nothing here is ever pulled while a digest is a placeholder.
 registry_version: 1
-pipeline: {id: stroke-lnm, version: 0.4.0}
+pipeline: {id: stroke-lnm, version: 0.5.0}
 
 # kind: real     a merged step that runs on real data
 #       stub     synthetic output, only enabled in the ci profile (and demo deployments)
@@ -64,7 +64,7 @@ implementations:
         dockerfile: step/Dockerfile
   functional-disconnection:
     flnm-fast:
-      step: {name: flnm-fast, version: 1.1.0}
+      step: {name: flnm-fast, version: 2.0.0}
       kind: real
       origin: external
       licence_review:
@@ -77,19 +77,23 @@ implementations:
         image_redistribution: allowed
         notes: >-
           Licence taken from the declaration of the wrapped engine image (MIT, recorded in
-          the step manifest); the image has no source repository to confirm it against, so the
-          image author should confirm it. Known engine defect, kept as it is (the engine is
-          not changed here): the lowest-numbered lesion-overlapped parcel is dropped from the
-          weighting. The wrapper records the warning lowest_overlapped_parcel_omitted in every
-          run and refuses single-parcel lesions (lesion_single_parcel) until the image author
-          decides how to fix the engine.
+          the step manifest; the image label of 2.1.0 still says MIT, no licence file or
+          source repository is available to confirm it against), so the image author should
+          still confirm it. Engine updated from 1.0 to 2.1.0 (step 2.0.0). Engine 1.0 dropped the
+          lowest-numbered lesion-overlapped parcel from the weighting; engine 2.1.0 does not (checked
+          on the code and with a synthetic test), so the workaround of step 1.x (warning
+          lowest_overlapped_parcel_omitted, refusal lesion_single_parcel) was removed. Results of
+          step 2.0.0 therefore differ from those of 1.x for every lesion that overlaps more than
+          one parcel. Known property of 2.1.0, not changed: a target parcel with constant (not
+          missing) connectivity across the controls gets a very large finite z instead of NaN,
+          because of rounding in the engine's regression; parcels with missing values are NaN.
       validation:
         status: reference-tested
         notes: >-
           The reference test of the step (synthetic normative cohort, expected map computed
-          independently of the engine) passes in CI for this image. No agreement with reference
-          results on lab reference cases has been recorded, so it is not validated, and the
-          dropped-parcel defect above is a reason to keep it experimental.
+          independently of the engine) passes in CI for this image (engine 2.1.0). No agreement
+          with reference results on lab reference cases has been recorded, so it is not
+          validated, and the step is a new engine major version (2.x) with no field history.
       image: docker.io/compneurobilbaolab/step-flnm-fast@sha256:0000000000000000000000000000000000000000000000000000000000000000
       source:
         repository: this

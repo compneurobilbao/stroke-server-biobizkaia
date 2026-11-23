@@ -4,14 +4,14 @@
 contract_version: "1.2"
 kind: Preset
 id: ct-normalisation
-version: 1.2.0
+version: 1.3.0
 title: Normalisation of a CT lesion to MNI152
 description: >-
   Lesion intake and QC and registration of the CT and its lesion mask to MNI152, without
   further analysis.
 pipeline:
   id: stroke-lnm
-  versions: ">=0.2.0, <0.5.0"
+  versions: ">=0.2.0, <0.6.0"
 input_sets: [ct-and-native-mask]
 targets:
   required: [lesion-intake, normalisation]

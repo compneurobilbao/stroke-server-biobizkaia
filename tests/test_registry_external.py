@@ -65,16 +65,17 @@ def test_committed_registry_passes_and_flnm_fast_is_the_worked_example(docs, roo
     assert entry["origin"] == "external"
     assert entry["validation"]["status"] == "reference-tested"
     assert entry["licence_review"]["image_redistribution"] == "allowed"
-    assert entry["step"]["version"] == "1.1.0"
+    assert entry["step"]["version"] == "2.0.0"
     # the repository's own manifest is the one the check read
     manifest = yaml.safe_load((REPO / "steps/flnm-fast/step.yaml").read_text(encoding="utf-8"))
     assert manifest["contract_version"] == "1.2"
     assert manifest["upstream"]["licence"] == entry["licence_review"]["code"]
 
 
-def test_the_engine_defect_is_recorded_in_the_licence_notes(docs):
-    notes = docs[1]["implementations"][SLOT][IMPL]["licence_review"]["notes"]
-    assert "lowest" in notes and "lesion_single_parcel" in notes
+def test_the_engine_update_is_recorded_in_the_licence_notes(docs):
+    review = docs[1]["implementations"][SLOT][IMPL]["licence_review"]
+    assert "2.1.0" in review["notes"] and "lowest" in review["notes"]
+    assert review["status"] == "pending"  # still to be confirmed by the image author
 
 
 def test_external_entry_without_upstream_fails(docs, root):
@@ -203,8 +204,8 @@ def test_build_local_goes_with_a_licence_that_forbids_publishing(docs, root):
     allowed["image"] = entry["image"]
     assert registry_tool.check(pipeline, registry, root=root) == []
     # CI neither builds nor pushes it; materialize leaves it alone without a digest
-    assert "flnm-fast@1.1.0" not in registry_tool.sources(registry)
-    assert "flnm-fast@1.1.0" in registry_tool.sources(registry, local=True)
+    assert "flnm-fast@2.0.0" not in registry_tool.sources(registry)
+    assert "flnm-fast@2.0.0" in registry_tool.sources(registry, local=True)
     digests = {k: f"docker.io/x/{k.split('@')[0]}@sha256:" + "1" * 64 for k in registry_tool.sources(registry)}
     _p, out = registry_tool.materialize(pipeline, registry, digests)
     assert out["implementations"][SLOT][IMPL]["image"] == entry["image"]

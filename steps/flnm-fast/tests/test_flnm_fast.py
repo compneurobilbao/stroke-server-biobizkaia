@@ -65,6 +65,7 @@ def _find_engine() -> Path | None:
 
 
 ENGINE = _find_engine()
+ENGINE_VERSION = "2.1.0"  # the version of the pinned base image
 if os.environ.get("FLNM_FAST_REQUIRE_ENGINE"):
     assert ENGINE is not None, "FLNM_FAST_REQUIRE_ENGINE is set but the engine is not available"
 engine = pytest.mark.skipif(ENGINE is None, reason="needs the engine script, pandas and scipy")
@@ -148,6 +149,7 @@ def test_upstream_block_matches_the_dockerfile_and_the_third_party_list():
     base = next(x for x in dockerfile.splitlines() if x.startswith("FROM ")).split()[1]
     assert up["image"] == f"docker.io/{base}"
     assert up["licence"] == "MIT" and up["homepage"].startswith("https://")
+    assert up["version"] == ENGINE_VERSION
     third = {t["name"]: t["spdx"] for t in doc["licence"]["third_party"]}
     assert third[up["name"]] == up["licence"]
 
@@ -319,6 +321,7 @@ def fake_engine(tmp_path: Path, monkeypatch, body: str) -> None:
             for name in ("participants", "participant-id", "lesion-dir", "parcellation",
                          "normative-subjects", "fc", "out-dir", "control-count"):
                 ap.add_argument("--" + name)
+            ap.add_argument("--match-age-sex", action="store_true")
             a = ap.parse_args()
             out = Path(a.out_dir)
             out.mkdir(parents=True, exist_ok=True)
@@ -368,25 +371,6 @@ def test_no_overlap_failure_maps_to_outside_parcellation(reference, tmp_path, mo
     assert_contract_valid(out, "error.json")
 
 
-def test_empty_overlap_table_is_a_single_parcel_rejection(reference, tmp_path, monkeypatch):
-    """The engine succeeds with an all-NaN map when no parcel is left to weight."""
-    fake_engine(
-        tmp_path,
-        monkeypatch,
-        r"""
-(out / "case_zmap.nii.gz").write_bytes(b"x")
-(out / "case_overlap.csv").write_text("roi_label,roi_index,overlap_voxels,weight\n")
-(out / "case_controls.csv").write_text("subject_index,eid,age,sex\n")
-(out / "case_roi_z.csv").write_text("roi_label,roi_index,z\n1,0,nan\n")
-""",
-    )
-    result, out = execute(tmp_path, reference / "lesion_mask.nii.gz", reference / "bundle", PARAMS)
-    assert result == EXIT_REJECTED
-    assert error_code(out) == "lesion_single_parcel"
-    assert not (out / MAP).exists()
-    assert_contract_valid(out, "error.json")
-
-
 def test_unknown_engine_failure_is_internal_and_leaks_no_path(reference, tmp_path, monkeypatch):
     fake_engine(tmp_path, monkeypatch, FAIL.format(text="boom in /data/secret-dir/x.nii.gz"))
     result, out = execute(tmp_path, reference / "lesion_mask.nii.gz", reference / "bundle", PARAMS)
@@ -423,6 +407,7 @@ Path({str(seen)!r}).write_text(json.dumps({{
     "rows": rows, "lesion_exists": lesion.is_file(), "control_count": a.control_count,
     "fc": Path(a.fc).name, "subjects": Path(a.normative_subjects).name,
     "parcellation": Path(a.parcellation).name, "id": a.participant_id,
+    "match_age_sex": a.match_age_sex,
 }}))
 sys.exit(1)
 """,
@@ -431,6 +416,8 @@ sys.exit(1)
     info = json.loads(seen.read_text(encoding="utf-8"))
     assert info["rows"] == [["id", "age", "sex"], ["case", "62.0", "F"]]
     assert info["lesion_exists"] and info["control_count"] == "16" and info["id"] == "case"
+    # engine 2.x selects controls by sex and age only with this flag (else: every participant)
+    assert info["match_age_sex"] is True
     assert (info["fc"], info["subjects"]) == (
         "fc_row_subject_col.npy",
         "normative_subjects.csv",
@@ -453,7 +440,7 @@ def test_reference_run_equals_the_independent_zmap(reference, tmp_path, use_engi
     assert np.count_nonzero(actual[make_reference.parcellation(SHAPE) == 0]) == 0
     assert_contract_valid(out)
     prov = json.loads((out / "provenance.json").read_text(encoding="utf-8"))
-    assert [w["code"] for w in prov["warnings"]] == ["lowest_overlapped_parcel_omitted"]
+    assert prov.get("warnings", []) == []
     assert [b["id"] for b in prov["bundles"]] == ["synthetic-normative-fc"]
     assert {s["name"] for s in prov["software"]} >= {"flnm-fast engine", "numpy", "nibabel"}
     assert sorted(p.name for p in out.iterdir()) == [MAP, "provenance.json"]
@@ -505,7 +492,7 @@ def test_run_is_deterministic(reference, tmp_path, use_engine):
 @engine
 def test_undefined_parcel_is_reported_as_a_warning(reference, tmp_path, use_engine):
     bundle = tmp_path / "nan-bundle"
-    make_reference.write_bundle(bundle, SHAPE, AFFINE, constant_target=26)
+    make_reference.write_bundle(bundle, SHAPE, AFFINE, undefined_target=26)
     (tmp_path / "run").mkdir()
     result, out = execute(tmp_path / "run", reference / "lesion_mask.nii.gz", bundle, PARAMS)
     assert result == EXIT_OK
@@ -513,10 +500,7 @@ def test_undefined_parcel_is_reported_as_a_warning(reference, tmp_path, use_engi
     actual = zmap(out / MAP)
     assert np.isnan(actual[labels == 27]).all() and np.isfinite(actual[labels < 27]).all()
     prov = json.loads((out / "provenance.json").read_text(encoding="utf-8"))
-    assert [w["code"] for w in prov["warnings"]] == [
-        "lowest_overlapped_parcel_omitted",
-        "undefined_parcels",
-    ]
+    assert [w["code"] for w in prov["warnings"]] == ["undefined_parcels"]
     assert_contract_valid(out)
 
 
@@ -546,36 +530,69 @@ def test_lesion_outside_the_parcellation_is_rejected(reference, tmp_path, use_en
 
 
 @engine
-def test_lesion_in_a_single_parcel_is_rejected(reference, tmp_path, use_engine):
+def test_lesion_in_a_single_parcel_is_processed(reference, tmp_path, use_engine):
+    """Engine 1.0 dropped the only parcel and wrote an all-NaN map; 2.x weights it (weight 1)."""
     data = np.zeros(SHAPE, np.uint8)
     data[20, 20, 20] = 1  # one voxel of parcel 1
     single = tmp_path / "single.nii.gz"
     make_reference.write_nifti(single, data, AFFINE)
     (tmp_path / "run").mkdir()
     result, out = execute(tmp_path / "run", single, reference / "bundle", PARAMS)
-    assert result == EXIT_REJECTED
-    assert error_code(out) == "lesion_single_parcel"
-    assert_contract_valid(out, "error.json")
-
-
-@engine
-def test_engine_omits_the_lowest_overlapped_parcel(reference, tmp_path, use_engine):
-    """Pins the known issue (README.md): fails once the base image no longer does this."""
-    assert step_module.ENGINE_DROPS_LOWEST_OVERLAPPED_PARCEL
-    assert make_reference.ENGINE_DROPS_LOWEST_OVERLAPPED_PARCEL
-    result, out = execute(tmp_path, reference / "lesion_mask.nii.gz", reference / "bundle", PARAMS)
     assert result == EXIT_OK
-    faithful = make_reference.expected_zmap(
+    expected = make_reference.expected_zmap(
         make_reference.parcellation(SHAPE),
-        zmap(reference / "lesion_mask.nii.gz"),
+        data,
         make_reference.fc_array(),
         make_reference.subjects(),
         age=62.0,
         sex="F",
         count=16,
-        drop_lowest=False,
     )
-    assert not np.allclose(zmap(out / MAP), faithful, atol=1e-3)
+    actual = zmap(out / MAP)
+    assert np.isfinite(actual).all() and (actual != 0).any()
+    assert np.allclose(actual, expected, rtol=1e-5, atol=1e-5)
+    assert_contract_valid(out)
+
+
+@engine
+def test_lowest_overlapped_parcel_is_part_of_the_weighting(
+    reference, tmp_path, use_engine
+):
+    """Regression guard of the engine 1.0 defect (it dropped the lowest overlapped parcel)."""
+    labels = make_reference.parcellation(SHAPE)
+    mask = zmap(reference / "lesion_mask.nii.gz")
+    lowest = int(labels[mask > 0][labels[mask > 0] > 0].min())
+    rest = mask.copy()
+    rest[labels == lowest] = 0  # the same lesion without the lowest overlapped parcel
+    assert 0 < rest.sum() < mask.sum()
+    kwargs = dict(age=62.0, sex="F", count=16)
+    args = (labels, make_reference.fc_array(), make_reference.subjects())
+    with_lowest = make_reference.expected_zmap(
+        args[0], mask, args[1], args[2], **kwargs
+    )
+    without_lowest = make_reference.expected_zmap(
+        args[0], rest, args[1], args[2], **kwargs
+    )
+    assert not np.allclose(with_lowest, without_lowest, atol=1e-3)
+    result, out = execute(
+        tmp_path, reference / "lesion_mask.nii.gz", reference / "bundle", PARAMS
+    )
+    assert result == EXIT_OK
+    assert np.allclose(zmap(out / MAP), with_lowest, rtol=1e-5, atol=1e-5)
+    assert not np.allclose(zmap(out / MAP), without_lowest, atol=1e-3)
+
+
+@engine
+def test_engine_script_is_the_pinned_version():
+    import subprocess
+
+    proc = subprocess.run(
+        [sys.executable, str(ENGINE), "--version"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert proc.stdout.strip().endswith(ENGINE_VERSION)
 
 
 @engine

@@ -89,7 +89,7 @@ jobs:
           cmp "$WORK/step-manifests/lesion-qc-1.0.0/step.yaml" steps/lesion-qc/step.yaml
           cmp "$WORK/step-manifests/research-report-0.3.0/step.yaml" steps/report/step.yaml
           cmp "$WORK/step-manifests/fdisconnection-stub-0.1.0/step.yaml" steps/stubs/fdisconnection-stub/step.yaml
-          cmp "$WORK/step-manifests/flnm-fast-1.1.0/step.yaml" steps/flnm-fast/step.yaml
+          cmp "$WORK/step-manifests/flnm-fast-2.0.0/step.yaml" steps/flnm-fast/step.yaml
 
       - name: Reference data bundles (synthetic fixtures, the flnm-fast synthetic normative bundle and the COGNET-STROKE synthetic concept maps)
         run: |
