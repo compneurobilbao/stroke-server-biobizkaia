@@ -40,7 +40,9 @@ COPY steps/flnm-fast/bin/run /usr/local/bin/run
 
 # Empty mount points (Apptainer cannot always create bind targets), world-readable
 # files, world-executable entry point (and engine), pre-compiled bytecode.
+# The 2.x base leaves a uv lock file in /tmp from its own build: /tmp must be empty too.
 RUN mkdir -p /in /out /ref /tmp \
+    && find /tmp -mindepth 1 -delete \
     && chmod 0755 /in /out /ref /usr/local/bin/run \
     && chmod 1777 /tmp \
     && chmod -R a+rX /opt/step /opt/lesion_zmaps \
