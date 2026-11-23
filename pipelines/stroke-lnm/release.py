@@ -295,6 +295,10 @@ def prepare_reference(t: Target, ctx: Context, manifest: dict) -> None:
         if expanded[0] == "python":
             expanded[0] = sys.executable
         _stream(ctx, *expanded)
+    if generator:
+        # the SDK runs the generator again before the test; running it here makes the reference
+        # bundles exist when their directories are mounted
+        _stream(ctx, sys.executable, str(sdir / generator), cwd=sdir)
 
 
 def load_step_manifest(t: Target, ctx: Context) -> dict:

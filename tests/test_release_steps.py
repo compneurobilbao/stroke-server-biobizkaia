@@ -450,3 +450,16 @@ def test_dest_override_is_refused_for_other_hosts(tmp_path):
         "--dest-override", "registry.example.org/x", "--steps", "lesion-qc",
     ]  # fmt: skip
     assert release.main(args) == 1
+
+
+def test_a_manifest_generator_runs_before_the_bundles_are_mounted(tmp_path):
+    reg = registry_tool.load(HERE)[1]
+    target = release.targets(reg, ["flnm-fast"])[0]
+    fake = FakeDocker()
+    ctx = make_ctx(tmp_path, fake)
+    manifest = release.load_step_manifest(target, ctx)
+    release.prepare_reference(target, ctx, manifest)
+    scripts = [c for c in fake.calls if c[0] == sys.executable]
+    assert scripts and scripts[0][1].replace(chr(92), "/").endswith(
+        "tests/make_reference.py"
+    )
