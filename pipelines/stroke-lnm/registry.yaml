@@ -4,11 +4,17 @@
 # pipeline file does not carry: where each step comes from, whether it is real, a stub or
 # not available yet, and what a deployment or the CI mounts.
 #
-# Image digests are placeholders (64 zeros). A deployment fills them from the published
-# images; CI builds the steps and writes the local digests at run time
-# (`registry.py materialize`). Nothing here is ever pulled while a digest is a placeholder.
+# Image digests are placeholders (64 zeros) until the step images are published. The release
+# workflow (.github/workflows/release-steps.yml, `release.py`) builds, tests and pushes them to
+# docker.io/compneurobilbaolab/step-<name>:<step version>; `registry.py pin` then writes the
+# published digests here and into pipeline.yaml and sets `published: true`, after which
+# `registry.py check` requires real digests for everything the `deployment` profile enables
+# (build: local entries excepted). CI builds the steps into a throwaway registry and writes
+# those digests at run time (`registry.py materialize`) without touching this file. Nothing
+# here is ever pulled while a digest is a placeholder.
 registry_version: 1
 pipeline: {id: stroke-lnm, version: 0.5.0}
+published: false
 
 # kind: real     a merged step that runs on real data
 #       stub     synthetic output, only enabled in the ci profile (and demo deployments)
@@ -53,6 +59,19 @@ implementations:
     ct-lesion-to-mni152:
       step: {name: ct-lesion-to-mni152, version: 1.0.0}
       kind: real
+      licence_review:
+        status: reviewed
+        code: MIT
+        weights: No model weights; the image contains the registration templates of the step.
+        image_redistribution: allowed
+        notes: >-
+          The image contains FSL (flirt, fslmaths, cluster), whose licence is non-commercial for
+          the general public. The platform is non-commercial research software, and the project
+          owner accepts publishing this image on the public registry under that condition; anyone
+          who uses the image for commercial purposes needs their own FSL licence. The licence
+          text of the third-party components is listed in the step manifest (licence.third_party).
+        reviewed: "2026-11-23"
+        reviewed_by: project owner
       validation:
         status: reference-tested
         notes: >-

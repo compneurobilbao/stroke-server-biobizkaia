@@ -47,7 +47,8 @@ What stays your job: no network, no writes outside `/out` and `/tmp`, determinis
 
 - The build context is the repository root, because the image bundles `steps/sdk` and the `contracts/` schemas (found by the SDK through `STEP_CONTRACTS_DIR`).
 - The SIF for production is built from the registry image by digest (`apptainer build step.sif docker://<repo>@sha256:...`); `Apptainer.def` documents the local variant used in CI.
-- The CI image is not pushed anywhere; publishing and the registry belong to later cards.
+- The CI images are built into throwaway registries and never published. Releases go through `.github/workflows/release-steps.yml` (`pipelines/stroke-lnm/release.py`): each step of `registry.yaml` is built from its pinned source, its reference test runs against the image, and only then is it pushed to `docker.io/compneurobilbaolab/step-<name>:<step version>` (immutable tags, never `build: local` entries); `registry.py pin` writes the published digests into the registry and the pipeline. A new step enters the release through its registry entry and a line in `PREPARE` of `release.py` (how its reference case is generated), unless its manifest declares `reference_test.generator`. See `docs/deployment.md`, "Publishing step images".
+- Licence note for published images: the platform is non-commercial research software. The `ct-lesion-to-mni152` image (built from its own repository at the pinned commit) contains FSL, whose licence is non-commercial for the general public; the project owner accepts publishing it on that basis (`licence_review` of its registry entry). Its README and manifest are in that repository.
 
 ## Wrapping an external tool
 
