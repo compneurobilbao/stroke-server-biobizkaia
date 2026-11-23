@@ -45,11 +45,6 @@ N_ROI = 27
 
 LESION_CENTRE = (35, 45, 40)  # on a corner shared by 8 parcels
 LESION_RADIUS = 7.0
-# The packaged engine always leaves the lowest-numbered lesion-overlapped parcel out of the
-# lesion weighting (its overlap code drops the first element of the label list although the
-# background label is already excluded). The expected values reproduce that behaviour, so the
-# reference test pins the behaviour of the image digest; see README.md, "Known issue".
-ENGINE_DROPS_LOWEST_OVERLAPPED_PARCEL = True
 REFERENCE_CONTROLS = 16  # splits the group of females of age 62 (tie: subject index)
 
 MASK64 = (1 << 64) - 1
@@ -122,16 +117,20 @@ def parcellation(shape: tuple[int, ...]) -> np.ndarray:
     return labels
 
 
-def fc_array(constant_target: int | None = None) -> np.ndarray:
-    """FC[roi, subject, roi] float32; ``constant_target`` (0-based) gets zero variance."""
+def fc_array(undefined_target: int | None = None) -> np.ndarray:
+    """FC[roi, subject, roi] float32; ``undefined_target`` (0-based) is NaN for every subject.
+
+    (A constant target is not used: with rounding in the engine's regression its variance is not
+    exactly zero, so it would get a huge finite z instead of an undefined one.)
+    """
     roi = np.arange(N_ROI)[:, None, None]
     sub = np.arange(N_SUBJECTS)[None, :, None]
     tgt = np.arange(N_ROI)[None, None, :]
     noise = _unit(_hash(roi, sub, tgt, 4)) - 0.5  # [-0.5, 0.5)
     shift = (_unit(_hash(roi, tgt, 5)) - 0.5) * 0.3  # per roi-target pair, in [-0.15, 0.15)
     fc = (0.6 * noise + shift).astype(np.float32)
-    if constant_target is not None:
-        fc[:, :, constant_target] = np.float32(0.25)
+    if undefined_target is not None:
+        fc[:, :, undefined_target] = np.float32("nan")
     return fc
 
 
@@ -217,17 +216,11 @@ def expected_zmap(
     age: float,
     sex: str,
     count: int,
-    drop_lowest: bool = ENGINE_DROPS_LOWEST_OVERLAPPED_PARCEL,
 ) -> np.ndarray:
-    """Z-map by the definition of the method, one scalar at a time.
-
-    ``drop_lowest`` reproduces the engine's omission of the lowest overlapped parcel.
-    """
+    """Z-map by the definition of the method, one scalar at a time."""
     in_lesion = labels[mask > 0]
     counts = np.bincount(in_lesion[in_lesion > 0], minlength=N_ROI + 1)
     overlapped = [r for r in range(1, N_ROI + 1) if counts[r]]
-    if drop_lowest:
-        overlapped = overlapped[1:]
     total = sum(int(counts[r]) for r in overlapped)
     weights = {r: int(counts[r]) / total for r in overlapped}
     controls = select_controls(rows, age, sex, count)
@@ -266,12 +259,12 @@ def _sha256(path: Path) -> str:
 
 
 def write_bundle(
-    root: Path, shape: tuple[int, ...], affine: np.ndarray, constant_target: int | None = None
+    root: Path, shape: tuple[int, ...], affine: np.ndarray, undefined_target: int | None = None
 ) -> list[dict]:
     """Write the synthetic bundle into ``root``; returns the participant rows."""
     rows = subjects()
     root.mkdir(parents=True, exist_ok=True)
-    np.save(root / FC_FILE, fc_array(constant_target))
+    np.save(root / FC_FILE, fc_array(undefined_target))
     (root / SUBJECTS_FILE).write_bytes(subjects_csv(rows).encode("utf-8"))
     write_nifti(root / PARCELLATION_FILE, parcellation(shape), affine)
     files = [

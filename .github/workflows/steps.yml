@@ -345,7 +345,7 @@ jobs:
     env:
       IMAGE: flnm-fast-step:ci
       # The engine image this step wraps (same digest as steps/flnm-fast/Dockerfile)
-      BASE_IMAGE: compneurobilbaolab/flnm-fast@sha256:7370e5d9ee5c67fe7e7cf1bf6ae94d4579ee0fcf07cbf99bd3e5a39af2fd8173
+      BASE_IMAGE: compneurobilbaolab/flnm-fast@sha256:eb3f88383d1594fa4ca8ec3c2b1c4207a13b8a46b391cf8c12d3cda196f40d9b
       ENGINE: /opt/lesion_zmaps/create_lesion_zmaps.py
     steps:
       - uses: actions/checkout@v4.2.2

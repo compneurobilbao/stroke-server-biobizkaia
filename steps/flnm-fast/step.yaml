@@ -1,11 +1,11 @@
 contract_version: "1.2"
 kind: Step
 name: flnm-fast
-version: 1.1.0
+version: 2.0.0
 title: Functional lesion network mapping (flnm-fast)
 description: >-
   Functional lesion network z-map of one lesion. The packaged engine (image
-  compneurobilbaolab/flnm-fast, unchanged) weights the parcels of the normative
+  compneurobilbaolab/flnm-fast 2.1.0, unchanged) weights the parcels of the normative
   parcellation by their overlap with the lesion mask, selects the normative participants of
   the same sex with the nearest age, computes the lesion-weighted functional connectivity
   profile of each of them, tests every target parcel against zero across those participants
@@ -15,31 +15,31 @@ description: >-
   The case sex and age band come from the case metadata through parameter bindings; the step
   never receives exact ages or identifiers. Values are signed z scores of lesion-to-parcel
   connectivity: positive where a parcel is positively coupled with the lesion site. Version
-  1.1.0 declares contract 1.2 and the `upstream` block (the wrapped engine image, pinned by
-  digest); the engine, its digest and the behaviour of the step are unchanged from 1.0.0,
-  including the known defect of the engine (lowest overlapped parcel dropped; see the
-  warning and the single-parcel rejection below).
+  2.0.0 wraps engine 2.1.0, which weights every lesion-overlapped parcel (engine 1.0 left
+  the lowest-numbered one out, so the z-map of the same case and cohort differs from 1.x, and a
+  lesion within one parcel, rejected as `lesion_single_parcel` by 1.x, is now processed). The
+  inputs, outputs, parameters and bundle layout are those of 1.x.
 provides: functional-disconnection
 image:
   repository: docker.io/compneurobilbaolab/step-flnm-fast
 upstream:
   name: flnm-fast (lesion_zmaps engine)
-  version: "1.0"
+  version: "2.1.0"
   homepage: https://hub.docker.com/r/compneurobilbaolab/flnm-fast
-  image: docker.io/compneurobilbaolab/flnm-fast@sha256:7370e5d9ee5c67fe7e7cf1bf6ae94d4579ee0fcf07cbf99bd3e5a39af2fd8173
+  image: docker.io/compneurobilbaolab/flnm-fast@sha256:eb3f88383d1594fa4ca8ec3c2b1c4207a13b8a46b391cf8c12d3cda196f40d9b
   licence: MIT
   citation: >-
-    flnm-fast lesion_zmaps engine 1.0 (Docker image compneurobilbaolab/flnm-fast; no
+    flnm-fast lesion_zmaps engine 2.1.0 (Docker image compneurobilbaolab/flnm-fast; no
     publication; cite the image and its digest)
 licence:
   spdx: MIT
   third_party:
-    - {name: flnm-fast (lesion_zmaps engine), version: "1.0", spdx: MIT}
+    - {name: flnm-fast (lesion_zmaps engine), version: "2.1.0", spdx: MIT}
     - {name: nibabel, version: 5.3.1, spdx: MIT}
     - {name: numpy, version: 2.1.2, spdx: BSD-3-Clause}
     - {name: pandas, version: 2.2.3, spdx: BSD-3-Clause}
     - {name: scipy, version: 1.14.1, spdx: BSD-3-Clause}
-    - {name: Python, version: 3.12.13, spdx: PSF-2.0}
+    - {name: Python, version: 3.12.16, spdx: PSF-2.0}
 
 inputs:
   - name: lesion_mask
@@ -111,11 +111,6 @@ errors:
   - code: lesion_outside_parcellation
     category: input_rejected
     description: The lesion does not overlap any parcel of the normative parcellation.
-  - code: lesion_single_parcel
-    category: input_rejected
-    description: >-
-      The lesion lies within a single parcel; the packaged engine always omits the
-      lowest-numbered overlapped parcel and then has nothing left to weight.
   - code: insufficient_controls
     category: input_rejected
     description: The normative cohort has fewer participants of the requested sex than control_count.

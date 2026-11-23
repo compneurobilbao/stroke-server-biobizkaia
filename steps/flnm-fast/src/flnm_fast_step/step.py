@@ -10,7 +10,9 @@ Mapping:
 
 * input ``lesion_mask`` becomes ``<tmp>/lesion/case.nii.gz``;
 * parameters ``sex`` and ``age_band`` become the single row of ``<tmp>/participants.tsv``
-  (age = midpoint of the band; sex written with the label the normative table uses);
+  (age = midpoint of the band; sex written with the label the normative table uses) and
+  ``--match-age-sex`` selects the ``control_count`` same-sex, nearest-age controls (engine 2.x
+  uses every normative participant without it and then ignores ``control_count``);
 * bundle ``normative`` supplies ``--fc``, ``--normative-subjects`` and ``--parcellation``;
 * ``<tmp>/zmaps/case_zmap.nii.gz`` becomes output ``fdisconnection_map``.
 
@@ -40,13 +42,6 @@ SUBJECTS_FILE = "normative_subjects.csv"
 PARCELLATION_FILE = "standard/schaefer1000_tian54_2mm.nii.gz"
 GRID = "MNI152NLin6Asym-res2"
 PARTICIPANT_ID = "case"
-# Known behaviour of the packaged engine (README.md, "Known issue"): its overlap code drops the
-# lowest-numbered lesion-overlapped parcel (``np.flatnonzero(counts)[1:]`` after the background
-# label was already excluded), so a lesion confined to one parcel leaves no parcel to weight and
-# the engine still "succeeds" with an all-NaN map. The wrapper records the omission in every run
-# and refuses the single-parcel case instead of changing the engine; set to False when the base
-# image no longer does this.
-ENGINE_DROPS_LOWEST_OVERLAPPED_PARCEL = True
 SEX_PREFIX = {"female": "F", "male": "M"}
 PATHS = re.compile(r"(?:/[\w.@+=,~-]+)+/?")
 BAND = re.compile(r"^([0-9]{1,3})-([0-9]{1,3})$")
@@ -65,10 +60,6 @@ MESSAGES = {
     "mask_empty": "The lesion mask has no voxels set.",
     "lesion_outside_parcellation": (
         "The lesion does not overlap any region of the normative parcellation."
-    ),
-    "lesion_single_parcel": (
-        "The lesion lies within a single region of the normative parcellation, which the "
-        "analysis cannot process."
     ),
 }
 
@@ -193,6 +184,7 @@ def run(ctx: StepContext) -> None:
         "--normative-subjects", str(bundle / SUBJECTS_FILE),
         "--fc", str(bundle / FC_FILE),
         "--out-dir", str(out_dir),
+        "--match-age-sex",
         "--control-count", str(int(ctx.params["control_count"])),
     ]  # fmt: skip
     ctx.log.info("running the flnm-fast engine on one participant")
@@ -238,24 +230,12 @@ def run(ctx: StepContext) -> None:
         _count_rows(tables["controls"]),
         ctx.params["control_count"],
     )
-    if n_overlapped == 0:
-        raise InputRejected(
-            "lesion_single_parcel", MESSAGES["lesion_single_parcel"], port="lesion_mask"
-        )
-    if ENGINE_DROPS_LOWEST_OVERLAPPED_PARCEL:
-        ctx.warn(
-            "lowest_overlapped_parcel_omitted",
-            "The packaged flnm-fast engine leaves the lowest-numbered lesion-overlapped parcel "
-            "out of the lesion weighting; the z-map differs slightly from the method as "
-            "described.",
-            port="fdisconnection_map",
-        )
     undefined = _undefined_parcels(tables["roi_z"])
     if undefined:
         ctx.warn(
             "undefined_parcels",
-            f"{undefined} parcel(s) have an undefined z score (no variance across the "
-            "controls); they are NaN in the map.",
+            f"{undefined} parcel(s) have an undefined z score (fewer than two finite "
+            "connectivity values across the controls, or no variance); they are NaN in the map.",
             port="fdisconnection_map",
         )
     ctx.output_path("fdisconnection_map").write_bytes(zmap.read_bytes())
