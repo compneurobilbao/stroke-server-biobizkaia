@@ -5,7 +5,9 @@
         pipeline.yaml and registry.yaml agree (slots, implementation ids, steps, images);
         profiles only enable existing, non-planned implementations; stubs are enabled only
         in the ci profile; defaults are enabled; no profile other than ci enables an
-        implementation below the validation level `reference-tested`.
+        implementation below the validation level `reference-tested`. With `published: true`
+        (set by `pin`) every implementation the `deployment` profile enables, except
+        `build: local` ones, must reference a real digest, not the placeholder.
         An entry with `origin: external` (card F1-23, run-plans.md 4.2 to 4.4) must carry a
         `licence_review`, a `validation` status and, in the step manifest, contract 1.2 with an
         `upstream` block whose image is pinned by digest in the Dockerfile; `build: local`
@@ -22,6 +24,16 @@
         implementations keep their placeholder. CI builds the steps and writes the digests
         of the local images; a deployment uses the digests of the published images. The preset
         files are copied byte for byte (runs record their SHA-256).
+
+    registry.py pin --digests FILE [--dir DIR]
+        Write the published image digests of FILE (the ``--digests-out`` file of
+        ``release.py run``, same format as for ``materialize``) into DIR/registry.yaml and
+        DIR/pipeline.yaml in place, replacing the image reference of every entry named in
+        FILE (comments and layout are kept). A reference must be digest-pinned, not a
+        placeholder and in the repository the entry already names; ``build: local`` entries
+        and unknown steps are refused. When every implementation of the ``deployment`` profile
+        (except ``build: local`` ones) has a real digest afterwards, ``published: true`` is set.
+        The result is checked; on any error the files are left unchanged.
 
     registry.py fetch --dest DIR
         Fetch the external step sources at the commits pinned in registry.yaml (CI).
@@ -302,6 +314,30 @@ def external_errors(
     return errors
 
 
+def published_errors(registry: dict) -> list[str]:
+    """With ``published: true`` the ``deployment`` profile must reference real digests: a
+    deployment pulls by digest and never a placeholder (docs/deployment.md, "Publishing
+    step images"). ``build: local`` entries are built by each deployment and are exempt."""
+    published = registry.get("published", False)
+    if not isinstance(published, bool):
+        return ["published must be true or false"]
+    if not published:
+        return []
+    errors: list[str] = []
+    enabled = registry["profiles"].get("deployment", {}).get("enabled", {})
+    for name, ids in enabled.items():
+        for impl_id in ids:
+            entry = registry["implementations"].get(name, {}).get(impl_id)
+            if entry is None or entry["kind"] == "planned" or entry.get("build") == "local":
+                continue
+            if PLACEHOLDER in str(entry["image"]) or not DIGEST_REF.match(str(entry["image"])):
+                errors.append(
+                    f"published: true, but {name}/{impl_id} has no real image digest "
+                    "(run release.py, then registry.py pin)"
+                )
+    return errors
+
+
 def load(directory: Path = HERE) -> tuple[dict, dict]:
     pipeline = yaml.safe_load((directory / "pipeline.yaml").read_text(encoding="utf-8"))
     registry = yaml.safe_load((directory / "registry.yaml").read_text(encoding="utf-8"))
@@ -430,6 +466,7 @@ def check(
         for name, impl_id in profile["default"].items():
             if impl_id not in profile["enabled"].get(name, []):
                 errors.append(f"profile {pname}: default {name}/{impl_id} is not enabled")
+    errors += published_errors(registry)
     if presets is not None:
         errors += preset_check(pipeline, registry, presets)
     return errors
@@ -489,6 +526,62 @@ def materialize(pipeline: dict, registry: dict, digests: dict[str, str]) -> tupl
         for allowed in slot["implementations"]["allowed"]:
             allowed["image"] = reg[allowed["id"]]["image"]
     return pipeline, registry
+
+
+def pin(directory: Path, digests: dict[str, str]) -> list[str]:
+    """Write ``digests`` into ``directory``/registry.yaml and pipeline.yaml in place (text
+    substitution: comments and layout survive). Returns the pinned ``name@version`` keys.
+    Raises ValueError for a bad reference or an unknown step; the files are restored when
+    the result does not pass ``check``."""
+    reg_path, pipe_path = directory / "registry.yaml", directory / "pipeline.yaml"
+    originals = {p: p.read_text(encoding="utf-8") for p in (reg_path, pipe_path)}
+    _, reg = load(directory)
+    by_key: dict[str, list[dict]] = {}
+    for impls in reg["implementations"].values():
+        for entry in impls.values():
+            by_key.setdefault(f"{entry['step']['name']}@{entry['step']['version']}", []).append(entry)
+    unknown = sorted(set(digests) - set(by_key))
+    if unknown:
+        raise ValueError(f"not steps of the registry: {unknown}")
+    replacements: dict[str, str] = {}
+    for key, ref in digests.items():
+        for entry in by_key[key]:
+            if entry["kind"] == "planned":
+                raise ValueError(f"{key}: a planned implementation has no image to pin")
+            if entry.get("build") == "local":
+                raise ValueError(f"{key}: build: local entries are never pinned to a published digest")
+            if not DIGEST_REF.match(ref) or ref.endswith(PLACEHOLDER):
+                raise ValueError(f"{key}: not a real digest-pinned image reference: {ref}")
+            old = str(entry["image"])
+            if ref.split("@", 1)[0] != old.split("@", 1)[0]:
+                raise ValueError(
+                    f"{key}: {ref.split('@', 1)[0]} is not the repository of the entry "
+                    f"({old.split('@', 1)[0]})"
+                )
+            replacements[old] = ref
+    texts = dict(originals)
+    for old, new in replacements.items():
+        for path in (reg_path, pipe_path):
+            if old not in texts[path]:
+                raise ValueError(f"{path.name}: {old} not found")
+            texts[path] = texts[path].replace(old, new)
+    # published: true once the deployment profile is fully pinned
+    if not published_errors({**yaml.safe_load(texts[reg_path]), "published": True}):
+        flag = "published: true"
+        if re.search(r"^published:.*$", texts[reg_path], re.M):
+            texts[reg_path] = re.sub(r"^published:.*$", flag, texts[reg_path], count=1, flags=re.M)
+        else:
+            texts[reg_path] = re.sub(
+                r"^(pipeline: \{.*\})$", lambda m: m.group(1) + "\n" + flag, texts[reg_path], count=1, flags=re.M
+            )
+    for path, text in texts.items():
+        path.write_text(text, encoding="utf-8", newline="")
+    problems = check(*load(directory), load_presets(directory))
+    if problems:
+        for path, text in originals.items():
+            path.write_text(text, encoding="utf-8", newline="")
+        raise ValueError("the pinned files do not pass check: " + "; ".join(problems))
+    return sorted(digests)
 
 
 def sources(registry: dict, *, local: bool = False) -> dict[str, dict]:
@@ -558,7 +651,7 @@ def _dump(data: dict, path: Path) -> None:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=(__doc__ or "").split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("check", "materialize", "fetch", "build"):
+    for name in ("check", "materialize", "fetch", "build", "pin"):
         sub.add_parser(name).add_argument("--dir", type=Path, default=HERE)
     sub.choices["check"].add_argument(
         "--external",
@@ -572,6 +665,7 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--prefix", required=True)
     b.add_argument("--digests-out", type=Path, required=True)
     b.add_argument("--manifests-out", type=Path, required=True)
+    sub.choices["pin"].add_argument("--digests", type=Path, required=True)
     sub.choices["materialize"].add_argument("--digests", type=Path, required=True)
     sub.choices["materialize"].add_argument("--out", type=Path, required=True)
     args = ap.parse_args(argv)
@@ -593,6 +687,15 @@ def main(argv: list[str] | None = None) -> int:
         args.digests_out.write_text(json.dumps(digests, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         return 0
     digests = json.loads(args.digests.read_text(encoding="utf-8"))
+    if args.cmd == "pin":
+        try:
+            pinned = pin(args.dir, digests)
+        except ValueError as exc:
+            print(f"ERROR {exc}", file=sys.stderr)
+            return 1
+        print("pinned: " + ", ".join(pinned))
+        print(f"published: {str(load(args.dir)[1].get('published', False)).lower()}")
+        return 0
     pipeline, registry = materialize(pipeline, registry, digests)
     _dump(pipeline, args.out / "stroke-lnm" / "pipeline.yaml")
     _dump(registry, args.out / "stroke-lnm" / "registry.yaml")

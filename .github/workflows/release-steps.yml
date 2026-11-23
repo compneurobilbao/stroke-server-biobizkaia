@@ -1,0 +1,220 @@
+name: Release step images
+
+# Card REL-01: publish the step images of the stroke-lnm pipeline to Docker Hub
+# (docker.io/compneurobilbaolab/step-<name>:<step version>) and record their digests.
+#
+#   * workflow_dispatch  inputs: steps (all, or step names separated by commas) and dry_run
+#                        (default true: build and test, push nothing).
+#   * tag `steps-v*`     publishes every step (a tag on develop or main only).
+#   * pull_request       always a dry run: builds every step from its pinned source and runs its
+#                        reference test, and rehearses the publishing path (immutable tags,
+#                        digest read back from the registry) against a second throwaway registry. Nothing
+#                        reaches Docker Hub and no secret is used.
+#
+# What it does for each step (pipelines/stroke-lnm/release.py): builds from the pinned source
+# (this repository, or the external repository at the commit pinned in registry.yaml), checks the
+# manifest inside the image, runs the step's reference test against that image and only then
+# pushes that same image to Docker Hub and reads the digest back. A tag that already exists is
+# never overwritten. `build: local` entries are never built or pushed.
+# The digests go to the job summary and the artifact `step-digests`; they are written into the
+# repository by `registry.py pin` (docs/deployment.md, "Publishing step images").
+#
+# Secrets (repository secrets, never printed): DOCKERHUB_USERNAME, DOCKERHUB_TOKEN (an access
+# token with read and write permission on the compneurobilbaolab repositories).
+
+on:
+  workflow_dispatch:
+    inputs:
+      steps:
+        description: "Steps to release: all, or step names separated by commas (e.g. lesion-qc,research-report)"
+        required: true
+        default: all
+        type: string
+      dry_run:
+        description: "Dry run: build and test, push nothing to Docker Hub"
+        required: true
+        default: true
+        type: boolean
+  push:
+    tags:
+      - "steps-v*"
+  pull_request:
+    paths:
+      - ".github/workflows/release-steps.yml"
+      - "pipelines/stroke-lnm/release.py"
+      - "pipelines/stroke-lnm/registry.py"
+      - "pipelines/stroke-lnm/registry.yaml"
+      - "pipelines/stroke-lnm/ci/ct_reference.sh"
+
+permissions:
+  contents: read
+
+concurrency:
+  # a publish is never cancelled half-way; a newer push to a pull request replaces its dry run
+  group: release-steps-${{ github.event_name == 'pull_request' && github.ref || 'publish' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  release:
+    name: release-steps
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    env:
+      WORK: ${{ github.workspace }}/release-work
+      STEPS: ${{ github.event_name == 'workflow_dispatch' && inputs.steps || 'all' }}
+      # strings, never booleans: a boolean false would fall through the || chain
+      DRY_RUN: ${{ github.event_name == 'pull_request' && 'true' || github.event_name == 'push' && 'false' || format('{0}', inputs.dry_run) }}
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Inputs
+        run: |
+          set -eu
+          case "$STEPS" in *[!a-z0-9,\ -]*) echo "invalid steps input" >&2; exit 1 ;; esac
+          case "$DRY_RUN" in true|false) ;; *) echo "invalid dry_run" >&2; exit 1 ;; esac
+          echo "steps: $STEPS"
+          echo "dry run: $DRY_RUN"
+          echo "commit: $GITHUB_SHA"
+
+      - name: A real publish only runs for the project repository and for develop or main
+        if: env.DRY_RUN == 'false'
+        run: |
+          set -eu
+          if [ "$GITHUB_REPOSITORY" != "compneurobilbao/stroke-server-biobizkaia" ]; then
+            echo "publishing is only allowed from compneurobilbao/stroke-server-biobizkaia" >&2; exit 1
+          fi
+          git fetch -q origin develop main 2>/dev/null || true
+          ok=0
+          for branch in develop main; do
+            if git rev-parse -q --verify "origin/$branch" >/dev/null &&
+               git merge-base --is-ancestor "$GITHUB_SHA" "origin/$branch"; then ok=1; fi
+          done
+          if [ "$ok" != 1 ]; then
+            echo "$GITHUB_SHA is not on develop or main: merge the pull request before publishing" >&2; exit 1
+          fi
+
+      - uses: actions/setup-python@v5.3.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: steps/sdk/requirements-image.txt
+      - name: Install the SDK and the host-side dependencies of the reference cases
+        run: |
+          # numpy, nibabel, jsonschema, PyYAML come with the SDK requirements; scipy builds the CT and
+          # report reference cases, pypdf compares the report text
+          pip install -r steps/sdk/requirements-image.txt scipy==1.14.1 pypdf==5.1.0 pandas==2.2.3
+          pip install --no-deps -e steps/sdk
+
+      - name: Registry and pipeline agree
+        run: |
+          python pipelines/stroke-lnm/registry.py check
+          python pipelines/stroke-lnm/release.py plan --steps "$STEPS"
+
+      - name: Fetch the external steps at the pinned commits
+        run: python pipelines/stroke-lnm/registry.py fetch --dest "$WORK/external"
+
+      - name: Cache the public CT template files (pinned by commit, SHA-256 verified on every run)
+        uses: actions/cache@v4.2.0
+        with:
+          path: ${{ env.WORK }}/refdata
+          key: ct-template-${{ hashFiles('release-work/external/CTLesion2MNI152/step/ci/fetch_reference_data.sh') }}
+
+      - name: Log in to Docker Hub
+        if: env.DRY_RUN == 'false'
+        uses: docker/login-action@v3.3.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # ---- pull requests: prove the publishing path without touching Docker Hub
+      - name: Second throwaway registry (stands in for Docker Hub in the rehearsal)
+        if: github.event_name == 'pull_request'
+        run: |
+          docker run -d --name rehearsal-registry -p 5001:5000 registry:2
+          for _ in $(seq 1 30); do curl -fsS http://localhost:5001/v2/ && break; sleep 1; done
+
+      - name: Rehearsal of the publishing path (one step, twice; the second run must change nothing)
+        if: github.event_name == 'pull_request'
+        run: |
+          set -eu
+          run() {
+            python pipelines/stroke-lnm/release.py run --steps lesion-qc \
+              --external "$WORK/external" --work "$WORK/rehearsal" \
+              --dest-override localhost:5001/rehearsal \
+              --digests-out "$WORK/rehearsal-digests-$1.json" --report-out "$WORK/rehearsal-report-$1.json"
+          }
+          run 1
+          grep -q '"status": "published"' "$WORK/rehearsal-report-1.json"
+          run 2
+          grep -q '"status": "already-published"' "$WORK/rehearsal-report-2.json"
+          cmp "$WORK/rehearsal-digests-1.json" "$WORK/rehearsal-digests-2.json"
+          # the digest in the digests file is the one the registry serves for the tag
+          ref=$(python -c "import json,sys; print(next(iter(json.load(open(sys.argv[1])).values())))" "$WORK/rehearsal-digests-1.json")
+          docker buildx imagetools inspect "$ref" > /dev/null
+          # an existing tag is never overwritten: publishing another digest under it is refused
+          python - <<'PY'
+          import importlib.util, os, subprocess, sys
+          spec = importlib.util.spec_from_file_location("release", "pipelines/stroke-lnm/release.py")
+          release = importlib.util.module_from_spec(spec); sys.modules["release"] = release; spec.loader.exec_module(release)
+          ctx = release.Context(repo_root=release.REPO_ROOT, external=release.REPO_ROOT, work=release.REPO_ROOT,
+                                dry_run=False,
+                                namespace="docker.io/compneurobilbaolab", dest_override="localhost:5001/rehearsal")
+          target = release.targets(release.registry.load(release.HERE)[1], ["lesion-qc"])[0]
+          # the tag now holds another image than a build of this step would produce
+          other = release.remote_digest(ctx, target.tag_in(ctx))
+          try:
+              release.publish(target, ctx, "stroke-release/lesion-qc:1.0.0")
+          except release.ReleaseError as exc:
+              assert "immutable" in str(exc), exc
+              print("refused to overwrite an existing tag:", exc)
+          else:
+              raise SystemExit("an existing tag with another digest was not refused")
+          assert release.remote_digest(ctx, target.tag_in(ctx)) == other, "the existing tag changed"
+          PY
+
+      # ---- the release itself (a dry run builds and tests, and pushes nothing public)
+      - name: Build, test and publish the steps
+        run: |
+          set -eu
+          flags=""
+          if [ "$DRY_RUN" = "true" ]; then flags="--dry-run"; fi
+          python pipelines/stroke-lnm/release.py run $flags --steps "$STEPS" \
+            --external "$WORK/external" --work "$WORK/run" \
+            --digests-out "$WORK/published-digests.json" --report-out "$WORK/release-report.json" \
+            --summary-out "$GITHUB_STEP_SUMMARY"
+
+      - name: Published digests, and what to do next
+        if: always()
+        run: |
+          {
+            echo
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "Dry run: nothing was pushed to Docker Hub, so there are no digests to pin."
+            else
+              echo "Published references (artifact \`step-digests\`, file \`published-digests.json\`):"
+              echo '```json'
+              cat "$WORK/published-digests.json" 2>/dev/null || echo "none"
+              echo '```'
+              echo
+              echo "Next: download the artifact and run \`python pipelines/stroke-lnm/registry.py pin --digests published-digests.json\`,"
+              echo "then commit \`registry.yaml\` and \`pipeline.yaml\` in a pull request (docs/deployment.md, \"Publishing step images\")."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: The published digests produce a valid pipeline (all steps released)
+        if: env.DRY_RUN == 'false' && env.STEPS == 'all'
+        run: |
+          python pipelines/stroke-lnm/registry.py materialize --digests "$WORK/published-digests.json" --out "$WORK/pipelines"
+          python contracts/validate.py --kind pipeline "$WORK/pipelines/stroke-lnm/pipeline.yaml"
+
+      - uses: actions/upload-artifact@v4.6.0
+        if: always()
+        with:
+          name: ${{ env.DRY_RUN == 'true' && 'step-release-dry-run' || 'step-digests' }}
+          path: |
+            ${{ env.WORK }}/published-digests.json
+            ${{ env.WORK }}/release-report.json
+            ${{ env.WORK }}/rehearsal-report-*.json
+          if-no-files-found: warn
