@@ -4,6 +4,7 @@ import { errorText } from '../../api/client';
 import type { RunSlot, StepAttempt, StepLog, UpstreamInfo } from '../../api/v1';
 import { useFormatters } from '../../shared/useFormatters';
 import { RunStatusBadge } from './RunStatusBadge';
+import { implementationLabel } from './slots';
 
 interface RunTimelineProps {
   slots: readonly RunSlot[];
@@ -95,7 +96,12 @@ export function RunTimeline({ slots, steps, loadLog }: RunTimelineProps) {
         </div>
         {slot.status === 'selected' && (
           <p className="hint timeline-impl">
-            {t('cases.run.implementation')}: <code>{slot.implementation_id ?? slot.step_name}</code>
+            {t('cases.run.implementation')}:{' '}
+            <code>
+              {slot.implementation_id
+                ? implementationLabel(t, slot.implementation_id, slot.implementation_id)
+                : slot.step_name}
+            </code>
             {slot.step_version ? ` ${slot.step_version}` : ''}
             {slot.stub ? ` (${t('cases.slots.stub')})` : ''}
             {slot.chosen_by ? ` - ${t(`cases.run.chosenBy.${slot.chosen_by}`)}` : ''}

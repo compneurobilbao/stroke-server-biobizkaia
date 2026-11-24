@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
-import type { PlanPreview as PlanPreviewData, PlanReason, Slot } from '../../api/v1';
+import type { DevelopmentStage, PlanPreview as PlanPreviewData, PlanReason, Slot } from '../../api/v1';
 import { missingOptionalInputs, planSlotState, reasonKey, reasonParams } from './plan';
+import { developmentSlotNames, slotImplementationName } from './slots';
 
 /** State of the live plan preview of the wizard. */
 export interface PreviewState {
@@ -54,12 +55,15 @@ interface PlanPreviewProps {
   roles: readonly string[];
   /** Nothing can be previewed yet: say what is missing. */
   idleHint?: string;
+  /** Stages in development: a plan slot that is one is labelled so instead of "does not apply". */
+  development?: readonly DevelopmentStage[];
 }
 
 /** Each slot of the plan the request would get, with its role or why it is left out, and every refusal reason. */
-export function PlanPreview({ preview, slots, roles, idleHint }: PlanPreviewProps) {
+export function PlanPreview({ preview, slots, roles, idleHint, development = [] }: PlanPreviewProps) {
   const { t } = useTranslation();
   const titleOf = slotTitleOf(slots);
+  const developmentSlots = developmentSlotNames(development);
   const { data } = preview;
   const position = new Map(slots.map((slot): [string, number] => [slot.name, slot.position]));
   const ordered = [...(data?.slots ?? [])].sort(
@@ -96,15 +100,26 @@ export function PlanPreview({ preview, slots, roles, idleHint }: PlanPreviewProp
           <ul className="plan-list">
             {ordered.map((slot) => {
               const state = planSlotState(slot);
+              // A slot in development is not "unavailable" or "does not apply": it is not built yet.
+              const inDevelopment = developmentSlots.has(slot.name) && slot.status !== 'selected';
               return (
-                <li key={slot.name} className="plan-slot" data-slot={slot.name} data-plan-state={state}>
+                <li
+                  key={slot.name}
+                  className="plan-slot"
+                  data-slot={slot.name}
+                  data-plan-state={state}
+                  data-development={inDevelopment ? 'true' : undefined}
+                >
                   <strong>{titleOf(slot.name)}</strong>
                   <span className={`tag ${state === 'target' || state === 'upstream' || state === 'if_available' ? '' : 'tag-muted'}`}>
-                    {t(`cases.plan.state.${state}`, { slot: slot.required_by ? titleOf(slot.required_by) : t('cases.plan.thePlan') })}
+                    {inDevelopment
+                      ? t('cases.development.badge')
+                      : t(`cases.plan.state.${state}`, { slot: slot.required_by ? titleOf(slot.required_by) : t('cases.plan.thePlan') })}
                   </span>
                   {slot.status === 'selected' && slot.implementation && (
                     <span className="hint">
-                      {t('cases.run.implementation')}: <code>{slot.implementation}</code>
+                      {t('cases.run.implementation')}:{' '}
+                      <code data-testid="plan-implementation">{slotImplementationName(t, slots, slot.name, slot.implementation)}</code>
                     </span>
                   )}
                 </li>

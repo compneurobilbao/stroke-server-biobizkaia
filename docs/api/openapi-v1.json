@@ -629,6 +629,47 @@
         "title": "ImplementationAdminRead",
         "type": "object"
       },
+      "InDevelopmentStageRead": {
+        "description": "A stage of the platform's process that cannot be used yet (registry ``in_development``).\nDisplay only: it is never a slot implementation and can neither be chosen nor enabled.",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "slot": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slot"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title"
+        ],
+        "title": "InDevelopmentStageRead",
+        "type": "object"
+      },
       "InputFileRead": {
         "properties": {
           "artefact_type": {
@@ -824,6 +865,14 @@
           "id": {
             "title": "Id",
             "type": "string"
+          },
+          "in_development": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/InDevelopmentStageRead"
+            },
+            "title": "In Development",
+            "type": "array"
           },
           "input_sets": {
             "items": {
@@ -4313,6 +4362,67 @@
           }
         ],
         "summary": "Get Pipeline",
+        "tags": [
+          "pipelines"
+        ]
+      }
+    },
+    "/api/v1/pipelines/{pipeline_id}/versions/{version}/in-development": {
+      "get": {
+        "description": "Stages of the process that are in development in this deployment: shown greyed, never\nselectable (registry ``in_development``).",
+        "operationId": "list_in_development_api_v1_pipelines__pipeline_id__versions__version__in_development_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pipeline_id",
+            "required": true,
+            "schema": {
+              "title": "Pipeline Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "title": "Version",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/InDevelopmentStageRead"
+                  },
+                  "title": "Response List In Development Api V1 Pipelines  Pipeline Id  Versions  Version  In Development Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List In Development",
         "tags": [
           "pipelines"
         ]

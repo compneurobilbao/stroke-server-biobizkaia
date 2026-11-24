@@ -87,7 +87,7 @@ def test_committed_pipeline_is_valid_and_lists_every_slot():
     definition = load_pipeline(HERE / "pipeline.yaml")
     assert [s["name"] for s in definition.slots] == SLOTS
     assert definition.match_input_set(["lesion_mni"]) == "mni-mask"
-    assert definition.version == "0.6.0"
+    assert definition.version == "0.7.0"
 
 
 def test_report_does_not_need_tract_disconnection():
@@ -103,20 +103,30 @@ def test_report_does_not_need_tract_disconnection():
         assert impl["step"] == {"name": "research-report", "version": "0.3.0"}
 
 
-def test_committed_digests_are_placeholders():
+def test_committed_digests_are_the_published_ones():
+    """The committed files reference the published step images (`registry.py pin`); CI never
+    uses them: it materializes its own throwaway registry."""
     pipeline, registry = registry_tool.load(HERE)
+    assert registry["published"] is True
     for impls in registry["implementations"].values():
         for entry in impls.values():
-            assert entry["image"].endswith(registry_tool.PLACEHOLDER)
+            assert entry["image"].startswith("docker.io/compneurobilbaolab/step-")
+            assert registry_tool.DIGEST_REF.match(entry["image"])
+            assert not entry["image"].endswith(registry_tool.PLACEHOLDER)
 
 
 def test_deployment_profile_enables_real_entries_only():
     _pipeline, registry = registry_tool.load(HERE)
     rows = registry_tool.enabled_settings(registry, "deployment")
     enabled = {(r["slot"], r["implementation_id"]) for r in rows if r["enabled"]}
-    # the real CT step is mounted and is the default of the normalisation slot
-    assert ("normalisation", "ct-lesion-to-mni152") in enabled
+    # the lab's minimum pipeline: the CT normalisation step is real but not mounted in the
+    # deployment profile (it stays in ci); the HCP-pinned tract and COGNET entries are
+    assert not any(slot == "normalisation" for slot, _impl in enabled)
     assert registry["implementations"]["normalisation"]["ct-lesion-to-mni152"]["kind"] == "real"
+    assert ("tract-disconnection", "lnm-tracts-hcp1065") in enabled
+    assert ("cognet-profile", "cognet-stroke-concept-maps") in enabled
+    assert ("tract-disconnection", "lnm-tracts") not in enabled
+    assert ("cognet-profile", "cognet-stroke") not in enabled
     # both normative cohorts are offered, HCP Aging is the default; the CI fixtures are not
     assert {
         ("functional-disconnection", "flnm-fast-hcp-aging"),
@@ -126,7 +136,7 @@ def test_deployment_profile_enables_real_entries_only():
     assert ("functional-disconnection", "fdisconnection-stub") not in enabled
     defaults = {r["slot"]: r["implementation_id"] for r in rows if r["is_default"]}
     assert defaults["functional-disconnection"] == "flnm-fast-hcp-aging"
-    assert defaults["normalisation"] == "ct-lesion-to-mni152"
+    assert "normalisation" not in defaults
     ci = registry_tool.enabled_settings(registry, "ci")
     ci_enabled = {(r["slot"], r["implementation_id"]) for r in ci if r["enabled"]}
     # both are enabled in ci; the stub stays the ci default (the real-stack UI specs assert it)
@@ -211,7 +221,7 @@ class Stack:
         self.orch = build_orchestrator(
             self.Session, self.store_root, settings=_Settings(), env=env
         )
-        self.pipeline = self.orch.pipelines.get("stroke-lnm", "0.6.0")
+        self.pipeline = self.orch.pipelines.get("stroke-lnm", "0.7.0")
         assert self.pipeline is not None
         # the presets of the materialized tree (registry.py materialize copies them unchanged)
         self.presets = DirectoryPresetRegistry(PIPELINES_DIR, self.orch.pipelines, self.orch.steps)
@@ -655,7 +665,7 @@ def _runs_of(stack, case_id) -> int:
 
 @needs_e2e
 def test_the_presets_are_attached_to_the_materialized_pipeline(stack):
-    attached = stack.presets.presets("stroke-lnm", "0.6.0")
+    attached = stack.presets.presets("stroke-lnm", "0.7.0")
     assert [p.id for p in attached] == sorted(PRESET_IDS)
     for preset in attached:
         raw = (Path(PIPELINES_DIR) / "stroke-lnm" / "presets" / f"{preset.id}.yaml").read_bytes()
@@ -682,7 +692,7 @@ def test_ct_normalisation_preset_runs_intake_and_normalisation_only(stack, tmp_p
         "mode": "preset",
         "preset": {
             "id": "ct-normalisation",
-            "version": "1.4.0",
+            "version": "1.5.0",
             "sha256": hashlib.sha256(preset_file.read_bytes()).hexdigest(),
         },
         "targets": {"required": ["lesion-intake.lesion_qc", "normalisation.lesion_mask_mni"]},
@@ -713,7 +723,7 @@ def test_ct_normalisation_preset_runs_intake_and_normalisation_only(stack, tmp_p
         assert (run.plan_mode, run.preset_id, run.preset_version) == (
             "preset",
             "ct-normalisation",
-            "1.4.0",
+            "1.5.0",
         )
         rows = {
             r.slot: r for r in db.scalars(select(RunSlot).where(RunSlot.pipeline_run_id == run_id))
@@ -767,7 +777,7 @@ def _finished_preset_run(stack, case_id, preset_id, tmp_path):
     preset_file = Path(PIPELINES_DIR) / "stroke-lnm" / "presets" / f"{preset_id}.yaml"
     sha256 = hashlib.sha256(preset_file.read_bytes()).hexdigest()
     assert record["contract_version"] == "1.2"
-    assert record["plan"]["preset"] == {"id": preset_id, "version": "1.4.0", "sha256": sha256}
+    assert record["plan"]["preset"] == {"id": preset_id, "version": "1.5.0", "sha256": sha256}
     # the report reads the run record as it is (it declares contract 1.2) and states the plan
     assert report["generator"] == {"step": "research-report", "version": "0.3.0"}
     assert report["report_version"] == "1.1"
@@ -791,10 +801,10 @@ def test_mni_mask_analysis_preset_finishes_with_the_report(stack, mni_case, tmp_
         "skipped",
         "condition_false",
     )
-    for name in ("functional-disconnection", "tract-disconnection", "report"):
+    # The minimum pipeline of the lab: since preset 1.5.0 the COGNET profile is required too.
+    for name in ("functional-disconnection", "tract-disconnection", "cognet-profile", "report"):
         assert slots[name]["status"] == "selected" and slots[name]["plan_role"] == "target", name
     assert slots["lesion-intake"]["plan_role"] == "upstream"
-    assert slots["cognet-profile"]["plan_role"] == "if_available"
     assert _ran(record) == set(SLOTS) - {"normalisation"}
     assert report["sections"] == {
         "lesion": "available",

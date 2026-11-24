@@ -89,9 +89,15 @@ def test_deployment_enables_real_entries_only(factory, capsys):
     assert got[("functional-disconnection", "flnm-fast-hcp-ya")] == (True, False)
     assert got[("functional-disconnection", "flnm-fast-synthetic")] == (False, False)
     assert got[("functional-disconnection", "fdisconnection-stub")] == (False, False)
-    assert got[("normalisation", "ct-lesion-to-mni152")] == (True, True)
+    # The minimum pipeline of the lab: the entries pinned to the lab's reference bundles are the
+    # enabled ones; the unpinned CI entries and normalisation are seeded disabled (MVP-01).
+    assert got[("tract-disconnection", "lnm-tracts-hcp1065")] == (True, True)
+    assert got[("tract-disconnection", "lnm-tracts")] == (False, False)
+    assert got[("cognet-profile", "cognet-stroke-concept-maps")] == (True, True)
+    assert got[("cognet-profile", "cognet-stroke")] == (False, False)
+    assert got[("normalisation", "ct-lesion-to-mni152")] == (False, False)
     out = capsys.readouterr().out
-    assert "placeholder" in out  # digests are not published yet
+    assert "placeholder" not in out  # the digests are the published ones
     assert "insert" in out and "committed" in out
 
 
@@ -134,7 +140,7 @@ def test_admin_changes_survive_a_rerun_and_reset_overwrites_them(factory, capsys
         for r in db.scalars(select(SlotImplementationSetting)):
             if r.implementation_id == "fdisconnection-stub":
                 r.enabled = True
-            if r.implementation_id == "lnm-tracts":
+            if r.implementation_id == "lnm-tracts-hcp1065":
                 r.enabled, r.is_default = False, False
         db.commit()
     admin_state = rows(factory)
@@ -149,7 +155,7 @@ def test_admin_changes_survive_a_rerun_and_reset_overwrites_them(factory, capsys
     assert reset[("report", "research-report")] == (True, True)
     assert reset[("report", "research-report-es")] == (True, False)
     assert reset[("functional-disconnection", "fdisconnection-stub")] == (False, False)
-    assert reset[("tract-disconnection", "lnm-tracts")] == (True, True)
+    assert reset[("tract-disconnection", "lnm-tracts-hcp1065")] == (True, True)
     # reset is itself idempotent
     capsys.readouterr()
     run(factory, "--profile", "deployment", "--reset")
@@ -301,22 +307,35 @@ def test_preset_profile_settings_match_the_registry_helper():
         )
 
 
-@pytest.mark.parametrize("profile", ["deployment", "ci"])
-def test_presets_are_seeded_from_the_profile(factory, capsys, profile):
-    assert run(factory, "--profile", profile) == 0
-    assert preset_rows(factory) == {
+# The deployment (lab) profile offers only the minimum preset (the others also accept the CT input
+# set, which needs the unmounted normalisation slot); the ci profile offers all four.
+SEEDED_PRESETS = {
+    "ci": {
         "full": (True, True),
         "mni-mask-analysis": (True, False),
         "ct-normalisation": (True, False),
         "lesion-qc-report": (True, False),
-    }
+    },
+    "deployment": {
+        "full": (False, False),
+        "mni-mask-analysis": (True, True),
+        "ct-normalisation": (False, False),
+        "lesion-qc-report": (False, False),
+    },
+}
+
+
+@pytest.mark.parametrize("profile", ["deployment", "ci"])
+def test_presets_are_seeded_from_the_profile(factory, capsys, profile):
+    assert run(factory, "--profile", profile) == 0
+    assert preset_rows(factory) == SEEDED_PRESETS[profile]
     assert "insert    stroke-lnm/preset/full" in capsys.readouterr().out
 
 
 def test_preset_seeding_is_idempotent_and_leaves_admin_changes(factory, capsys):
-    run(factory, "--profile", "deployment")
+    run(factory, "--profile", "ci")
     capsys.readouterr()
-    assert run(factory, "--profile", "deployment") == 0
+    assert run(factory, "--profile", "ci") == 0
     assert "0 inserted, 0 updated" in capsys.readouterr().out
     with factory() as db:
         by_id = {r.preset_id: r for r in db.scalars(select(PresetSetting))}
@@ -327,14 +346,14 @@ def test_preset_seeding_is_idempotent_and_leaves_admin_changes(factory, capsys):
         db.commit()
     admin_state = preset_rows(factory)
     capsys.readouterr()
-    assert run(factory, "--profile", "deployment") == 0
+    assert run(factory, "--profile", "ci") == 0
     assert preset_rows(factory) == admin_state
-    assert run(factory, "--profile", "deployment", "--reset") == 0
+    assert run(factory, "--profile", "ci", "--reset") == 0
     assert preset_rows(factory)["full"] == (True, True)
     assert preset_rows(factory)["ct-normalisation"] == (True, False)
     assert preset_rows(factory)["lesion-qc-report"] == (True, False)
     capsys.readouterr()
-    run(factory, "--profile", "deployment", "--reset")
+    run(factory, "--profile", "ci", "--reset")
     assert "0 updated" in capsys.readouterr().out
 
 
@@ -349,30 +368,30 @@ def test_missing_preset_rows_do_not_steal_an_admin_default(factory):
             )
         )
         db.commit()
-    assert run(factory, "--profile", "deployment") == 0
+    assert run(factory, "--profile", "ci") == 0
     got = preset_rows(factory)
     assert got["lesion-qc-report"] == (True, True)
     assert got["full"] == (True, False)
 
 
 def test_dry_run_writes_no_preset_rows(factory):
-    assert run(factory, "--profile", "deployment", "--dry-run") == 0
+    assert run(factory, "--profile", "ci", "--dry-run") == 0
     assert preset_rows(factory) == {}
 
 
 def test_preset_profile_errors_are_refused(factory, pipelines_copy, capsys):
     path = pipelines_copy / "stroke-lnm" / "registry.yaml"
     doc = yaml.safe_load(path.read_text())
-    doc["profiles"]["deployment"]["presets"]["enabled"].append("no-such-preset")
+    doc["profiles"]["ci"]["presets"]["enabled"].append("no-such-preset")
     path.write_text(yaml.safe_dump(doc, sort_keys=False))
-    assert run(factory, "--profile", "deployment", pipelines=pipelines_copy) == 1
+    assert run(factory, "--profile", "ci", pipelines=pipelines_copy) == 1
     assert "no-such-preset" in capsys.readouterr().err
     assert preset_rows(factory) == {} and rows(factory) == {}
-    doc["profiles"]["deployment"]["presets"]["enabled"].pop()
-    doc["profiles"]["deployment"]["presets"]["default"] = "ct-normalisation"
-    doc["profiles"]["deployment"]["presets"]["enabled"].remove("ct-normalisation")
+    doc["profiles"]["ci"]["presets"]["enabled"].pop()
+    doc["profiles"]["ci"]["presets"]["default"] = "ct-normalisation"
+    doc["profiles"]["ci"]["presets"]["enabled"].remove("ct-normalisation")
     path.write_text(yaml.safe_dump(doc, sort_keys=False))
-    assert run(factory, "--profile", "deployment", pipelines=pipelines_copy) == 1
+    assert run(factory, "--profile", "ci", pipelines=pipelines_copy) == 1
     assert "is not enabled" in capsys.readouterr().err
     assert preset_rows(factory) == {}
 
@@ -411,7 +430,7 @@ def test_seed_uses_the_same_presets_dir_as_the_api(
     monkeypatch.setenv("PRESETS_DIR", str(tree))
     assert resolve_presets_dir(PIPELINES) == tree
     # The registry enables four presets; only two files exist under PRESETS_DIR.
-    assert run(factory, "--profile", "deployment") == 1
+    assert run(factory, "--profile", "ci") == 1
     assert "has no file" in capsys.readouterr().err
     assert preset_rows(factory) == {}
     # With a registry that enables only those two, the rows are exactly those offered.
@@ -428,7 +447,7 @@ def test_seed_uses_the_same_presets_dir_as_the_api(
             p for p in profile["presets"]["enabled"] if p in keep
         ]
     path.write_text(yaml.safe_dump(doc, sort_keys=False))
-    assert run(factory, "--profile", "deployment", pipelines=pipelines) == 0
+    assert run(factory, "--profile", "ci", pipelines=pipelines) == 0
     assert set(preset_rows(factory)) == keep
     offered = {preset.id for _path, preset in scan_presets(tree)[0]}
     assert offered == keep == set(preset_rows(factory))
@@ -439,7 +458,7 @@ def test_seed_skips_a_preset_whose_stem_differs_from_its_id(
 ):
     presets = pipelines_copy / "stroke-lnm" / "presets"
     (presets / "full.yaml").rename(presets / "everything.yaml")
-    assert run(factory, "--profile", "deployment", pipelines=pipelines_copy) == 1
+    assert run(factory, "--profile", "ci", pipelines=pipelines_copy) == 1
     err = capsys.readouterr().err
     assert "everything.yaml" in err and "does not match its id" in err
     assert "enabled preset 'full' has no file" in err
@@ -449,21 +468,20 @@ def test_seed_skips_a_preset_whose_stem_differs_from_its_id(
 def test_reset_disables_settings_of_presets_without_a_file(
     factory, pipelines_copy, capsys
 ):
-    assert run(factory, "--profile", "deployment", pipelines=pipelines_copy) == 0
+    assert run(factory, "--profile", "ci", pipelines=pipelines_copy) == 0
     assert preset_rows(factory)["ct-normalisation"] == (True, False)
     (pipelines_copy / "stroke-lnm" / "presets" / "ct-normalisation.yaml").unlink()
     path = pipelines_copy / "stroke-lnm" / "registry.yaml"
     doc = yaml.safe_load(path.read_text())
-    for profile in doc["profiles"].values():
-        profile["presets"]["enabled"].remove("ct-normalisation")
+    doc["profiles"]["ci"]["presets"]["enabled"].remove("ct-normalisation")
     path.write_text(yaml.safe_dump(doc, sort_keys=False))
     capsys.readouterr()
     # Without --reset the row is left alone.
-    assert run(factory, "--profile", "deployment", pipelines=pipelines_copy) == 0
+    assert run(factory, "--profile", "ci", pipelines=pipelines_copy) == 0
     assert preset_rows(factory)["ct-normalisation"] == (True, False)
     capsys.readouterr()
     assert (
-        run(factory, "--profile", "deployment", "--reset", pipelines=pipelines_copy)
+        run(factory, "--profile", "ci", "--reset", pipelines=pipelines_copy)
         == 0
     )
     assert preset_rows(factory)["ct-normalisation"] == (False, False)

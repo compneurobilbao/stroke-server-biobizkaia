@@ -314,11 +314,12 @@ def test_seed_warns_about_an_enabled_row_below_the_minimum(factory, monkeypatch,
 def test_seed_disables_presets_without_an_enabled_required_slot(factory, monkeypatch, capsys):
     monkeypatch.setenv("DEPLOYMENT_PROFILE", "on-premise")
     assert run(factory, "--profile", "deployment") == 0
-    assert preset_rows(factory)["full"] == (True, True)  # every required slot has one
+    # the lab's minimum preset: every required slot has an enabled implementation
+    assert preset_rows(factory)["mni-mask-analysis"] == (True, True)
     capsys.readouterr()
     monkeypatch.setenv("MIN_IMPLEMENTATION_VALIDATION", "validated")
     assert run(factory, "--profile", "deployment", "--skip-below-minimum", "--reset") == 0
-    assert preset_rows(factory)["full"] == (False, False)
+    assert preset_rows(factory)["mni-mask-analysis"] == (False, False)
     assert "preset" in capsys.readouterr().out
 
 

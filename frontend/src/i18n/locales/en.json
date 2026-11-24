@@ -436,11 +436,12 @@
       "origin": {
         "manual": "drawn by hand",
         "externalTool": "external tool {{tool}} {{version}}",
-        "syntheticExample": "synthetic example lesion (provided by the platform)"
+        "syntheticExample": "Synthetic example lesion"
       },
       "runAgain": "Run again with the same plan",
       "runAgainNewFiles": "Run again with new files",
-      "runAgainActive": "A run of this case is active: run again once it has finished."
+      "runAgainActive": "A run of this case is active: run again once it has finished.",
+      "providedByPlatform": "Provided by the platform"
     },
     "analysis": {
       "hint": "Choose what to run on this case. The plan below shows which steps will run and why.",
@@ -509,6 +510,40 @@
         "bundle_unavailable": "A reference data bundle needed by {{slot}} is not available.",
         "manifest_unavailable": "The step image for {{slot}} is not available in this deployment.",
         "no_implementation_plain": "{{slot}} has no enabled implementation in this deployment."
+      }
+    },
+    "development": {
+      "badge": "In development",
+      "heading": "In development",
+      "hint": "These stages are not available yet. They cannot be selected.",
+      "modeNote": "In development: not available in this deployment.",
+      "notPartOfRun": "Not part of this run",
+      "stages": {
+        "normalisation": {
+          "title": "Normalisation to MNI",
+          "text": "Bring a CT or MRI lesion into the common space."
+        },
+        "segmentation": {
+          "title": "Lesion segmentation",
+          "text": "Delineate the lesion, including with external segmentation tools."
+        },
+        "lesion-bank": {
+          "title": "Lesion bank",
+          "text": "Capture and store lesions for later reuse."
+        },
+        "voxel-lnm": {
+          "title": "Voxel-wise structural LNM",
+          "text": "Runs on the HPC cluster. Its map is shown but not analysed further."
+        }
+      }
+    },
+    "implementation": {
+      "title": {
+        "flnm-fast-hcp-aging": "flnm-fast · HCP Aging",
+        "flnm-fast-hcp-ya": "flnm-fast · HCP Young Adult",
+        "flnm-fast-synthetic": "flnm-fast · synthetic cohort (CI)",
+        "lnm-tracts-hcp1065": "lnm-tracts · HCP1065 tract atlas",
+        "cognet-stroke-concept-maps": "COGNET-STROKE · concept maps"
       }
     }
   },

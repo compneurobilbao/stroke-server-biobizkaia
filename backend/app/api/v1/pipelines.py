@@ -21,6 +21,7 @@ from app.db.session import get_db
 from app.models.reference_bundle import SlotImplementationSetting
 from app.models.user import User
 from app.schemas.api_v1 import (
+    InDevelopmentStageRead,
     InputSetRead,
     PipelineDetail,
     PipelineInputRead,
@@ -131,7 +132,10 @@ def build_slots(
             implementations.append(
                 SlotImplementationRead(
                     id=impl["id"],
-                    title=(manifest or {}).get("title"),
+                    # The registry's display title (cohort, bundle) wins over the manifest's,
+                    # which is the same for every entry of one step image.
+                    title=orch.validation.title(pipeline.id, slot["name"], impl["id"])
+                    or (manifest or {}).get("title"),
                     step_name=impl["step"]["name"],
                     step_version=impl["step"]["version"],
                     image=impl["image"],
@@ -180,6 +184,42 @@ def build_slots(
     return slots
 
 
+def build_in_development(
+    pipeline: PipelineDefinition,
+    slots: list[SlotRead],
+    orch: Orchestration,
+) -> list[InDevelopmentStageRead]:
+    """Stages the registry lists as in development, in registry order. A stage with a ``slot``
+    is listed only while no implementation of that slot is enabled in this deployment (its title
+    and description come from the slot unless the registry gives them); one without a slot is
+    always listed."""
+    by_name = {slot.name: slot for slot in slots}
+    stages = []
+    for stage in orch.validation.in_development(pipeline.id):
+        slot_name = stage.get("slot")
+        if slot_name is None:
+            stages.append(
+                InDevelopmentStageRead(
+                    id=stage["id"],
+                    title=stage.get("title") or stage["id"],
+                    description=stage.get("description"),
+                )
+            )
+            continue
+        slot = by_name.get(slot_name)
+        if slot is None or any(i.enabled for i in slot.implementations):
+            continue
+        stages.append(
+            InDevelopmentStageRead(
+                id=stage["id"],
+                title=stage.get("title") or slot.title or slot.name,
+                description=stage.get("description") or slot.description,
+                slot=slot.name,
+            )
+        )
+    return stages
+
+
 @router.get("/pipelines", response_model=list[PipelineSummary])
 def list_pipelines(
     current_user: User = Depends(get_current_user),
@@ -214,7 +254,11 @@ def get_pipeline(
         include_disabled=include_disabled,
         not_validated=not_validated_implementations(orch, pipeline),
     )
-    return PipelineDetail(**_summary(pipeline), slots=slots)
+    return PipelineDetail(
+        **_summary(pipeline),
+        slots=slots,
+        in_development=build_in_development(pipeline, slots, orch),
+    )
 
 
 @router.get(
@@ -238,6 +282,30 @@ def list_slots(
         include_disabled=include_disabled,
         not_validated=not_validated_implementations(orch, pipeline),
     )
+
+
+@router.get(
+    "/pipelines/{pipeline_id}/versions/{version}/in-development",
+    response_model=list[InDevelopmentStageRead],
+)
+def list_in_development(
+    pipeline_id: str,
+    version: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    orch: Orchestration = Depends(get_orchestration),
+) -> list[InDevelopmentStageRead]:
+    """Stages of the process that are in development in this deployment: shown greyed, never
+    selectable (registry ``in_development``)."""
+    authorize(current_user, "pipeline.list")
+    pipeline = _visible(pipeline_id, version, current_user, False, orch)
+    slots = build_slots(
+        pipeline,
+        settings_of(db, pipeline.id),
+        orch,
+        not_validated=not_validated_implementations(orch, pipeline),
+    )
+    return build_in_development(pipeline, slots, orch)
 
 
 def _visible(pipeline_id, version, user, include_disabled, orch) -> PipelineDefinition:

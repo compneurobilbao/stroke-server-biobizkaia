@@ -5,7 +5,7 @@ import { patchInputOrigin, type InputFile } from '../../api/v1';
 import { useAuth } from '../auth/AuthContext';
 import { draftOf, isExampleOrigin, isValidOrigin, originOf, originRoles, type OriginDraft } from './origin';
 import { OriginField } from './OriginField';
-import { originText } from './RunPlanSummary';
+import { originPrefix, originText } from './RunPlanSummary';
 
 interface Props {
   caseId: string;
@@ -42,7 +42,7 @@ export function InputOriginEditor({ caseId, input, editable, onSaved }: Props) {
     <>
       {input.origin && (
         <span className="hint block" data-testid={`origin-${input.role}`}>
-          {t('cases.run.declaredByUser')}: {originText(t, input.origin)}
+          {originPrefix(t, input.origin)}: {originText(t, input.origin)}
         </span>
       )}
       {canEdit && draft === null && (

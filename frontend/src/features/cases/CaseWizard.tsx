@@ -9,12 +9,14 @@ import {
   createRun,
   getConfig,
   listExampleInputs,
+  listInDevelopment,
   listPipelines,
   listPresets,
   listSlots,
   previewPlan,
   putInput,
   type Config,
+  type DevelopmentStage,
   type ExampleInput,
   type PipelineSummary,
   type Preset,
@@ -24,6 +26,7 @@ import {
 import { useMessage } from '../../shared/messages';
 import { useAuth } from '../auth/AuthContext';
 import { AnalysisStep } from './AnalysisStep';
+import { DevelopmentList } from './DevelopmentList';
 import {
   CUSTOM_KEY,
   FULL_KEY,
@@ -42,7 +45,7 @@ import { IDLE_PREVIEW, ReasonList, slotTitleOf, type PreviewState } from './Plan
 import { EMPTY_ORIGIN, isValidOrigin, originOf, originRoles, type OriginDraft } from './origin';
 import { OriginField } from './OriginField';
 import { SlotSelector } from './SlotSelector';
-import { baselineImplementation, fixedImplementation, implementationOverrides } from './slots';
+import { baselineImplementation, developmentBlocked, fixedImplementation, implementationOverrides } from './slots';
 
 export type WizardMode = 'ct' | 'mni';
 
@@ -108,6 +111,8 @@ export function CaseWizard() {
   const [exampleChoice, setExampleChoice] = useState<Record<string, ExampleInput | null>>({});
   const [pipelines, setPipelines] = useState<PipelineSummary[] | null>(null);
   const [slots, setSlots] = useState<Slot[] | null>(null);
+  // Stages that are not available yet (never selectable); empty when the API lists none or fails.
+  const [development, setDevelopment] = useState<DevelopmentStage[]>([]);
   const [config, setConfig] = useState<Config | null>(null);
   const [presets, setPresets] = useState<Preset[] | null>(null);
   // The user's explicit analysis choice (the default applies when it is not offered), the custom
@@ -184,6 +189,13 @@ export function CaseWizard() {
     let cancelled = false;
     setSlots(null);
     setPresets(null);
+    setDevelopment([]);
+    // Optional display: a failure just means no in-development stages are shown.
+    listInDevelopment(api, pipeline.id, pipeline.version)
+      .then((list) => {
+        if (!cancelled) setDevelopment(list);
+      })
+      .catch(() => undefined);
     listSlots(api, pipeline.id, pipeline.version)
       .then((list) => {
         if (cancelled) return;
@@ -207,6 +219,16 @@ export function CaseWizard() {
       cancelled = true;
     };
   }, [api, pipeline, setMessage, t]);
+
+  // A mode whose required slot is in development (CT: normalisation) is greyed and not selectable.
+  const ctBlocked = slots ? developmentBlocked(slots, development, MODE_ROLES.ct) : false;
+  useEffect(() => {
+    if (sameCase || !ctBlocked || mode !== 'ct') return;
+    setMode('mni');
+    setCustom({});
+    setPicks({});
+    setAnalysisChoice(null);
+  }, [sameCase, ctBlocked, mode]);
 
   const customAllowed = config?.free_mode_allowed === true;
   const inputSet = pipeline ? inputSetName(pipeline, roles) : null;
@@ -388,21 +410,27 @@ export function CaseWizard() {
         <div className="wizard-panel">
           <fieldset className="wizard-fieldset" disabled={locked}>
             <legend>{t('cases.wizard.modeLegend')}</legend>
-            {(['ct', 'mni'] as const).map((value) => (
-              <label key={value} className="radio-row">
-                <input
-                  type="radio"
-                  name="mode"
-                  value={value}
-                  checked={mode === value}
-                  onChange={() => changeMode(value)}
-                />
-                <span>
-                  <strong>{t(`cases.wizard.mode.${value}`)}</strong>
-                  <span className="hint block">{t(`cases.wizard.modeHint.${value}`)}</span>
-                </span>
-              </label>
-            ))}
+            {(['ct', 'mni'] as const).map((value) => {
+              const inDevelopment = value === 'ct' && ctBlocked;
+              return (
+                <label key={value} className="radio-row" data-development={inDevelopment ? 'true' : undefined}>
+                  <input
+                    type="radio"
+                    name="mode"
+                    value={value}
+                    checked={mode === value}
+                    disabled={inDevelopment}
+                    onChange={() => changeMode(value)}
+                  />
+                  <span>
+                    <strong>{t(`cases.wizard.mode.${value}`)}</strong>
+                    {inDevelopment && <span className="tag tag-muted">{t('cases.development.badge')}</span>}
+                    <span className="hint block">{t(`cases.wizard.modeHint.${value}`)}</span>
+                    {inDevelopment && <span className="hint block">{t('cases.development.modeNote')}</span>}
+                  </span>
+                </label>
+              );
+            })}
           </fieldset>
           <div className="field-row">
             <label>
@@ -521,6 +549,7 @@ export function CaseWizard() {
               onCustomChange={changeCustom}
               preview={preview}
               disabled={busy}
+              development={development}
             />
           )}
         </>
@@ -566,7 +595,11 @@ export function CaseWizard() {
               fixed={fixed}
               disabled={busy}
               onChange={changePick}
+              development={development}
             />
+          )}
+          {pipeline && slots && preview.data && (
+            <DevelopmentList stages={development} hint={t('cases.development.hint')} />
           )}
           {preview.status === 'error' && (
             <p className="hint" role="alert">
