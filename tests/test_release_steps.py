@@ -59,6 +59,17 @@ def all_digests(registry: dict, c: str = "a") -> dict[str, str]:
     return out
 
 
+def flnm_entries(reg):
+    """The registry entries of the flnm-fast step (one image, one entry per normative bundle)."""
+    entries = [
+        e
+        for e in reg["implementations"]["functional-disconnection"].values()
+        if e["step"]["name"] == "flnm-fast"
+    ]
+    assert len(entries) == 3
+    return entries
+
+
 # --------------------------------------------------------------------------- targets
 
 
@@ -66,7 +77,7 @@ def test_targets_cover_the_registry_once_per_step():
     reg = registry_tool.load(HERE)[1]
     keys = [t.key for t in release.targets(reg)]
     assert len(keys) == len(set(keys))
-    assert "research-report@0.3.0" in keys and "flnm-fast@2.0.0" in keys
+    assert "research-report@0.3.0" in keys and "flnm-fast@3.0.0" in keys
     assert all(t.repository.startswith(NS + "/step-") for t in release.targets(reg))
 
 
@@ -82,9 +93,10 @@ def test_selection_by_name_and_unknown_name():
 
 def test_build_local_entries_are_never_targets():
     reg = copy.deepcopy(registry_tool.load(HERE)[1])
-    entry = reg["implementations"]["functional-disconnection"]["flnm-fast"]
-    entry["build"] = "local"
-    entry["image"] = "registry.internal.example/step-flnm-fast@" + D["a"]
+    # the three entries share one step image, so all of them must be local
+    for entry in flnm_entries(reg):
+        entry["build"] = "local"
+        entry["image"] = "registry.internal.example/step-flnm-fast@" + D["a"]
     assert "flnm-fast" not in [t.name for t in release.targets(reg)]
     with pytest.raises(release.ReleaseError, match="never published"):
         release.targets(reg, ["flnm-fast"])
@@ -389,17 +401,17 @@ def test_pin_refuses_build_local_entries(tree):
     text = (tree / "registry.yaml").read_text(encoding="utf-8")
     # an external, redistribution-forbidden wrapper: the only shape in which build: local is valid
     reg = registry_tool.load(tree)[1]
-    entry = reg["implementations"]["functional-disconnection"]["flnm-fast"]
-    entry["build"] = "local"
-    entry["licence_review"]["image_redistribution"] = "forbidden"
-    entry["image"] = "registry.internal.example/step-flnm-fast@sha256:" + "0" * 64
+    for entry in flnm_entries(reg):
+        entry["build"] = "local"
+        entry["licence_review"]["image_redistribution"] = "forbidden"
+        entry["image"] = "registry.internal.example/step-flnm-fast@sha256:" + "0" * 64
     pipeline = registry_tool.load(tree)[0]
     # the loaded documents are only used to prove the rule on `pin` through a patched load
     original = registry_tool.load
     registry_tool.load = lambda directory=HERE: (pipeline, reg)
     try:
         with pytest.raises(ValueError, match="build: local"):
-            registry_tool.pin(tree, {"flnm-fast@2.0.0": digest_ref("flnm-fast")})
+            registry_tool.pin(tree, {"flnm-fast@3.0.0": digest_ref("flnm-fast")})
     finally:
         registry_tool.load = original
     assert (tree / "registry.yaml").read_text(encoding="utf-8") == text
@@ -413,10 +425,10 @@ def test_check_exempts_build_local_entries_from_published(tree):
             if entry["kind"] != "planned":
                 entry["image"] = entry["image"].replace("0" * 64, "a" * 64)
     reg["published"] = True
-    flnm = reg["implementations"]["functional-disconnection"]["flnm-fast"]
-    flnm["build"] = "local"
-    flnm["licence_review"]["image_redistribution"] = "forbidden"
-    flnm["image"] = "registry.internal.example/step-flnm-fast@sha256:" + "0" * 64
+    for flnm in flnm_entries(reg):
+        flnm["build"] = "local"
+        flnm["licence_review"]["image_redistribution"] = "forbidden"
+        flnm["image"] = "registry.internal.example/step-flnm-fast@sha256:" + "0" * 64
     assert not registry_tool.published_errors(reg)
 
 

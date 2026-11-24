@@ -100,7 +100,7 @@ def test_level_rule_is_the_one_of_the_registry_tool():
 
 def test_directory_levels_read_the_committed_registry():
     levels = DirectoryValidationLevels(PIPELINES)
-    assert levels.level("stroke-lnm", "functional-disconnection", "flnm-fast") == "reference-tested"
+    assert levels.level("stroke-lnm", "functional-disconnection", "flnm-fast-hcp-aging") == "reference-tested"
     assert levels.level("stroke-lnm", "lesion-intake", "lesion-qc") == "reference-tested"
     assert (
         levels.level("stroke-lnm", "functional-disconnection", "fdisconnection-stub")
@@ -246,7 +246,7 @@ def test_seed_refuses_a_profile_below_the_minimum_on_a_public_deployment(
     monkeypatch.setenv("DEPLOYMENT_PROFILE", "research-public")
     assert run(factory, "--profile", "deployment") == 1
     err = capsys.readouterr().err
-    assert CODE in err and "functional-disconnection/flnm-fast" in err
+    assert CODE in err and "functional-disconnection/flnm-fast-hcp-aging" in err
     assert rows(factory) == {}
 
 
@@ -268,7 +268,7 @@ def test_seed_skip_flag_seeds_the_refused_implementation_disabled(
 def test_seed_on_the_lab_instance_enables_flnm_fast(factory, monkeypatch):
     monkeypatch.setenv("DEPLOYMENT_PROFILE", "on-premise")
     assert run(factory, "--profile", "deployment") == 0
-    assert rows(factory)[("functional-disconnection", "flnm-fast")] == (True, True)
+    assert rows(factory)[("functional-disconnection", "flnm-fast-hcp-aging")] == (True, True)
     # raising the lab's minimum refuses it again
     monkeypatch.setenv("MIN_IMPLEMENTATION_VALIDATION", "validated")
     assert run(factory, "--profile", "deployment", "--reset") == 1
@@ -305,7 +305,7 @@ def test_seed_warns_about_an_enabled_row_below_the_minimum(factory, monkeypatch,
     assert run(factory, "--profile", "deployment", "--skip-below-minimum") == 0
     out = capsys.readouterr().out
     assert "left as is" in out and "WARNING" in out and "--reset" in out
-    assert rows(factory)[("functional-disconnection", "flnm-fast")] == (True, True)
+    assert rows(factory)[("functional-disconnection", "flnm-fast-hcp-aging")] == (True, True)
     # --reset disables what is below the minimum
     assert run(factory, "--profile", "deployment", "--skip-below-minimum", "--reset") == 0
     assert all(enabled is False for enabled, _default in rows(factory).values())

@@ -13,7 +13,7 @@
 # those digests at run time (`registry.py materialize`) without touching this file. Nothing
 # here is ever pulled while a digest is a placeholder.
 registry_version: 1
-pipeline: {id: stroke-lnm, version: 0.5.0}
+pipeline: {id: stroke-lnm, version: 0.6.0}
 published: false
 
 # kind: real     a merged step that runs on real data
@@ -82,8 +82,13 @@ implementations:
         commit: 07702382b588f430b52005b61e71a9b48f5fcd15
         dockerfile: step/Dockerfile
   functional-disconnection:
-    flnm-fast:
-      step: {name: flnm-fast, version: 2.0.0}
+    # The same step image three times (pipeline.yaml pins a different normative-fc bundle in
+    # each entry, which is the whole difference): the HCP Aging cohort, the HCP Young Adult
+    # cohort, and a synthetic cohort that only the ci profile enables. The two cohort entries
+    # need their real bundle installed on the deployment (docs/reference-data.md); the entries
+    # after the first reuse its fields through the YAML anchor.
+    flnm-fast-hcp-aging: &flnm_fast
+      step: {name: flnm-fast, version: 3.0.0}
       kind: real
       origin: external
       licence_review:
@@ -103,21 +108,40 @@ implementations:
           on the code and with a synthetic test), so the workaround of step 1.x (warning
           lowest_overlapped_parcel_omitted, refusal lesion_single_parcel) was removed. Results of
           step 2.0.0 therefore differ from those of 1.x for every lesion that overlaps more than
-          one parcel. Known property of 2.1.0, not changed: a target parcel with constant (not
-          missing) connectivity across the controls gets a very large finite z instead of NaN,
-          because of rounding in the engine's regression; parcels with missing values are NaN.
+          one parcel. Step 3.0.0 runs the engine without age and sex matching, over every
+          participant of the pinned cohort bundle. Known property of 2.1.0, not changed: a target
+          parcel with constant (not missing) connectivity across the controls gets a very large
+          finite z instead of NaN, because of rounding in the engine's regression; parcels with
+          missing values are NaN.
       validation:
         status: reference-tested
         notes: >-
           The reference test of the step (synthetic normative cohort, expected map computed
           independently of the engine) passes in CI for this image (engine 2.1.0). No agreement
           with reference results on lab reference cases has been recorded, so it is not
-          validated, and the step is a new engine major version (2.x) with no field history.
+          validated, and the step is a new major version (3.x) with no field history. Cohort
+          bundle of this entry: normative-fc-hcp-aging 1.0.0 (HCP Aging); the normative choice
+          is the cohort only, there is no age or sex matching.
       image: docker.io/compneurobilbaolab/step-flnm-fast@sha256:0000000000000000000000000000000000000000000000000000000000000000
       source:
         repository: this
         dockerfile: steps/flnm-fast/Dockerfile
         note: "wrapper over the public engine image compneurobilbaolab/flnm-fast (digest pinned in the Dockerfile; no source repository)"
+    flnm-fast-hcp-ya:
+      <<: *flnm_fast
+      validation:
+        status: reference-tested
+        notes: >-
+          As flnm-fast-hcp-aging. Cohort bundle of this entry: normative-fc-hcp-ya 1.0.0 (HCP
+          Young Adult).
+    flnm-fast-synthetic:
+      <<: *flnm_fast
+      validation:
+        status: reference-tested
+        notes: >-
+          CI fixture: the real step on the synthetic bundle synthetic-normative-fc 1.0.0
+          (27 block parcels). Enabled in the ci profile only; its z-maps have no scientific
+          meaning.
     fdisconnection-stub:
       step: {name: fdisconnection-stub, version: 0.1.0}
       kind: stub
@@ -172,21 +196,22 @@ implementations:
 profiles:
   # What a deployment enables. Slots absent from `enabled` are left unmounted (the CT
   # input set is then refused). Stubs and planned entries are never enabled here. The
-  # functional disconnection step needs the normative-fc bundle installed locally
-  # (docs/reference-data.md) and the sex and age band on the case; normalisation needs
-  # no bundle (its small templates ship inside the image) and uses the age band when given.
+  # functional disconnection entries need their normative-fc bundle (HCP Aging, HCP Young
+  # Adult) installed locally (docs/reference-data.md); they do not use the case's sex or age.
+  # Normalisation needs no bundle (its small templates ship inside the image) and uses the
+  # age band when given.
   deployment:
     enabled:
       lesion-intake: [lesion-qc]
       normalisation: [ct-lesion-to-mni152]
-      functional-disconnection: [flnm-fast]
+      functional-disconnection: [flnm-fast-hcp-aging, flnm-fast-hcp-ya]
       tract-disconnection: [lnm-tracts]
       cognet-profile: [cognet-stroke]
       report: [research-report, research-report-es]
     default:
       lesion-intake: lesion-qc
       normalisation: ct-lesion-to-mni152
-      functional-disconnection: flnm-fast
+      functional-disconnection: flnm-fast-hcp-aging
       tract-disconnection: lnm-tracts
       cognet-profile: cognet-stroke
       report: research-report
@@ -199,15 +224,16 @@ profiles:
 
   # The CI configuration: every slot that can run on fixtures is filled with the real step
   # where a light one exists. Functional disconnection enables both: the real flnm-fast step
-  # (runs on a small synthetic normative-fc bundle, requested explicitly by the end-to-end
-  # test) and the stub, which stays the default because the real-stack UI specs
+  # pinned to the small synthetic normative-fc bundle (flnm-fast-synthetic, requested
+  # explicitly by the end-to-end test; the HCP entries are not enabled because CI has no such
+  # bundle) and the stub, which stays the default because the real-stack UI specs
   # (frontend/e2e/real) assert it. Normalisation runs the real CT step on a reference case
   # built in CI from a public head CT template (never committed), so CI runs both input sets.
   ci:
     enabled:
       lesion-intake: [lesion-qc]
       normalisation: [ct-lesion-to-mni152]
-      functional-disconnection: [flnm-fast, fdisconnection-stub]
+      functional-disconnection: [flnm-fast-synthetic, fdisconnection-stub]
       tract-disconnection: [lnm-tracts]
       cognet-profile: [cognet-stroke]
       report: [research-report, research-report-es]

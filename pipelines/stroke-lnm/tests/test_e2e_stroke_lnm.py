@@ -87,7 +87,7 @@ def test_committed_pipeline_is_valid_and_lists_every_slot():
     definition = load_pipeline(HERE / "pipeline.yaml")
     assert [s["name"] for s in definition.slots] == SLOTS
     assert definition.match_input_set(["lesion_mni"]) == "mni-mask"
-    assert definition.version == "0.5.0"
+    assert definition.version == "0.6.0"
 
 
 def test_report_does_not_need_tract_disconnection():
@@ -117,18 +117,27 @@ def test_deployment_profile_enables_real_entries_only():
     # the real CT step is mounted and is the default of the normalisation slot
     assert ("normalisation", "ct-lesion-to-mni152") in enabled
     assert registry["implementations"]["normalisation"]["ct-lesion-to-mni152"]["kind"] == "real"
-    assert ("functional-disconnection", "flnm-fast") in enabled
+    # both normative cohorts are offered, HCP Aging is the default; the CI fixtures are not
+    assert {
+        ("functional-disconnection", "flnm-fast-hcp-aging"),
+        ("functional-disconnection", "flnm-fast-hcp-ya"),
+    } <= enabled
+    assert ("functional-disconnection", "flnm-fast-synthetic") not in enabled
     assert ("functional-disconnection", "fdisconnection-stub") not in enabled
     defaults = {r["slot"]: r["implementation_id"] for r in rows if r["is_default"]}
-    assert defaults["functional-disconnection"] == "flnm-fast"
+    assert defaults["functional-disconnection"] == "flnm-fast-hcp-aging"
     assert defaults["normalisation"] == "ct-lesion-to-mni152"
     ci = registry_tool.enabled_settings(registry, "ci")
     ci_enabled = {(r["slot"], r["implementation_id"]) for r in ci if r["enabled"]}
     # both are enabled in ci; the stub stays the ci default (the real-stack UI specs assert it)
     assert {
-        ("functional-disconnection", "flnm-fast"),
+        ("functional-disconnection", "flnm-fast-synthetic"),
         ("functional-disconnection", "fdisconnection-stub"),
     } <= ci_enabled
+    assert not {
+        ("functional-disconnection", "flnm-fast-hcp-aging"),
+        ("functional-disconnection", "flnm-fast-hcp-ya"),
+    } & ci_enabled
     ci_defaults = {r["slot"]: r["implementation_id"] for r in ci if r["is_default"]}
     assert ci_defaults["functional-disconnection"] == "fdisconnection-stub"
     assert ci_defaults["normalisation"] == "ct-lesion-to-mni152"
@@ -202,7 +211,7 @@ class Stack:
         self.orch = build_orchestrator(
             self.Session, self.store_root, settings=_Settings(), env=env
         )
-        self.pipeline = self.orch.pipelines.get("stroke-lnm", "0.5.0")
+        self.pipeline = self.orch.pipelines.get("stroke-lnm", "0.6.0")
         assert self.pipeline is not None
         # the presets of the materialized tree (registry.py materialize copies them unchanged)
         self.presets = DirectoryPresetRegistry(PIPELINES_DIR, self.orch.pipelines, self.orch.steps)
@@ -212,7 +221,7 @@ class Stack:
         from orchestrator.store import sha256_file
 
         with self.Session() as db:
-            # sex and age band are bound to the flnm-fast parameters
+            # sex and age band are recorded on the case; no functional-disconnection entry uses them
             case = Case(
                 owner_user_id=self.user_id,
                 deployment_profile="research-public",
@@ -368,7 +377,7 @@ def assert_complete_record(
         for name in SLOTS
         if "bundles" in slots[name]
     }
-    if fdisconnection == "flnm-fast":
+    if fdisconnection == "flnm-fast-synthetic":
         assert bundles["functional-disconnection"]["normative"]["id"] == "synthetic-normative-fc"
     else:
         assert bundles["functional-disconnection"]["connectome"]["id"] == "toy-normative-connectome"
@@ -423,14 +432,14 @@ def test_default_run_on_the_mni_mask(stack, mni_case, tmp_path):
 def test_run_with_the_real_functional_disconnection_step(stack, mni_case, tmp_path):
     """flnm-fast (the unchanged engine image behind the contract wrapper) on the synthetic normative bundle."""
     run_id = stack.create(
-        mni_case, requested_implementations={"functional-disconnection": "flnm-fast"}
+        mni_case, requested_implementations={"functional-disconnection": "flnm-fast-synthetic"}
     )
     stack.drive(run_id)
     record = run_record(stack, run_id)
     validate_record(record, tmp_path)
-    slots = assert_complete_record(stack, record, fdisconnection="flnm-fast")
+    slots = assert_complete_record(stack, record, fdisconnection="flnm-fast-synthetic")
     chosen = slots["functional-disconnection"]["implementation"]
-    assert (chosen["id"], chosen["chosen_by"], chosen["stub"]) == ("flnm-fast", "user", False)
+    assert (chosen["id"], chosen["chosen_by"], chosen["stub"]) == ("flnm-fast-synthetic", "user", False)
     # F1-23: the manifest's upstream block (contract 1.2) is copied into the slot record
     assert chosen["upstream"]["name"] == "flnm-fast (lesion_zmaps engine)"
     assert chosen["upstream"]["licence"] == "MIT"
@@ -439,8 +448,9 @@ def test_run_with_the_real_functional_disconnection_step(stack, mni_case, tmp_pa
     import nibabel as nib
     import numpy as np
 
-    # The z-map equals the reference computed independently on the synthetic normative bundle:
-    # same sex, age band midpoint, the engine default of 1000 controls.
+    # The z-map equals the reference computed independently on the synthetic normative bundle
+    # (every participant of the cohort: no age or sex matching), through the bundle pinned by
+    # the implementation entry.
     ref = _flnm_fast_reference()
     shape, _affine = ref.working_grid(REPO / "contracts" / "artefact-types.yaml")
     zmap = artifact_path(stack, run_id, "functional-disconnection", "fdisconnection_map")
@@ -449,20 +459,12 @@ def test_run_with_the_real_functional_disconnection_step(stack, mni_case, tmp_pa
         ref.parcellation(shape),
         lesion,
         ref.fc_array(),
-        ref.subjects(),
-        age=62.0,
-        sex="F",
-        count=1000,
     )
     actual_z = np.asarray(nib.load(str(zmap)).dataobj)
     assert np.allclose(actual_z, expected_z, rtol=1e-5, atol=1e-5)
     assert np.isfinite(actual_z).all() and (actual_z != 0).any()
     fd_step = next(s for s in record["steps"] if s["slot"] == "functional-disconnection")
-    assert fd_step["provenance"]["parameters"] == {
-        "sex": CASE_SEX,
-        "age_band": CASE_AGE_BAND,
-        "control_count": 1000,
-    }
+    assert fd_step["provenance"]["parameters"] == {}
     assert report_bundle(record) == "synthetic-normative-fc"
 
 
@@ -653,7 +655,7 @@ def _runs_of(stack, case_id) -> int:
 
 @needs_e2e
 def test_the_presets_are_attached_to_the_materialized_pipeline(stack):
-    attached = stack.presets.presets("stroke-lnm", "0.5.0")
+    attached = stack.presets.presets("stroke-lnm", "0.6.0")
     assert [p.id for p in attached] == sorted(PRESET_IDS)
     for preset in attached:
         raw = (Path(PIPELINES_DIR) / "stroke-lnm" / "presets" / f"{preset.id}.yaml").read_bytes()
@@ -680,7 +682,7 @@ def test_ct_normalisation_preset_runs_intake_and_normalisation_only(stack, tmp_p
         "mode": "preset",
         "preset": {
             "id": "ct-normalisation",
-            "version": "1.3.0",
+            "version": "1.4.0",
             "sha256": hashlib.sha256(preset_file.read_bytes()).hexdigest(),
         },
         "targets": {"required": ["lesion-intake.lesion_qc", "normalisation.lesion_mask_mni"]},
@@ -711,7 +713,7 @@ def test_ct_normalisation_preset_runs_intake_and_normalisation_only(stack, tmp_p
         assert (run.plan_mode, run.preset_id, run.preset_version) == (
             "preset",
             "ct-normalisation",
-            "1.3.0",
+            "1.4.0",
         )
         rows = {
             r.slot: r for r in db.scalars(select(RunSlot).where(RunSlot.pipeline_run_id == run_id))
@@ -765,7 +767,7 @@ def _finished_preset_run(stack, case_id, preset_id, tmp_path):
     preset_file = Path(PIPELINES_DIR) / "stroke-lnm" / "presets" / f"{preset_id}.yaml"
     sha256 = hashlib.sha256(preset_file.read_bytes()).hexdigest()
     assert record["contract_version"] == "1.2"
-    assert record["plan"]["preset"] == {"id": preset_id, "version": "1.3.0", "sha256": sha256}
+    assert record["plan"]["preset"] == {"id": preset_id, "version": "1.4.0", "sha256": sha256}
     # the report reads the run record as it is (it declares contract 1.2) and states the plan
     assert report["generator"] == {"step": "research-report", "version": "0.3.0"}
     assert report["report_version"] == "1.1"

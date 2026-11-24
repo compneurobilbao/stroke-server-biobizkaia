@@ -26,7 +26,8 @@ registry_tool = importlib.util.module_from_spec(_spec)
 sys.modules[_spec.name] = registry_tool
 _spec.loader.exec_module(registry_tool)
 
-SLOT, IMPL = "functional-disconnection", "flnm-fast"
+SLOT, IMPL = "functional-disconnection", "flnm-fast-hcp-aging"
+FLNM_ENTRIES = ("flnm-fast-hcp-aging", "flnm-fast-hcp-ya", "flnm-fast-synthetic")  # one image
 
 
 @pytest.fixture()
@@ -65,7 +66,7 @@ def test_committed_registry_passes_and_flnm_fast_is_the_worked_example(docs, roo
     assert entry["origin"] == "external"
     assert entry["validation"]["status"] == "reference-tested"
     assert entry["licence_review"]["image_redistribution"] == "allowed"
-    assert entry["step"]["version"] == "2.0.0"
+    assert entry["step"]["version"] == "3.0.0"
     # the repository's own manifest is the one the check read
     manifest = yaml.safe_load((REPO / "steps/flnm-fast/step.yaml").read_text(encoding="utf-8"))
     assert manifest["contract_version"] == "1.2"
@@ -197,15 +198,18 @@ def test_build_local_goes_with_a_licence_that_forbids_publishing(docs, root):
     found = errors_for(docs, root, local)
     assert any("never on a public registry" in e for e in found), found
     pipeline, registry = copy.deepcopy(docs[0]), copy.deepcopy(docs[1])
-    entry = registry["implementations"][SLOT][IMPL]
-    local(entry)
-    entry["image"] = "registry.example.org/local/step-flnm-fast@sha256:" + "0" * 64
-    allowed = next(a for a in pipeline["slots"][2]["implementations"]["allowed"] if a["id"] == IMPL)
-    allowed["image"] = entry["image"]
+    # the three entries share one step image: all of them are built locally
+    slot = next(s for s in pipeline["slots"] if s["name"] == SLOT)
+    for impl_id in FLNM_ENTRIES:
+        entry = registry["implementations"][SLOT][impl_id]
+        local(entry)
+        entry["image"] = "registry.example.org/local/step-flnm-fast@sha256:" + "0" * 64
+        allowed = next(a for a in slot["implementations"]["allowed"] if a["id"] == impl_id)
+        allowed["image"] = entry["image"]
     assert registry_tool.check(pipeline, registry, root=root) == []
     # CI neither builds nor pushes it; materialize leaves it alone without a digest
-    assert "flnm-fast@2.0.0" not in registry_tool.sources(registry)
-    assert "flnm-fast@2.0.0" in registry_tool.sources(registry, local=True)
+    assert "flnm-fast@3.0.0" not in registry_tool.sources(registry)
+    assert "flnm-fast@3.0.0" in registry_tool.sources(registry, local=True)
     digests = {k: f"docker.io/x/{k.split('@')[0]}@sha256:" + "1" * 64 for k in registry_tool.sources(registry)}
     _p, out = registry_tool.materialize(pipeline, registry, digests)
     assert out["implementations"][SLOT][IMPL]["image"] == entry["image"]
@@ -243,11 +247,11 @@ def test_no_profile_but_ci_enables_below_reference_tested(docs, root):
     found = errors_for(docs, root, lambda e: e.pop("validation") and None)
     # an external entry without a status counts as unvalidated: the deployment profile refuses it
     assert any(
-        "profile deployment: functional-disconnection/flnm-fast is unvalidated" in e
+        "profile deployment: functional-disconnection/flnm-fast-hcp-aging is unvalidated" in e
         and "implementation_not_validated" in e
         for e in found
     ), found
-    assert not any("profile ci: functional-disconnection/flnm-fast is" in e for e in found)
+    assert not any("profile ci: functional-disconnection/flnm-fast-synthetic is" in e for e in found)
 
 
 def test_level_rule(docs):

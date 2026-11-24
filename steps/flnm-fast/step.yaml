@@ -1,24 +1,25 @@
 contract_version: "1.2"
 kind: Step
 name: flnm-fast
-version: 2.0.0
+version: 3.0.0
 title: Functional lesion network mapping (flnm-fast)
 description: >-
   Functional lesion network z-map of one lesion. The packaged engine (image
   compneurobilbaolab/flnm-fast 2.1.0, unchanged) weights the parcels of the normative
-  parcellation by their overlap with the lesion mask, selects the normative participants of
-  the same sex with the nearest age, computes the lesion-weighted functional connectivity
-  profile of each of them, tests every target parcel against zero across those participants
-  with a one-sample t-test, converts the signed t statistics to signed z scores and writes
-  them on the working grid, piecewise constant per parcel. The normative functional
-  connectivity data is a reference bundle of type normative-fc (docs/reference-data.md).
-  The case sex and age band come from the case metadata through parameter bindings; the step
-  never receives exact ages or identifiers. Values are signed z scores of lesion-to-parcel
-  connectivity: positive where a parcel is positively coupled with the lesion site. Version
-  2.0.0 wraps engine 2.1.0, which weights every lesion-overlapped parcel (engine 1.0 left
-  the lowest-numbered one out, so the z-map of the same case and cohort differs from 1.x, and a
-  lesion within one parcel, rejected as `lesion_single_parcel` by 1.x, is now processed). The
-  inputs, outputs, parameters and bundle layout are those of 1.x.
+  parcellation by their overlap with the lesion mask, computes the lesion-weighted functional
+  connectivity profile of every participant of the mounted normative cohort, tests every
+  target parcel against zero across all of those participants with a one-sample t-test,
+  converts the signed t statistics to signed z scores and writes them on the working grid,
+  piecewise constant per parcel. The normative functional connectivity data is a reference
+  bundle of type normative-fc (docs/reference-data.md); the bundle is the normative choice
+  (one bundle per cohort, selected by the pipeline's implementation entry) and the step uses
+  every participant of it: there is no age or sex matching, so the step has no parameters and
+  the case's sex and age are not used. The parcellation is read from the bundle. Values are
+  signed z scores of lesion-to-parcel connectivity: positive where a parcel is positively
+  coupled with the lesion site. Version 3.0.0 removes the parameters sex, age_band and
+  control_count and the rejections participant_sex_missing, participant_age_missing and
+  insufficient_controls (major change), and takes the parcellation path from the bundle
+  instead of a fixed file name. It wraps engine 2.1.0 as 2.0.0 did.
 provides: functional-disconnection
 image:
   repository: docker.io/compneurobilbaolab/step-flnm-fast
@@ -59,38 +60,17 @@ outputs:
 parameters:
   type: object
   additionalProperties: false
-  properties:
-    sex:
-      description: >-
-        Sex of the case; only normative participants of the same sex are used. Bound to the
-        case metadata. The run is rejected (participant_sex_missing) when it is unset.
-      type: [string, "null"]
-      enum: [female, male, null]
-      default: null
-    age_band:
-      description: >-
-        Age band of the case in whole years ("65-69"); the midpoint is the age the nearest
-        normative participants are selected for. Bound to the case metadata. The run is
-        rejected (participant_age_missing) when it is unset.
-      type: [string, "null"]
-      pattern: "^[0-9]{1,3}-[0-9]{1,3}$"
-      default: null
-    control_count:
-      description: >-
-        Number of same-sex, nearest-age normative participants the statistic is computed
-        over (the engine default).
-      type: integer
-      minimum: 2
-      default: 1000
+  properties: {}
 
 bundles:
   - name: normative
     type: normative-fc
     version: ">=1.0.0, <2.0.0"
     description: >-
-      Normative parcel-by-parcel functional connectivity of a healthy cohort with sex and
-      age labels (layout in steps/flnm-fast/README.md). Licence terms of the cohort apply:
-      real data is not redistributable and is installed locally.
+      Normative parcel-by-parcel functional connectivity of a healthy cohort (layout in
+      steps/flnm-fast/README.md; age and sex are not needed). The pipeline's implementation
+      entry pins which cohort bundle is used. Licence terms of the cohort apply: real data is
+      not redistributable and is installed locally.
 
 resources:
   cpus: 1
@@ -99,39 +79,27 @@ resources:
   scratch_mb: 256
 
 errors:
-  - code: participant_sex_missing
-    category: input_rejected
-    description: The case has no sex recorded, which the normative control selection needs.
-  - code: participant_age_missing
-    category: input_rejected
-    description: The case has no age band recorded, which the normative control selection needs.
   - code: mask_empty
     category: input_rejected
     description: The lesion mask has no voxels set.
   - code: lesion_outside_parcellation
     category: input_rejected
     description: The lesion does not overlap any parcel of the normative parcellation.
-  - code: insufficient_controls
-    category: input_rejected
-    description: The normative cohort has fewer participants of the requested sex than control_count.
 
 reference_test:
   description: >-
-    A synthetic normative cohort (27 block parcels, 2100 participants with sex and age, seeded
-    hash-based connectivity) and a synthetic ball lesion straddling several parcels, all
-    written by tests/make_reference.py (nothing is committed). The expected z-map is computed
-    independently of the engine with the standard library (exact t distribution and normal
-    quantile functions) and numpy. Run with the generated bundle as
-    --bundle normative=steps/flnm-fast/tests/reference/bundle.
+    A synthetic normative cohort (27 block parcels, 200 participants, seeded hash-based
+    connectivity, no age or sex columns) and a synthetic ball lesion straddling several
+    parcels, all written by tests/make_reference.py (nothing is committed). The expected z-map
+    is computed independently of the engine with the standard library (exact t distribution
+    and normal quantile functions) and numpy, over every participant. Run with the generated
+    bundle as --bundle normative=steps/flnm-fast/tests/reference/bundle.
   generator: tests/make_reference.py
   inputs:
     lesion_mask: tests/reference/lesion_mask.nii.gz
   bundles:
     normative: {id: synthetic-normative-fc, version: 1.0.0}
-  parameters:
-    sex: female
-    age_band: 60-64
-    control_count: 16
+  parameters: {}
   expected:
     fdisconnection_map:
       compare: allclose

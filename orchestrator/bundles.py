@@ -35,7 +35,10 @@ Public API
     ``bundle_id``, ``version`` and ``content_digest`` (what the step must report
     in its provenance). ``selection`` optionally pins ``{name: (id, version)}``;
     otherwise the highest active, verified version matching type, id and version
-    range is used. Optional requirements that nothing satisfies are omitted. Each
+    range is used. When bundles of several ids satisfy the requirement the choice is
+    ambiguous: it is still deterministic (highest version; equal versions are broken
+    by smallest id, then earliest registration) and a warning is logged; an explicit
+    pin, or an ``id`` in the requirement, removes the ambiguity. Optional requirements that nothing satisfies are omitted. Each
     chosen bundle gets the cheap pre-mount check (``full=True`` re-hashes, as
     required after a copy to another host). Raises ``BundleNotFoundError`` when a
     required bundle is missing and ``BundleVerificationError`` when one fails
@@ -52,6 +55,7 @@ import argparse
 import dataclasses
 import hashlib
 import json
+import logging
 import os
 import shutil
 import sys
@@ -63,6 +67,8 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Protocol
 
 import yaml
+
+log = logging.getLogger(__name__)
 
 MANIFEST = "bundle.yaml"
 MOUNT_PREFIX = "/ref"
@@ -575,10 +581,30 @@ class BundleRegistry:
             return None
         # Prefer a verified version; a failed one is only returned if nothing else
         # fits, so that the caller gets a verification error rather than "missing".
-        candidates.sort(
-            key=lambda r: (r.verification_status == "verified", _version_key(r.version))
+        def rank(r: BundleRecord):
+            return (r.verification_status == "verified", _version_key(r.version))
+
+        best = max(rank(r) for r in candidates)
+        tied = sorted(
+            (r for r in candidates if rank(r) == best),
+            key=lambda r: (r.bundle_id, r.registered_at, r.row_id),
         )
-        return candidates[-1]
+        ids = sorted({r.bundle_id for r in candidates})
+        if len(ids) > 1:
+            # Several bundles of different ids satisfy the requirement. The store gives no
+            # order (a database query), so without the sort above the choice among equally
+            # good ones would change from one run to the next.
+            log.warning(
+                "ambiguous bundle requirement %r (type %s): bundle ids %s all match; using %s "
+                "%s (highest version; ties by smallest id, then earliest registration). Pin the "
+                "bundle in the pipeline's implementation entry or name its id in the requirement.",
+                req["name"],
+                req["type"],
+                ", ".join(ids),
+                tied[0].bundle_id,
+                tied[0].version,
+            )
+        return tied[0]
 
 
 def _version_key(version: str):

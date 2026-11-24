@@ -5,14 +5,14 @@
 contract_version: "1.2"
 kind: Preset
 id: mni-mask-analysis
-version: 1.3.0
+version: 1.4.0
 title: Disconnection analysis of an MNI lesion mask
 description: >-
   Functional and tract-wise disconnection and the research report for a lesion mask already
   in MNI space; the COGNET-STROKE cognitive profile is added when it is enabled.
 pipeline:
   id: stroke-lnm
-  versions: ">=0.2.0, <0.6.0"
+  versions: ">=0.2.0, <0.7.0"
 input_sets: [mni-mask]
 targets:
   required: [tract-disconnection, functional-disconnection, report]
