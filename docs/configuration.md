@@ -92,6 +92,20 @@ Only used when the Compose profile `pipelines` is enabled (see `docs/deployment.
 
 The `api` also reads `BUNDLE_ROOT` and `PLATFORM_VERSION`; a missing directory means an empty pipeline list or no bundles, never a start-up failure. Implementation settings are seeded with `make seed-implementations` (`PROFILE=deployment|ci`, `ARGS=--dry-run` or `--reset`), see `docs/deployment.md`.
 
+## Synthetic example inputs
+
+Off by default. When `EXAMPLE_INPUTS_DIR` is set, the API offers synthetic example files so that a new user can start a case without having a file (`GET /api/v1/example-inputs`, `POST /api/v1/cases/{id}/inputs/{role}/example`, see `docs/api.md`) and the case wizard shows a "Use the example lesion (synthetic)" button in the MNI-mask mode.
+
+| Variable | Purpose | Default value |
+| --- | --- | --- |
+| `EXAMPLE_INPUTS_DIR` | Directory (inside the `api` container) with `manifest.json` and the example files it lists. Empty: the feature is off, the list is empty and attaching an example is refused with 404. | empty |
+
+The `api` image already contains two synthetic MNI152NLin6Asym 2 mm lesion masks (CC0-1.0, copied from `fixtures/data/mni_masks/` at build time) and their manifest in `/app/backend/example_inputs`. To enable the examples on a staging instance, put `EXAMPLE_INPUTS_DIR=/app/backend/example_inputs` in its `.env` and recreate the `api` service (`docker compose up -d api`). Do not set it on the live instance. To offer other synthetic files, mount a directory read-only into the `api` container and point the variable at it.
+
+Manifest format (`version` 1): `examples` is a list of objects with `id` (`[A-Za-z0-9._+-]{1,64}`), `role` (an input role such as `lesion_mni`), `label`, `description`, `licence` and `file` (a file name in the same directory; symbolic links and paths are refused). Entries that do not validate are skipped and logged. Only synthetic or public data whose licence allows redistribution may be listed; never patient data.
+
+An attached example is stored as a normal input, through the same checks, locks and quota as an upload, with the reserved declared origin `{"kind": "external-tool", "tool": "stroke-server-example", "version": "<example id>"}`. The run page and the report show it as a synthetic example. The tool name is reserved: uploads and origin changes that declare it are refused, the origin of an example cannot be edited, and a case never mixes example inputs with user files.
+
 ## Initial Admin User
 
 There is no open public registration. After applying migrations, create or update the first admin with:

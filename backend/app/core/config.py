@@ -99,6 +99,9 @@ class Settings(BaseSettings):
     smtp_password: str | None = None
     smtp_from_email: str | None = None
     smtp_use_tls: bool = True
+    # Opt-in synthetic example inputs (card MVP-03): a directory with manifest.json and the
+    # example files. Empty = off. Never point it at real data.
+    example_inputs_dir: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"

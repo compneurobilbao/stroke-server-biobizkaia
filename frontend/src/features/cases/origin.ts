@@ -27,6 +27,12 @@ export function isValidOrigin(draft: OriginDraft): boolean {
   return true;
 }
 
+/** Reserved tool name the server gives to the synthetic example inputs it attaches. */
+export const EXAMPLE_TOOL = 'stroke-server-example';
+
+export const isExampleOrigin = (origin: InputOrigin | null | undefined): boolean =>
+  origin?.kind === 'external-tool' && origin.tool === EXAMPLE_TOOL;
+
 /** The origin to send, or null when none is declared. Call only with a valid draft. */
 export function originOf(draft: OriginDraft | undefined): InputOrigin | null {
   if (!draft || draft.kind === '') return null;

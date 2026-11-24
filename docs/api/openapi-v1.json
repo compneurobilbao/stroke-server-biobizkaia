@@ -437,6 +437,59 @@
         "title": "ConfigRead",
         "type": "object"
       },
+      "ExampleAttach": {
+        "additionalProperties": false,
+        "description": "Body of the example attach: the id of an entry of ``GET /example-inputs``.",
+        "properties": {
+          "example_id": {
+            "title": "Example Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "example_id"
+        ],
+        "title": "ExampleAttach",
+        "type": "object"
+      },
+      "ExampleInputRead": {
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "licence": {
+            "title": "Licence",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "synthetic": {
+            "default": true,
+            "title": "Synthetic",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "role",
+          "label",
+          "description",
+          "licence"
+        ],
+        "title": "ExampleInputRead",
+        "type": "object"
+      },
       "ExternalToolOrigin": {
         "additionalProperties": false,
         "description": "The file was produced by a tool outside the platform.",
@@ -3909,6 +3962,74 @@
         ]
       }
     },
+    "/api/v1/cases/{case_id}/inputs/{role}/example": {
+      "post": {
+        "description": "Use a synthetic example file of the deployment as the input of ``role``.\n\nOnly when the deployment enables example inputs (404 ``example_inputs_disabled``\notherwise). The server copies the file through the same checks, locks and quota as\nan upload and records it with the reserved example origin, so it is shown as a\nsynthetic example everywhere the declared origin appears. 201 for a new role, 200\nfor a replacement. A case holds either example inputs or user files, never both.",
+        "operationId": "attach_example_input_api_v1_cases__case_id__inputs__role__example_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Case Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "role",
+            "required": true,
+            "schema": {
+              "title": "Role",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExampleAttach"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InputFileRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Attach Example Input",
+        "tags": [
+          "cases"
+        ]
+      }
+    },
     "/api/v1/cases/{case_id}/runs": {
       "get": {
         "operationId": "list_case_runs_api_v1_cases__case_id__runs_get",
@@ -4065,6 +4186,37 @@
         "summary": "Get Config",
         "tags": [
           "plans"
+        ]
+      }
+    },
+    "/api/v1/example-inputs": {
+      "get": {
+        "description": "Synthetic example files the deployment offers; an empty list when the feature is\noff (the default). Attach one with ``POST /cases/{id}/inputs/{role}/example``.",
+        "operationId": "list_example_inputs_api_v1_example_inputs_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ExampleInputRead"
+                  },
+                  "title": "Response List Example Inputs Api V1 Example Inputs Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Example Inputs",
+        "tags": [
+          "example-inputs"
         ]
       }
     },
