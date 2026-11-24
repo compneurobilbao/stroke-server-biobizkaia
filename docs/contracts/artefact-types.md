@@ -59,7 +59,7 @@ with entities in that order (the BIDS order), under `derivatives/<step name>-<st
 | `lesion_qc` | json | Intake checks; schema to be added by card F0-22. |
 | `fdisconnection_map` | nifti, grid `MNI152NLin6Asym-res2` | Functional disconnection; statistic fixed by card F0-24. |
 | `tract_disconnection` | tsv `tract`, `disconnection` | Fraction of each tract's streamlines intersecting the lesion. |
-| `cognet_profile` | json | Schema to be added by card F0-26. |
+| `cognet_profile` | json | Schema `schemas/v1/cognet-profile.schema.json`. Optional `excluded_parcels` `{count, fraction, reason}`: parcels without a defined value in the disconnection map that were left out of the disconnection scores; consumers act on it only when `count` is above zero. |
 | `report_pdf`, `report_json` | pdf, json | Report and its canonical content. |
 | `run_provenance` | json, provenance schema | Produced only by the pseudo-source `run.provenance`. |
 

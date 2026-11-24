@@ -87,7 +87,7 @@ jobs:
           python contracts/validate.py "$WORK/pipelines/stroke-lnm/pipeline.yaml" "$WORK"/step-manifests/*/step.yaml
           # the manifests of this repository's steps in the images are the committed ones
           cmp "$WORK/step-manifests/lesion-qc-1.0.0/step.yaml" steps/lesion-qc/step.yaml
-          cmp "$WORK/step-manifests/research-report-0.3.0/step.yaml" steps/report/step.yaml
+          cmp "$WORK/step-manifests/research-report-0.4.0/step.yaml" steps/report/step.yaml
           cmp "$WORK/step-manifests/fdisconnection-stub-0.1.0/step.yaml" steps/stubs/fdisconnection-stub/step.yaml
           cmp "$WORK/step-manifests/flnm-fast-3.0.0/step.yaml" steps/flnm-fast/step.yaml
 

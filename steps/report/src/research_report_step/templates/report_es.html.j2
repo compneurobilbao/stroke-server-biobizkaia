@@ -124,6 +124,9 @@
 <tr><td>Máximo</td><td>{{ r.functional_disconnection.max | fixed(4) }}</td></tr>
 <tr><td>Vóxeles mayores que cero</td><td>{{ r.functional_disconnection.n_positive_voxels }}</td></tr>
 <tr><td>Media de los vóxeles positivos</td><td>{{ r.functional_disconnection.mean_of_positive | fixed(4) }}</td></tr>
+{% if r.functional_disconnection.get("n_undefined_voxels") %}
+<tr><td>Vóxeles sin valor definido (excluidos de estas cifras)</td><td>{{ r.functional_disconnection.n_undefined_voxels }}</td></tr>
+{% endif %}
 </table>
 {% else %}
 {% if r.functional_disconnection.status == "not_requested" %}
@@ -158,6 +161,9 @@
 {% if r.cognitive_profile.status == "available" %}
 {% set cp = r.cognitive_profile %}
 <p>Método {{ cp.method.name }}, versión del perfil {{ cp.profile_version }}; {{ cp.method.n_nulls }} mapas nulos, {{ cp.method.n_parcels }} parcelas, corrección {{ cp.method.correction }}, alfa {{ cp.method.alpha }}. Paquete de mapas de conceptos: {{ cp.bundle.id }} {{ cp.bundle.version }}{% if cp.bundle.synthetic %} (sintético){% endif %}, huella del contenido <span class="mono">{{ cp.bundle.content_digest }}</span>.</p>
+{% if cp.get("excluded_parcels") %}
+<p><strong>Nota.</strong> {{ cp.excluded_parcels.count }} {{ "parcela" if cp.excluded_parcels.count == 1 else "parcelas" }} ({{ cp.excluded_parcels.fraction | percent }}) no {{ "tenía" if cp.excluded_parcels.count == 1 else "tenían" }} un valor definido en el mapa de desconexión y {{ "se excluyó" if cp.excluded_parcels.count == 1 else "se excluyeron" }} del perfil cognitivo.</p>
+{% endif %}
 <table>
 <tr><th>Dominio</th><th class="num">Conceptos</th><th>Medida</th><th class="num">Puntuación</th><th class="num">p</th><th class="num">p corregida</th><th>Significativo</th></tr>
 {% for d in cp.domains %}
@@ -261,6 +267,9 @@
 <li>El contenido legible por máquina de este informe está en report.json; sus bytes son la base del sellado.</li>
 {% if "synthetic_reference_data" in r.notes %}
 <li>Los datos de referencia usados para el perfil cognitivo están marcados como sintéticos.</li>
+{% endif %}
+{% if "parcels_excluded_from_cognitive_profile" in r.notes %}
+<li>Las parcelas sin valor definido en el mapa de desconexión funcional se excluyeron de las puntuaciones de desconexión del perfil cognitivo (sección 4); el solapamiento con la lesión no usa ese mapa y no se ve afectado.</li>
 {% endif %}
 {% if "external_tool_used" in r.notes %}
 <li>Al menos un resultado lo produjo una herramienta externa; su nombre, versión y licencia están en la sección 5.4.</li>

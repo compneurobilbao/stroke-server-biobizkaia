@@ -124,6 +124,9 @@
 <tr><td>Maximum</td><td>{{ r.functional_disconnection.max | fixed(4) }}</td></tr>
 <tr><td>Voxels above zero</td><td>{{ r.functional_disconnection.n_positive_voxels }}</td></tr>
 <tr><td>Mean of positive voxels</td><td>{{ r.functional_disconnection.mean_of_positive | fixed(4) }}</td></tr>
+{% if r.functional_disconnection.get("n_undefined_voxels") %}
+<tr><td>Voxels without a defined value (left out of these figures)</td><td>{{ r.functional_disconnection.n_undefined_voxels }}</td></tr>
+{% endif %}
 </table>
 {% else %}
 {% if r.functional_disconnection.status == "not_requested" %}
@@ -158,6 +161,9 @@
 {% if r.cognitive_profile.status == "available" %}
 {% set cp = r.cognitive_profile %}
 <p>Method {{ cp.method.name }}, profile version {{ cp.profile_version }}; {{ cp.method.n_nulls }} null maps, {{ cp.method.n_parcels }} parcels, {{ cp.method.correction }} correction, alpha {{ cp.method.alpha }}. Concept maps bundle: {{ cp.bundle.id }} {{ cp.bundle.version }}{% if cp.bundle.synthetic %} (synthetic){% endif %}, content digest <span class="mono">{{ cp.bundle.content_digest }}</span>.</p>
+{% if cp.get("excluded_parcels") %}
+<p><strong>Note.</strong> {{ cp.excluded_parcels.count }} {{ "parcel" if cp.excluded_parcels.count == 1 else "parcels" }} ({{ cp.excluded_parcels.fraction | percent }}) had no defined value in the disconnection map and {{ "was" if cp.excluded_parcels.count == 1 else "were" }} excluded from the cognitive profile.</p>
+{% endif %}
 <table>
 <tr><th>Domain</th><th class="num">Concepts</th><th>Measure</th><th class="num">Score</th><th class="num">p</th><th class="num">p corrected</th><th>Significant</th></tr>
 {% for d in cp.domains %}
@@ -261,6 +267,9 @@
 <li>The machine-readable content of this report is in report.json; its bytes are the basis for sealing.</li>
 {% if "synthetic_reference_data" in r.notes %}
 <li>The reference data used for the cognitive profile are flagged as synthetic.</li>
+{% endif %}
+{% if "parcels_excluded_from_cognitive_profile" in r.notes %}
+<li>Parcels without a defined value in the functional disconnection map were excluded from the disconnection scores of the cognitive profile (section 4); the lesion overlap does not use that map and is not affected.</li>
 {% endif %}
 {% if "external_tool_used" in r.notes %}
 <li>At least one result was produced by an external tool; its upstream name, version and licence are in section 5.4.</li>

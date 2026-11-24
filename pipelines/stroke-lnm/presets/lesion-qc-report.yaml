@@ -4,14 +4,14 @@
 contract_version: "1.2"
 kind: Preset
 id: lesion-qc-report
-version: 1.5.0
+version: 1.6.0
 title: Lesion QC and report
 description: >-
   Lesion intake and QC and a research report whose analysis sections state that the
   disconnection analyses were not part of the run.
 pipeline:
   id: stroke-lnm
-  versions: ">=0.2.0, <0.8.0"
+  versions: ">=0.2.0, <0.9.0"
 input_sets: [ct-and-native-mask, mni-mask]
 targets:
   required: [lesion-intake, report]

@@ -13,7 +13,7 @@ from pathlib import Path
 import nibabel as nib
 import numpy as np
 
-REPORT_VERSION = "1.1"
+REPORT_VERSION = "1.2"
 RESEARCH_USE_ONLY = "For research use only, not for clinical decisions."
 # analysis section of the report -> pipeline slot that produces its input
 SECTION_SLOTS = {
@@ -146,16 +146,26 @@ def tract_section(rows: list[dict] | None) -> dict:
 def fdisconnection_stats(path: Path) -> dict:
     img = nib.load(str(path))
     data = np.asanyarray(img.dataobj).astype(np.float64)
-    if not np.all(np.isfinite(data)):
-        raise InvalidInput("the functional disconnection map has non-finite values")
+    if np.isinf(data).any():
+        raise InvalidInput("the functional disconnection map has infinite values")
+    # NaN is "no value" (the functional disconnection step writes it for parcels whose statistic
+    # is undefined): the statistics use the voxels that have a value
+    undefined = np.isnan(data)
+    n_undefined = int(undefined.sum())
+    if n_undefined == data.size:
+        raise InvalidInput("the functional disconnection map has no defined value")
+    data = np.where(undefined, 0.0, data)
     pos = data > 0
     n = int(pos.sum())
-    return {
+    section = {
         "status": "available",
-        "max": _num(data.max(), 4),
+        "max": _num(data[~undefined].max(), 4),
         "n_positive_voxels": n,
         "mean_of_positive": _num(data[pos].mean(), 4) if n else 0.0,
     }
+    if n_undefined:
+        section["n_undefined_voxels"] = n_undefined
+    return section
 
 
 # --- cognitive profile ---------------------------------------------------------------
@@ -177,7 +187,7 @@ def cognet_section(profile: dict | None) -> dict:
                 }
             )
     sig_concepts.sort(key=lambda c: (c["domain"], c["concept"]))
-    return {
+    section = {
         "status": "available",
         "profile_version": profile["profile_version"],
         "method": profile["method"],
@@ -186,6 +196,10 @@ def cognet_section(profile: dict | None) -> dict:
         "domains": sorted(profile["domains"], key=lambda d: d["domain"]),
         "significant_concepts": sig_concepts,
     }
+    if (profile.get("excluded_parcels") or {}).get("count", 0) > 0:
+        # COGNET-STROKE 1.1.0: parcels without a value in the disconnection map were left out
+        section["excluded_parcels"] = dict(profile["excluded_parcels"])
+    return section
 
 
 # --- provenance --------------------------------------------------------------------
@@ -365,6 +379,8 @@ def build_report(
         notes.append("lesion_mask_differs_from_qc")
     if cognet.get("bundle", {}).get("synthetic"):
         notes.append("synthetic_reference_data")
+    if cognet.get("excluded_parcels"):
+        notes.append("parcels_excluded_from_cognitive_profile")
     if external_tools:
         notes.append("external_tool_used")
     if declared_origins:

@@ -91,7 +91,7 @@ def test_targets_cover_the_registry_once_per_step():
     reg = registry_tool.load(HERE)[1]
     keys = [t.key for t in release.targets(reg)]
     assert len(keys) == len(set(keys))
-    assert "research-report@0.3.0" in keys and "flnm-fast@3.0.0" in keys
+    assert "research-report@0.4.0" in keys and "flnm-fast@3.0.0" in keys
     assert all(t.repository.startswith(NS + "/step-") for t in release.targets(reg))
 
 
@@ -337,12 +337,23 @@ def test_summary_marks_dry_runs():
 # --------------------------------------------------------------------------- pin and published
 
 
-def test_committed_registry_is_published_with_real_digests():
+# Step versions that are in the registry but not released yet (placeholder digest, `published:
+# false`); the set is empty again after `registry.py pin` has written their digests.
+UNRELEASED = {"research-report@0.4.0"}
+
+
+def test_committed_registry_has_real_digests_except_unreleased_steps():
     pipeline, reg = registry_tool.load(HERE)
-    assert reg["published"] is True
-    assert registry_tool.PLACEHOLDER not in json.dumps(reg)
-    assert registry_tool.PLACEHOLDER not in json.dumps(pipeline)
-    assert registry_tool.published_errors(reg) == []
+    placeholders = {
+        f"{e['step']['name']}@{e['step']['version']}"
+        for impls in reg["implementations"].values()
+        for e in impls.values()
+        if registry_tool.PLACEHOLDER in str(e["image"])
+    }
+    assert placeholders <= UNRELEASED
+    # `published` is true exactly when nothing is left to release
+    assert reg["published"] is (not placeholders)
+    assert (registry_tool.PLACEHOLDER in json.dumps(pipeline)) == bool(placeholders)
     assert registry_tool.check(pipeline, reg, registry_tool.load_presets(HERE)) == []
 
 

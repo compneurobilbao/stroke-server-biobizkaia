@@ -66,7 +66,10 @@ def disconnection_map_figure(
     from nilearn import plotting
 
     img = nib.load(str(map_path))
-    vmax = float(np.asanyarray(img.dataobj).max())
+    # NaN marks parcels without a value: drawn as zero, like the background
+    data = np.nan_to_num(np.asanyarray(img.dataobj).astype(np.float32), nan=0.0)
+    img = nib.Nifti1Image(data, img.affine)
+    vmax = float(data.max())
     if vmax <= 0:
         return False
     bg, _ = _background(ct_mni)

@@ -25,6 +25,11 @@ The step declares contract 1.2 and reads the run record unchanged, so presets an
 
 These keys and the sections 5.4 and 5.5 exist only when the record has the information. The report of a run with a 1.0 or 1.1 record has the content of the previous version apart from the version fields (`report_version` 1.1, `generator.version`).
 
+## Version 0.4.0: parcels without a value
+
+- A functional disconnection map with NaN voxels (parcels whose statistic is undefined, as `flnm-fast` writes them) is accepted: `max`, `n_positive_voxels` and `mean_of_positive` use the voxels that have a value, and `n_undefined_voxels` (only when above zero) is recorded and shown in section 3.1. Infinite values and a map with no value at all are still rejected (`input_format_invalid`); the figure draws undefined voxels as zero.
+- When the COGNET profile has `excluded_parcels` with `count` above zero, `report.json` copies it to `cognitive_profile.excluded_parcels`, adds the note `parcels_excluded_from_cognitive_profile`, and section 4 states "N parcels (x %) had no defined value in the disconnection map and were excluded from the cognitive profile" (Spanish template: the same in Spanish); section 6 adds a note that the lesion overlap is not affected. A profile without the field, or with `count` 0, gives the content of 0.3.0 apart from the version fields (`report_version` 1.2, `generator.version`).
+
 ## Outputs
 
 - **PDF** (Jinja2 templates in `src/research_report_step/templates/`, rendered by WeasyPrint with `data:` images only, no network): research-use banner in the running header of every page ("for research use only, not for clinical decisions"), summary, lesion section with an orthogonal-view figure (nilearn `plot_roi`), functional disconnection map (nilearn `plot_stat_map`), tract disconnection table and bar chart, COGNET domain table, and a provenance section with the image reference and digest of every slot of the run, the reference bundles and the SHA-256 of every artefact the report read. English and Spanish are separate templates; Spanish text lives only there.

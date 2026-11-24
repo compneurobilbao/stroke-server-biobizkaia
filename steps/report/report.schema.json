@@ -28,7 +28,7 @@
   },
   "properties": {
     "kind": {"const": "ResearchReport"},
-    "report_version": {"const": "1.1"},
+    "report_version": {"const": "1.2"},
     "language": {"enum": ["en", "es"]},
     "research_use_only": {"const": true},
     "research_use_statement": {"const": "For research use only, not for clinical decisions."},
@@ -48,7 +48,7 @@
     },
     "notes": {
       "type": "array",
-      "items": {"enum": ["lesion_mask_differs_from_qc", "synthetic_reference_data", "external_tool_used", "input_origin_declared_by_user"]}
+      "items": {"enum": ["lesion_mask_differs_from_qc", "synthetic_reference_data", "external_tool_used", "input_origin_declared_by_user", "parcels_excluded_from_cognitive_profile"]}
     },
     "lesion": {
       "type": "object",
@@ -72,7 +72,8 @@
             "status": {"const": "available"},
             "max": {"type": "number"},
             "n_positive_voxels": {"type": "integer", "minimum": 0},
-            "mean_of_positive": {"type": "number"}
+            "mean_of_positive": {"type": "number"},
+            "n_undefined_voxels": {"type": "integer", "minimum": 1}
           }
         }
       ]
@@ -114,7 +115,16 @@
             "bundle": {"type": "object"},
             "n_concepts": {"type": "integer", "minimum": 1},
             "domains": {"type": "array", "minItems": 1, "items": {"type": "object"}},
-            "significant_concepts": {"type": "array", "items": {"type": "object"}}
+            "significant_concepts": {"type": "array", "items": {"type": "object"}},
+            "excluded_parcels": {
+              "description": "Copy of excluded_parcels of the COGNET profile; present only when its count is above zero.",
+              "type": "object", "additionalProperties": false, "required": ["count", "fraction", "reason"],
+              "properties": {
+                "count": {"type": "integer", "minimum": 1},
+                "fraction": {"type": "number", "minimum": 0, "maximum": 1},
+                "reason": {"type": "string"}
+              }
+            }
           }
         }
       ]

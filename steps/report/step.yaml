@@ -1,7 +1,7 @@
 contract_version: "1.2"
 kind: Step
 name: research-report
-version: 0.3.0
+version: 0.4.0
 title: Research report
 description: >-
   Builds the research report of a run from the artefacts and JSON outputs of the previous
@@ -19,7 +19,12 @@ description: >-
   as not requested, lists the external tools that produced results (upstream name, version,
   licence and citation as recorded in the slot record, without inferring a validation level)
   and shows the origin of supplied inputs as declared by the user. A record of contract 1.0
-  or 1.1 gives the same content as before. The figures use nilearn on its bundled MNI152 template (or on
+  or 1.1 gives the same content as before. Version 0.4.0 accepts a functional disconnection map
+  with NaN voxels (parcels without a value; infinite values are still rejected) and computes its
+  statistics over the voxels that have a value, and when the COGNET profile records excluded_parcels
+  (COGNET-STROKE 1.1.0) the cognitive-profile section states how many parcels were left out
+  (report 1.2); without them the report has the same content as 0.3.0 apart from the version
+  fields. The figures use nilearn on its bundled MNI152 template (or on
   the optional ct_mni image when it is provided).
 provides: report
 image:
