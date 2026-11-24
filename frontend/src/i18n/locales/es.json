@@ -31,7 +31,8 @@
     "studies": "Estudios",
     "notifications": "Notificaciones",
     "admin": "Administración",
-    "cases": "Casos"
+    "cases": "Casos",
+    "about": "Sobre el proceso"
   },
   "common": {
     "logout": "Cerrar sesión",
@@ -522,5 +523,67 @@
     "threshold": "Umbral",
     "thresholdOf": "Umbral de {{layer}}",
     "noTemplate": "No se muestra fondo anatómico. Esta ejecución no tiene un TAC en espacio MNI y la aplicación no incluye una plantilla cerebral porque no se incorpora ninguna plantilla con una licencia que permita su redistribución. Las capas se dibujan sobre un fondo vacío."
+  },
+  "process": {
+    "pageTitle": "Sobre el proceso",
+    "title": "Cómo una lesión se convierte en un informe de investigación",
+    "intro": "Hoy la plataforma parte de una máscara de lesión que ya está en espacio estándar y ejecuta dos análisis sobre ella. Los pasos previos, en gris, se están incorporando.",
+    "availableTitle": "Disponible ahora",
+    "plannedTitle": "En desarrollo",
+    "plannedNote": "Etapas previas y opcionales. Todavía no están disponibles.",
+    "inDevelopment": "En desarrollo",
+    "researchNote": "Solo para investigación. Los resultados no son aptos para decisiones clínicas.",
+    "branch": {
+      "functional": "Desconexión funcional",
+      "structural": "Desconexión estructural"
+    },
+    "stage": {
+      "input": {
+        "title": "Máscara de lesión en MNI152NLin6Asym (2 mm)",
+        "text": "Punto de partida: una máscara binaria de la lesión ya en espacio estándar."
+      },
+      "flnm": {
+        "title": "Mapeo funcional de redes lesionales",
+        "text": "flnm-fast, frente a un conectoma funcional normativo."
+      },
+      "disconnectionMap": {
+        "title": "Mapa de desconexión",
+        "text": "Mapa de las regiones cerebrales conectadas funcionalmente con la lesión."
+      },
+      "cognet": {
+        "title": "Perfil cognitivo COGNET",
+        "text": "Perfil cognitivo estimado a partir del mapa de desconexión."
+      },
+      "tracts": {
+        "title": "Desconexión estructural por tractos",
+        "text": "lnm-tracts, con los tractos de sustancia blanca HCP1065."
+      },
+      "tractTable": {
+        "title": "Tabla de tractos",
+        "text": "Cuánto afecta la lesión a cada tracto."
+      },
+      "report": {
+        "title": "Informe de investigación",
+        "text": "Ambos resultados se reúnen en un informe PDF y un visor interactivo."
+      }
+    },
+    "planned": {
+      "normalisation": {
+        "title": "Normalización a MNI",
+        "text": "Llevar una lesión de TAC o RM al espacio común."
+      },
+      "segmentation": {
+        "title": "Segmentación de la lesión",
+        "text": "Delinear la lesión, también con herramientas de segmentación externas."
+      },
+      "lesionBank": {
+        "title": "Banco de lesiones",
+        "text": "Capturar y almacenar lesiones para reutilizarlas."
+      },
+      "voxelLnm": {
+        "title": "LNM estructural vóxel a vóxel",
+        "text": "Se ejecuta en el clúster HPC. Su mapa se muestra pero no se analiza más; en el futuro podría alimentar COGNET."
+      }
+    }
   }
 }

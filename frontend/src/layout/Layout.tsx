@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../features/auth/AuthContext';
 import { useMessage } from '../shared/messages';
 import { LanguageSwitch } from './LanguageSwitch';
+import { ProcessOverview } from './ProcessOverview';
 
 const LOGO_SRC = '/brand/biobizkaia-logo.png';
 
@@ -44,6 +45,9 @@ function Landing() {
         <Outlet />
         <p className="landing-note">{t('app.loginPrompt')}</p>
       </div>
+      <div className="landing-process">
+        <ProcessOverview />
+      </div>
     </section>
   );
 }
@@ -52,6 +56,7 @@ export function Layout() {
   const { t } = useTranslation();
   const { user, logout } = useAuth();
   const { message } = useMessage();
+  const { pathname } = useLocation();
 
   return (
     <div className="shell">
@@ -80,6 +85,7 @@ export function Layout() {
               <NavLink to="/studies">{t('nav.studies')}</NavLink>
               <NavLink to="/cases">{t('nav.cases')}</NavLink>
               <NavLink to="/notifications">{t('nav.notifications')}</NavLink>
+              <NavLink to="/about">{t('nav.about')}</NavLink>
               {user.role === 'admin' && <NavLink to="/admin">{t('nav.admin')}</NavLink>}
             </nav>
             <span className="session-info">
@@ -96,6 +102,10 @@ export function Layout() {
               <p className="message">{message}</p>
             </section>
           )}
+          <Outlet />
+        </main>
+      ) : pathname === '/about' ? (
+        <main className="page">
           <Outlet />
         </main>
       ) : (
