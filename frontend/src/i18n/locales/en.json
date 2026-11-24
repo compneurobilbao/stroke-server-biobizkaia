@@ -31,7 +31,8 @@
     "studies": "Studies",
     "notifications": "Notifications",
     "admin": "Administration",
-    "cases": "Cases"
+    "cases": "Cases",
+    "about": "About the process"
   },
   "common": {
     "logout": "Sign out",
@@ -522,5 +523,67 @@
     "threshold": "Threshold",
     "thresholdOf": "Threshold of {{layer}}",
     "noTemplate": "No anatomical background is shown. This run has no CT in MNI space, and the application does not bundle a brain template because no template with a licence that allows redistribution is included. The overlays are drawn on a blank background."
+  },
+  "process": {
+    "pageTitle": "About the process",
+    "title": "How a lesion becomes a research report",
+    "intro": "Today the platform starts from a lesion mask that is already in standard space and runs two analyses on it. The earlier steps, shown greyed out, are being added.",
+    "availableTitle": "Available now",
+    "plannedTitle": "In development",
+    "plannedNote": "Earlier and optional stages. They are not available yet.",
+    "inDevelopment": "In development",
+    "researchNote": "Research use only. Results are not for clinical decisions.",
+    "branch": {
+      "functional": "Functional disconnection",
+      "structural": "Structural disconnection"
+    },
+    "stage": {
+      "input": {
+        "title": "Lesion mask in MNI152NLin6Asym (2 mm)",
+        "text": "The starting point: a binary lesion mask already in standard space."
+      },
+      "flnm": {
+        "title": "Functional lesion network mapping",
+        "text": "flnm-fast, against a normative functional connectome."
+      },
+      "disconnectionMap": {
+        "title": "Disconnection map",
+        "text": "A map of brain regions functionally linked to the lesion."
+      },
+      "cognet": {
+        "title": "COGNET cognitive profile",
+        "text": "Cognitive profile estimated from the disconnection map."
+      },
+      "tracts": {
+        "title": "Tract-wise structural disconnection",
+        "text": "lnm-tracts, using the HCP1065 white-matter tracts."
+      },
+      "tractTable": {
+        "title": "Tract table",
+        "text": "How much of each tract the lesion affects."
+      },
+      "report": {
+        "title": "Research report",
+        "text": "Both results are gathered into a PDF report and an interactive viewer."
+      }
+    },
+    "planned": {
+      "normalisation": {
+        "title": "Normalisation to MNI",
+        "text": "Bring a CT or MRI lesion into the common space."
+      },
+      "segmentation": {
+        "title": "Lesion segmentation",
+        "text": "Delineate the lesion, including with external segmentation tools."
+      },
+      "lesionBank": {
+        "title": "Lesion bank",
+        "text": "Capture and store lesions for later reuse."
+      },
+      "voxelLnm": {
+        "title": "Voxel-wise structural LNM",
+        "text": "Runs on the HPC cluster. Its map is shown but not analysed further; it could later feed COGNET."
+      }
+    }
   }
 }

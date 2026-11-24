@@ -12,6 +12,7 @@ import { RunPage } from './features/cases/RunPage';
 import { NotificationsPage } from './features/notifications/NotificationsPage';
 import { StudiesPage } from './features/studies/StudiesPage';
 import { Layout } from './layout/Layout';
+import { ProcessPage } from './layout/ProcessOverview';
 import { MessageProvider } from './shared/messages';
 
 /** The viewer (NiiVue) is a separate chunk, fetched only when a viewer page is opened. */
@@ -34,6 +35,7 @@ export function App() {
         <Routes>
           <Route element={<Layout />}>
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/about" element={<ProcessPage />} />
             <Route element={<RequireAuth />}>
               <Route path="/studies" element={<StudiesPage />} />
               <Route path="/cases" element={<CasesPage />} />
