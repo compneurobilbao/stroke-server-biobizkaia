@@ -205,10 +205,10 @@ slots:
       allowed:
         - id: research-report
           step: {name: research-report, version: 0.4.0}
-          image: docker.io/compneurobilbaolab/step-research-report@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          image: docker.io/compneurobilbaolab/step-research-report@sha256:1f700ac224d4bd2e58a0c77201573bbe8d4ad7d6607cd6c271ae6be1796ff537
         # Configured variant of the same image: the report text in Spanish.
         - id: research-report-es
           step: {name: research-report, version: 0.4.0}
-          image: docker.io/compneurobilbaolab/step-research-report@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          image: docker.io/compneurobilbaolab/step-research-report@sha256:1f700ac224d4bd2e58a0c77201573bbe8d4ad7d6607cd6c271ae6be1796ff537
           parameters:
             language: es

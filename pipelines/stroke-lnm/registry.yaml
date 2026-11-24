@@ -15,7 +15,7 @@
 # is ever pulled while a digest is a placeholder.
 registry_version: 1
 pipeline: {id: stroke-lnm, version: 0.8.0}
-published: false
+published: true
 
 # kind: real     a merged step that runs on real data
 #       stub     synthetic output, only enabled in the ci profile (and demo deployments)
@@ -203,7 +203,7 @@ implementations:
         status: reference-tested
         notes: >-
           The step's reference test runs in CI on synthetic or public data. No signed validation record exists, so it is not validated.
-      image: docker.io/compneurobilbaolab/step-research-report@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      image: docker.io/compneurobilbaolab/step-research-report@sha256:1f700ac224d4bd2e58a0c77201573bbe8d4ad7d6607cd6c271ae6be1796ff537
       source: {repository: this, dockerfile: steps/report/Dockerfile}
     research-report-es:
       step: {name: research-report, version: 0.4.0}
@@ -212,7 +212,7 @@ implementations:
         status: reference-tested
         notes: >-
           The step's reference test runs in CI on synthetic or public data. No signed validation record exists, so it is not validated.
-      image: docker.io/compneurobilbaolab/step-research-report@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      image: docker.io/compneurobilbaolab/step-research-report@sha256:1f700ac224d4bd2e58a0c77201573bbe8d4ad7d6607cd6c271ae6be1796ff537
       source: {repository: this, dockerfile: steps/report/Dockerfile}
 
 # Stages that exist in the plan of the platform but cannot be used yet. The API lists them next to
