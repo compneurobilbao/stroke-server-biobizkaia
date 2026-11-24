@@ -1,0 +1,24 @@
+# Apptainer recipe for the step, built from the Docker image so both runtimes run the same bits:
+#   apptainer build --build-arg IMAGE=ct-lesion-to-mni152-step:dev step.sif step/Apptainer.def
+# Production: apptainer build step.sif docker://<repository>@sha256:<digest>
+Bootstrap: docker-daemon
+From: {{ IMAGE }}
+
+%post
+    mkdir -p /in /out /ref /tmp
+    chmod 0755 /in /out /ref
+    chmod 1777 /tmp
+    chmod -R a+rX /opt/step
+
+%runscript
+    exec /usr/local/bin/run "$@"
+
+%test
+    test -x /usr/local/bin/run
+    test -r /opt/step/step.yaml
+    command -v flirt fslmaths fsl-cluster > /dev/null
+    /usr/local/bin/run --help > /dev/null
+
+%labels
+    org.opencontainers.image.title ct-lesion-to-mni152
+    contract.version 1.0

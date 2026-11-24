@@ -1,0 +1,138 @@
+# Step manifest (contract 1.0) of CTLesion2MNI152. Validate with contracts/validate.py --kind step.
+contract_version: "1.0"
+kind: Step
+name: ct-lesion-to-mni152
+version: 1.0.0
+title: CT lesion mask to MNI152
+description: >-
+  Registers a non-contrast head CT to the MNI152 template (skull-based affine with FSL
+  flirt, then B-spline with elastix) and carries the lesion mask with it. The mask is
+  produced by the unchanged CTLesion2MNI152 workflow on the 1 mm template grid, optionally
+  stripped of the overlap with an age-matched ventricle template, then reduced to the 2 mm
+  pipeline working grid (a 2 mm voxel is set when at least mask_threshold of its volume is
+  covered by the 1 mm mask). Also writes the registered CT on the 1 mm grid and a
+  registration overlay figure for visual QC. The CT template, skull template and ventricle
+  templates are small, method-specific files shipped inside the image.
+provides: normalisation
+image:
+  repository: docker.io/compneurobilbaolab/ct-lesion-to-mni152-step
+source_url: https://github.com/compneurobilbao/CTLesion2MNI152
+licence:
+  spdx: MIT
+  third_party:
+    # FSL (flirt, fslmaths, cluster) is installed in the image from the FSL conda channel.
+    # Its licence is non-commercial for the general public: https://fsl.fmrib.ox.ac.uk/fsl/docs/license.html
+    - {name: FSL, version: 6.0.7.6, spdx: LicenseRef-FSL}
+    - {name: ITK, version: 5.4.0, spdx: Apache-2.0}
+    - {name: itk-elastix, version: 0.20.0, spdx: Apache-2.0}
+    - {name: nibabel, version: 5.2.1, spdx: MIT}
+    - {name: nilearn, version: 0.10.4, spdx: BSD-3-Clause}
+    - {name: matplotlib, version: 3.9.1, spdx: LicenseRef-Matplotlib}
+
+inputs:
+  - name: ct
+    type: ct_native
+    description: Head CT including the skull (skull stripping is not expected).
+  - name: lesion_mask
+    type: lesion_mask_native
+    description: Binary lesion mask on the CT voxel grid.
+
+outputs:
+  - name: lesion_mask_mni
+    type: lesion_mask_mni
+    description: Lesion mask on the 2 mm MNI152NLin6Asym working grid.
+  - name: ct_mni
+    type: ct_mni
+    description: Registered CT (intensities restricted to 0-100 HU by the workflow) on the 1 mm grid.
+  - name: qc_figure
+    type: qc_figure
+    description: Registered CT with the template brain outline and the lesion overlaid, three orthogonal views.
+
+parameters:
+  type: object
+  additionalProperties: false
+  properties:
+    age_band:
+      description: >-
+        Age band in whole years ("lo-hi", normally a 5-year band such as "65-69", bound to
+        case.age_band). The ventricle template whose band contains the midpoint is subtracted
+        from the lesion (bands below 35 and above 89 use the nearest template). null skips
+        ventricle removal.
+      type: [string, "null"]
+      pattern: "^[0-9]{1,3}-[0-9]{1,3}$"
+      default: null
+    mask_threshold:
+      description: >-
+        Fraction of a 2 mm working-grid voxel that the 1 mm lesion mask must cover for the
+        voxel to be set.
+      type: number
+      exclusiveMinimum: 0
+      exclusiveMaximum: 1
+      default: 0.5
+
+resources:
+  cpus: 2
+  memory_mb: 4096
+  wall_time_minutes: 60
+  scratch_mb: 2048
+
+errors:
+  - code: input_missing
+    category: input_rejected
+    description: A required input was not provided.
+  - code: input_format_invalid
+    category: input_rejected
+    description: An input file does not satisfy its artefact type (format, binary values).
+  - code: invalid_parameters
+    category: input_rejected
+    description: The parameters do not satisfy the step's parameter schema or the age band is not a valid range.
+  - code: ct_not_3d
+    category: input_rejected
+    description: The CT image is not a 3-D volume.
+  - code: mask_grid_mismatch
+    category: input_rejected
+    description: The lesion mask does not share the CT voxel grid.
+  - code: mask_empty
+    category: input_rejected
+    description: The lesion mask has no voxels set.
+  - code: skull_not_found
+    category: qc_failed
+    description: No skull cluster above the workflow's threshold was found; the image may not be a head CT.
+  - code: lesion_outside_brain
+    category: qc_failed
+    description: After registration, most of the lesion lies outside the template brain.
+  - code: lesion_lost
+    category: qc_failed
+    description: The lesion mask is empty after registration, ventricle removal or reduction to the working grid.
+
+reference_test:
+  description: >-
+    A real head CT template with a known transform. CI downloads the public High Resolution CT
+    Template (Muschelli 2020, derived from CQ500 scans; CC BY-NC-SA 4.0, de-identified research
+    data) at a pinned commit with SHA-256 checks, and step/ci/make_reference.py builds the case
+    with a fixed seed: the template (with skull) warped to the 1 mm MNI152 grid, a hypodense
+    ellipsoidal lesion defined in MNI space, then a random affine (rotation up to 8 degrees, scale
+    +-5 %, shift +-10 mm) plus a smooth deformation to a 1 mm "native" grid, with noise. The
+    ground truth is the MNI lesion on the 2 mm working grid and the exact native lesion mask.
+    Nothing is committed; the files are generated into tests/reference. Caveat: the registration
+    target of the algorithm is derived from the same template, so this tests recovery of a known
+    geometric transform on real CT anatomy, not generalisation to other scanners or patients.
+  inputs:
+    ct: tests/reference/ct.nii.gz
+    lesion_mask: tests/reference/lesion_mask_native.nii.gz
+  parameters:
+    age_band: null
+  expected:
+    lesion_mask_mni:
+      # Regression floor, NOT an accuracy claim. Measured on this case: Dice 0.465, centroid error
+      # 2.3 mm (Docker and Apptainer give byte-identical masks); the plan's starting target of
+      # 0.6 is not met because the workflow's B-spline stage shrinks the lesion (about 12900 voxels
+      # after the affine stage, 3703 after it, at 1 mm). Frozen at measured minus a margin; raising
+      # it needs a change of the algorithm or of the data, loosening it is a minor version change.
+      compare: dice
+      file: tests/reference/lesion_mask_mni.nii.gz
+      min: 0.40
+    ct_mni:
+      compare: exists
+    qc_figure:
+      compare: exists

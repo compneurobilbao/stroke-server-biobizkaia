@@ -1,0 +1,4 @@
+# Extra pins for the step image (the package pins the rest in pyproject.toml).
+scipy==1.13.1
+PyYAML==6.0.2
+jsonschema==4.23.0
