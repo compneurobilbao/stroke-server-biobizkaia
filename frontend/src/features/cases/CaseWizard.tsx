@@ -4,15 +4,18 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { errorText } from '../../api/client';
 import {
   AGE_BANDS,
+  attachExampleInput,
   createCase,
   createRun,
   getConfig,
+  listExampleInputs,
   listPipelines,
   listPresets,
   listSlots,
   previewPlan,
   putInput,
   type Config,
+  type ExampleInput,
   type PipelineSummary,
   type Preset,
   type Sex,
@@ -100,6 +103,9 @@ export function CaseWizard() {
   const [files, setFiles] = useState<Record<string, File | null>>({});
   // How the user says each supplied mask was made (optional, declared and never verified).
   const [origins, setOrigins] = useState<Record<string, OriginDraft>>({});
+  // Synthetic examples the deployment offers (empty unless it enables them) and the one chosen per role.
+  const [examples, setExamples] = useState<ExampleInput[]>([]);
+  const [exampleChoice, setExampleChoice] = useState<Record<string, ExampleInput | null>>({});
   const [pipelines, setPipelines] = useState<PipelineSummary[] | null>(null);
   const [slots, setSlots] = useState<Slot[] | null>(null);
   const [config, setConfig] = useState<Config | null>(null);
@@ -123,6 +129,19 @@ export function CaseWizard() {
     const matching = (pipelines ?? []).filter((p) => acceptsRoles(p, roles));
     return matching.sort((a, b) => compareVersions(b.version, a.version))[0] ?? null;
   }, [pipelines, roles]);
+
+  useEffect(() => {
+    let cancelled = false;
+    // Optional feature: a failure just means no examples are offered.
+    listExampleInputs(api)
+      .then((list) => {
+        if (!cancelled) setExamples(list);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [api]);
 
   useEffect(() => {
     let cancelled = false;
@@ -260,7 +279,7 @@ export function CaseWizard() {
     // `request` is derived from the same inputs as `requestKey`, which makes this run once per change.
   }, [api, pipeline, requestKey, previewActive, t]);
 
-  const missingFiles = roles.filter((role) => !files[role] && !uploaded.current.has(role));
+  const missingFiles = roles.filter((role) => !files[role] && !exampleChoice[role] && !uploaded.current.has(role));
   const invalidOrigins = originRoles(roles).filter((role) => !isValidOrigin(origins[role] ?? EMPTY_ORIGIN));
   const feasible = preview.status === 'ready' && previewKey === requestKey && preview.data?.feasible === true;
   const canStart =
@@ -311,8 +330,15 @@ export function CaseWizard() {
       }
       for (const role of roles) {
         const file = files[role];
-        if (uploaded.current.has(role) || !file) continue;
-        await putInput(api, id, role, file, originOf(origins[role]));
+        const example = exampleChoice[role];
+        if (uploaded.current.has(role)) continue;
+        if (example && !file) {
+          await attachExampleInput(api, id, role, example.id);
+        } else if (file) {
+          await putInput(api, id, role, file, originOf(origins[role]));
+        } else {
+          continue;
+        }
         uploaded.current.add(role);
       }
       const run = await createRun(api, id, {
@@ -415,13 +441,55 @@ export function CaseWizard() {
                   {uploaded.current.has(role) && <span className="tag">{t('cases.wizard.uploaded')}</span>}
                 </span>
                 <input
+                  key={exampleChoice[role] ? 'example' : 'file'}
                   type="file"
                   accept=".nii.gz"
                   aria-label={t(`cases.roles.${role}`, { defaultValue: role })}
-                  onChange={(event) => setFiles((prev) => ({ ...prev, [role]: event.target.files?.[0] ?? null }))}
+                  onChange={(event) => {
+                    const chosen = event.target.files?.[0] ?? null;
+                    setFiles((prev) => ({ ...prev, [role]: chosen }));
+                    if (chosen) setExampleChoice((prev) => ({ ...prev, [role]: null }));
+                  }}
                 />
               </label>
-              {originRoles([role]).length > 0 && (
+              {/* Only when the mode has a single input: a case never mixes examples and user files. */}
+              {roles.length === 1 && !uploaded.current.has(role) && examples.some((e) => e.role === role) && (
+                <div className="example-input" data-testid={`example-input-${role}`}>
+                  {exampleChoice[role] ? (
+                    <>
+                      <span className="tag">{t('cases.wizard.example.selected', { label: exampleChoice[role]?.label })}</span>
+                      <button
+                        type="button"
+                        className="secondary small"
+                        onClick={() => setExampleChoice((prev) => ({ ...prev, [role]: null }))}
+                      >
+                        {t('cases.wizard.example.remove')}
+                      </button>
+                    </>
+                  ) : (
+                    examples
+                      .filter((e) => e.role === role)
+                      .map((example) => (
+                        <button
+                          key={example.id}
+                          type="button"
+                          className="secondary small"
+                          title={example.description}
+                          onClick={() => {
+                            setExampleChoice((prev) => ({ ...prev, [role]: example }));
+                            setFiles((prev) => ({ ...prev, [role]: null }));
+                          }}
+                        >
+                          {examples.filter((e) => e.role === role).length > 1
+                            ? t('cases.wizard.example.useNamed', { label: example.label })
+                            : t('cases.wizard.example.use')}
+                        </button>
+                      ))
+                  )}
+                  <p className="hint">{t('cases.wizard.example.hint')}</p>
+                </div>
+              )}
+              {originRoles([role]).length > 0 && !exampleChoice[role] && (
                 <OriginField
                   role={role}
                   value={origins[role] ?? EMPTY_ORIGIN}

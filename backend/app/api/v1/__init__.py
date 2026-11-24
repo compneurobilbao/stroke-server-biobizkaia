@@ -2,11 +2,11 @@
 
 from fastapi import APIRouter
 
-from app.api.v1 import admin, cases, openapi, pipelines, plans, runs
+from app.api.v1 import admin, cases, examples, openapi, pipelines, plans, runs
 from app.api.v1.deps import effective_min_validation, effective_run_plan_policy
 
 router = APIRouter(prefix="/v1")
-for _module in (pipelines, plans, cases, runs, admin, openapi):
+for _module in (pipelines, plans, cases, examples, runs, admin, openapi):
     router.include_router(_module.router)
 
 # Refuse to start with a RUN_PLAN_POLICY that its deployment profile does not allow

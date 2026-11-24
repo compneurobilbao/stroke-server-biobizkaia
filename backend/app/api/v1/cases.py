@@ -62,6 +62,12 @@ from app.services.bids import (
     ensure_raw_dataset,
     store_raw_input,
 )
+from app.services.example_inputs import (
+    EXAMPLE_TOOL,
+    example_origin,
+    find_example,
+    is_example_origin,
+)
 from orchestrator.pipeline import artefact_types
 
 log = logging.getLogger(__name__)
@@ -273,6 +279,12 @@ _ORIGIN_HELP = (
 )
 
 
+_ORIGIN_RESERVED = (
+    f"The tool name '{EXAMPLE_TOOL}' is reserved for the synthetic example inputs "
+    "of the platform"
+)
+
+
 def _origin_dict(origin: InputOrigin | None) -> dict | None:
     return origin.model_dump(mode="json") if origin is not None else None
 
@@ -288,9 +300,120 @@ def parse_origin(raw: str | None) -> dict | None:
     if len(raw) > ORIGIN_FIELD_MAX_LENGTH:
         raise v1_error(422, "invalid_origin", _ORIGIN_HELP)
     try:
-        return _origin_dict(_ORIGIN_ADAPTER.validate_json(raw))
+        parsed = _origin_dict(_ORIGIN_ADAPTER.validate_json(raw))
     except ValidationError:
         raise v1_error(422, "invalid_origin", _ORIGIN_HELP) from None
+    if is_example_origin(parsed):
+        raise v1_error(422, "invalid_origin", _ORIGIN_RESERVED)
+    return parsed
+
+
+def _commit_input(
+    *,
+    db: Session,
+    request: Request,
+    response: Response | None,
+    current_user: User,
+    case_id: UUID,
+    role: str,
+    atype: str,
+    naming: BidsNaming,
+    tmp: Path,
+    size: int,
+    sha256: str,
+    origin: dict | None,
+    storage,
+    audit_event_type: str,
+    audit_extra: dict | None = None,
+) -> InputFile:
+    """Store a validated temporary file as the input of ``role`` (shared by the upload and
+    the example attach). Takes the case and owner row locks, re-checks what may have
+    changed, swaps the file in and commits; the caller rolls back on any exception."""
+    # Critical section: case row, then owner row. Re-check everything that may
+    # have changed during the upload, then swap the file in atomically (the case
+    # store writes through a temporary file and renames) and commit before the
+    # locks are released.
+    case = lock_case(db, case_id)
+    if _has_runs(db, case.id):
+        raise v1_error(
+            409, "case_has_runs", "Inputs cannot change after the first run"
+        )
+    owner = lock_user(db, case.owner_user_id)
+    existing = db.scalar(
+        select(InputFile).where(
+            InputFile.case_id == case.id, InputFile.role == role
+        )
+    )
+    # Synthetic examples and user files never share a case.
+    is_example = is_example_origin(origin)
+    for other in db.scalars(
+        select(InputFile.origin).where(
+            InputFile.case_id == case.id, InputFile.role != role
+        )
+    ):
+        if is_example_origin(other) != is_example:
+            raise v1_error(
+                409,
+                "example_input_mixed",
+                "Synthetic example inputs cannot be mixed with other inputs in one case",
+            )
+    check_quota(
+        db,
+        owner,
+        size,
+        replaced_bytes=(existing.size_bytes or 0) if existing else 0,
+    )
+    stored = store_raw_input(
+        storage,
+        CaseIdentity.from_case(case),
+        naming,
+        tmp,
+        expected_sha256=sha256,
+        platform_version=os.environ.get("PLATFORM_VERSION"),
+    )
+    created = existing is None
+    if created:
+        existing = InputFile(
+            case_id=case.id,
+            role=role,
+            artefact_type=atype,
+            uploaded_by_user_id=current_user.id,
+        )
+        db.add(existing)
+    else:
+        if response is not None:
+            response.status_code = 200
+        existing.uploaded_by_user_id = current_user.id
+        existing.created_at = utcnow()
+    existing.storage_path = stored.relative_path
+    existing.sha256 = stored.sha256
+    existing.size_bytes = stored.size_bytes
+    existing.origin = origin
+    case.updated_at = utcnow()
+    audit_event(
+        db,
+        audit_event_type,
+        current_user,
+        case_id=case.id,
+        details={
+            "role": role,
+            "artefact_type": atype,
+            "size_bytes": stored.size_bytes,
+            "origin_kind": origin["kind"] if origin else None,
+            **(audit_extra or {}),
+        },
+        ip_address=client_ip(request),
+    )
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        if created:
+            storage.root.joinpath(stored.relative_path).unlink(missing_ok=True)
+        raise v1_error(
+            409, "input_conflict", "The input was changed by another request"
+        ) from None
+    return existing
 
 
 @router.put(
@@ -365,75 +488,22 @@ def put_input(
         if type_def.get("format") == "nifti":
             _check_nifti(tmp)
 
-        # Critical section: case row, then owner row. Re-check everything that may
-        # have changed during the upload, then swap the file in atomically (the case
-        # store writes through a temporary file and renames) and commit before the
-        # locks are released.
-        case = lock_case(db, case_id)
-        if _has_runs(db, case.id):
-            raise v1_error(
-                409, "case_has_runs", "Inputs cannot change after the first run"
-            )
-        owner = lock_user(db, case.owner_user_id)
-        existing = db.scalar(
-            select(InputFile).where(
-                InputFile.case_id == case.id, InputFile.role == role
-            )
+        existing = _commit_input(
+            db=db,
+            request=request,
+            response=response,
+            current_user=current_user,
+            case_id=case_id,
+            role=role,
+            atype=atype,
+            naming=naming,
+            tmp=tmp,
+            size=size,
+            sha256=hasher.hexdigest(),
+            origin=declared_origin,
+            storage=storage,
+            audit_event_type="input_uploaded",
         )
-        check_quota(
-            db,
-            owner,
-            size,
-            replaced_bytes=(existing.size_bytes or 0) if existing else 0,
-        )
-        stored = store_raw_input(
-            storage,
-            CaseIdentity.from_case(case),
-            naming,
-            tmp,
-            expected_sha256=hasher.hexdigest(),
-            platform_version=os.environ.get("PLATFORM_VERSION"),
-        )
-        created = existing is None
-        if created:
-            existing = InputFile(
-                case_id=case.id,
-                role=role,
-                artefact_type=atype,
-                uploaded_by_user_id=current_user.id,
-            )
-            db.add(existing)
-        else:
-            response.status_code = 200
-            existing.uploaded_by_user_id = current_user.id
-            existing.created_at = utcnow()
-        existing.storage_path = stored.relative_path
-        existing.sha256 = stored.sha256
-        existing.size_bytes = stored.size_bytes
-        existing.origin = declared_origin
-        case.updated_at = utcnow()
-        audit_event(
-            db,
-            "input_uploaded",
-            current_user,
-            case_id=case.id,
-            details={
-                "role": role,
-                "artefact_type": atype,
-                "size_bytes": stored.size_bytes,
-                "origin_kind": declared_origin["kind"] if declared_origin else None,
-            },
-            ip_address=client_ip(request),
-        )
-        try:
-            db.commit()
-        except IntegrityError:
-            db.rollback()
-            if created:
-                storage.root.joinpath(stored.relative_path).unlink(missing_ok=True)
-            raise v1_error(
-                409, "input_conflict", "The input was changed by another request"
-            ) from None
     except BaseException:
         db.rollback()  # releases the row locks
         raise
@@ -441,6 +511,116 @@ def put_input(
         shutil.rmtree(tmp_dir, ignore_errors=True)
     db.refresh(existing)
     return existing
+
+
+class ExampleAttach(BaseModel):
+    """Body of the example attach: the id of an entry of ``GET /example-inputs``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    example_id: str
+
+
+@router.post(
+    "/cases/{case_id}/inputs/{role}/example",
+    response_model=InputFileRead,
+    status_code=201,
+)
+def attach_example_input(
+    case_id: UUID,
+    role: str,
+    body: ExampleAttach,
+    request: Request,
+    response: Response,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    orch: Orchestration = Depends(get_orchestration),
+) -> InputFile:
+    """Use a synthetic example file of the deployment as the input of ``role``.
+
+    Only when the deployment enables example inputs (404 ``example_inputs_disabled``
+    otherwise). The server copies the file through the same checks, locks and quota as
+    an upload and records it with the reserved example origin, so it is shown as a
+    synthetic example everywhere the declared origin appears. 201 for a new role, 200
+    for a replacement. A case holds either example inputs or user files, never both."""
+    example = find_example(settings, body.example_id)
+    case = load_case(db, case_id, current_user, "case.inputs.write")
+    if example.role != role:
+        raise v1_error(
+            422,
+            "example_role_mismatch",
+            f"Example '{example.id}' is for role '{example.role}', not '{role}'",
+        )
+    types = input_role_types(orch).get(role)
+    if not types:
+        raise v1_error(422, "unknown_input_role", f"Unknown input role '{role}'")
+    if len(types) > 1:
+        raise v1_error(
+            422,
+            "ambiguous_input_role",
+            f"Role '{role}' has different types in different pipelines",
+        )
+    atype = next(iter(types))
+    _version, type_defs = artefact_types()
+    type_def = type_defs[atype]
+    naming = BidsNaming.from_type(type_def)
+    if not example.path.name.lower().endswith(naming.extension):
+        raise v1_error(
+            422,
+            "file_extension_not_allowed",
+            f"Role '{role}' needs a {naming.extension} file",
+        )
+    if _has_runs(db, case.id):
+        raise v1_error(409, "case_has_runs", "Inputs cannot change after the first run")
+
+    storage = storage_for(settings)
+    incoming = storage.root / ".incoming"
+    incoming.mkdir(parents=True, exist_ok=True)
+    tmp_dir = Path(tempfile.mkdtemp(dir=incoming, prefix="ex-"))
+    tmp = tmp_dir / "example"
+    try:
+        shutil.copyfile(example.path, tmp)
+        size = tmp.stat().st_size
+        if size == 0 or size > settings.max_upload_size_bytes:
+            raise v1_error(422, "invalid_input_file", "The example file is not usable")
+        digest = hashlib.sha256(tmp.read_bytes()).hexdigest()
+        if type_def.get("format") == "nifti":
+            _check_nifti(tmp)
+        replaced = (
+            db.scalar(
+                select(InputFile.id).where(
+                    InputFile.case_id == case.id, InputFile.role == role
+                )
+            )
+            is not None
+        )
+        result = _commit_input(
+            db=db,
+            request=request,
+            response=None,
+            current_user=current_user,
+            case_id=case_id,
+            role=role,
+            atype=atype,
+            naming=naming,
+            tmp=tmp,
+            size=size,
+            sha256=digest,
+            origin=example_origin(example),
+            storage=storage,
+            audit_event_type="input_example_attached",
+            audit_extra={"example_id": example.id},
+        )
+        if replaced:
+            response.status_code = 200
+    except BaseException:
+        db.rollback()
+        raise
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+    db.refresh(result)
+    return result
 
 
 class InputOriginUpdate(BaseModel):
@@ -470,6 +650,14 @@ def patch_input_origin(
                 409, "case_has_runs", "Inputs cannot change after the first run"
             )
         row = _input(db, case, role)
+        if is_example_origin(row.origin):
+            raise v1_error(
+                409,
+                "example_input_origin_fixed",
+                "The origin of a synthetic example input cannot be changed",
+            )
+        if is_example_origin(_origin_dict(body.origin)):
+            raise v1_error(422, "invalid_origin", _ORIGIN_RESERVED)
         row.origin = _origin_dict(body.origin)
         case.updated_at = utcnow()
         audit_event(

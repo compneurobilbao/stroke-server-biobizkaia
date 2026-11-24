@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { errorText } from '../../api/client';
 import { patchInputOrigin, type InputFile } from '../../api/v1';
 import { useAuth } from '../auth/AuthContext';
-import { draftOf, isValidOrigin, originOf, originRoles, type OriginDraft } from './origin';
+import { draftOf, isExampleOrigin, isValidOrigin, originOf, originRoles, type OriginDraft } from './origin';
 import { OriginField } from './OriginField';
 import { originText } from './RunPlanSummary';
 
@@ -22,7 +22,7 @@ export function InputOriginEditor({ caseId, input, editable, onSaved }: Props) {
   const [draft, setDraft] = useState<OriginDraft | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const canEdit = editable && originRoles([input.role]).length > 0;
+  const canEdit = editable && originRoles([input.role]).length > 0 && !isExampleOrigin(input.origin);
 
   async function save() {
     if (!draft) return;

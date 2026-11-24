@@ -160,6 +160,36 @@ test.describe('declared origin of a supplied mask (mocked API)', () => {
   });
 });
 
+test.describe('example lesion (mocked API)', () => {
+  test('no button when the deployment offers no example', async ({ page }) => {
+    await installMockApi(page);
+    await openWizard(page);
+    await page.getByRole('radio', { name: /Lesion mask already in MNI/ }).check();
+    await page.getByRole('button', { name: 'Next' }).click();
+    await expect(page.getByLabel('Lesion mask in MNI space (.nii.gz)')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Use the example lesion (synthetic)' })).toHaveCount(0);
+  });
+
+  test('the example is attached by the server and shown as a synthetic example on the run page', async ({ page }) => {
+    const handle = await installMockApi(page, { exampleInputs: true });
+    await openWizard(page);
+    await page.getByRole('radio', { name: /Lesion mask already in MNI/ }).check();
+    await page.getByRole('button', { name: 'Next' }).click();
+    await page.getByRole('button', { name: 'Use the example lesion (synthetic)' }).click();
+    await expect(page.getByText(/Synthetic example selected/)).toBeVisible();
+    await page.getByRole('button', { name: 'Next' }).click();
+    await expect(page.getByRole('group', { name: 'Analysis' })).toBeVisible();
+    await page.getByRole('button', { name: 'Next' }).click();
+    await page.getByRole('button', { name: 'Create case and start run' }).click();
+
+    await expect(page).toHaveURL(/\/runs\/r1$/);
+    await expect(page.getByTestId('origin-lesion_mni')).toContainText('synthetic example lesion');
+    expect(handle.requests.filter((r) => r.method === 'PUT')).toHaveLength(0);
+    const post = handle.requests.find((r) => r.method === 'POST' && r.path === '/v1/cases/c1/inputs/lesion_mni/example');
+    expect(JSON.parse(post?.body ?? 'null')).toEqual({ example_id: 'mni-lesion-left-medium' });
+  });
+});
+
 test.describe('analysis step (mocked API)', () => {
   test('preset flow: the preview shows the plan, the run request names the preset, the run page shows it', async ({ page }) => {
     const handle = await installMockApi(page, { presets: true });

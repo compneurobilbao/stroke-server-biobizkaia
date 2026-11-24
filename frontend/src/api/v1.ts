@@ -343,6 +343,22 @@ export const putInput = (api: ApiClient, caseId: string, role: string, file: Fil
   return api.json<InputFile>(`/v1/cases/${enc(caseId)}/inputs/${enc(role)}`, { method: 'PUT', body: form });
 };
 
+/** A synthetic example file the deployment offers (opt-in; the list is empty when the feature is off). */
+export interface ExampleInput {
+  id: string;
+  role: string;
+  label: string;
+  description: string;
+  licence: string;
+  synthetic: boolean;
+}
+
+export const listExampleInputs = (api: ApiClient) => api.json<ExampleInput[]>('/v1/example-inputs');
+
+/** Use a synthetic example as the input of a role; the server marks it as a synthetic example. */
+export const attachExampleInput = (api: ApiClient, caseId: string, role: string, exampleId: string) =>
+  api.json<InputFile>(`/v1/cases/${enc(caseId)}/inputs/${enc(role)}/example`, { method: 'POST', json: { example_id: exampleId } });
+
 /** Change or clear (`null`) the declared origin of an input without uploading it again; refused (409 `case_has_runs`) once the case has a run. */
 export const patchInputOrigin = (api: ApiClient, caseId: string, role: string, origin: InputOrigin | null) =>
   api.json<InputFile>(`/v1/cases/${enc(caseId)}/inputs/${enc(role)}`, { method: 'PATCH', json: { origin } });

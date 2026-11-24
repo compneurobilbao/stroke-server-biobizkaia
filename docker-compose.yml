@@ -82,6 +82,8 @@ services:
       RUN_PLAN_POLICY: ${RUN_PLAN_POLICY:-}
       MIN_IMPLEMENTATION_VALIDATION: ${MIN_IMPLEMENTATION_VALIDATION:-}
       PLATFORM_VERSION: ${PLATFORM_VERSION:-0.0.0-dev}
+      # Opt-in synthetic example inputs; empty = off. Staging: EXAMPLE_INPUTS_DIR=/app/backend/example_inputs
+      EXAMPLE_INPUTS_DIR: ${EXAMPLE_INPUTS_DIR:-}
     depends_on:
       postgres:
         condition: service_healthy

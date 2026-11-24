@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "examples": [
+    {
+      "id": "mni-lesion-left-medium",
+      "role": "lesion_mni",
+      "label": "Left hemisphere, medium (12 mL)",
+      "description": "Synthetic ellipsoid lesion mask in the left hemisphere on the MNI152NLin6Asym 2 mm grid. Not derived from any patient.",
+      "licence": "CC0-1.0",
+      "file": "lesion_left_medium.nii.gz"
+    },
+    {
+      "id": "mni-lesion-right-medium",
+      "role": "lesion_mni",
+      "label": "Right hemisphere, medium (11 mL)",
+      "description": "Synthetic ellipsoid lesion mask in the right hemisphere on the MNI152NLin6Asym 2 mm grid. Not derived from any patient.",
+      "licence": "CC0-1.0",
+      "file": "lesion_right_medium.nii.gz"
+    }
+  ]
+}

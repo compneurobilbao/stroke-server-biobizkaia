@@ -9,6 +9,9 @@ COPY backend/requirements.txt /app/backend/requirements.txt
 RUN pip install --no-cache-dir -r /app/backend/requirements.txt
 
 COPY backend /app/backend
+# Synthetic example lesion masks (CC0) for the opt-in EXAMPLE_INPUTS_DIR feature; the manifest is
+# in backend/example_inputs. Nothing is offered unless EXAMPLE_INPUTS_DIR is set.
+COPY fixtures/data/mni_masks/lesion_left_medium.nii.gz fixtures/data/mni_masks/lesion_right_medium.nii.gz /app/backend/example_inputs/
 COPY worker /app/worker
 COPY processor_adapter /app/processor_adapter
 COPY orchestrator /app/orchestrator

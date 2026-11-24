@@ -329,6 +329,13 @@
       "locked": "The case has been created; these values can no longer be changed here.",
       "filesHint": "Select the files for this mode (.nii.gz only).",
       "uploaded": "Uploaded",
+      "example": {
+        "use": "Use the example lesion (synthetic)",
+        "useNamed": "Use the example lesion: {{label}} (synthetic)",
+        "selected": "Synthetic example selected: {{label}}",
+        "remove": "Remove",
+        "hint": "A synthetic lesion mask for trying the platform. It is not patient data and is marked as a synthetic example on the run and in the report."
+      },
       "origin": {
         "legend": "How was this mask made? (optional)",
         "kind": "Origin of the mask",
@@ -428,7 +435,8 @@
       "declaredByUser": "Declared by the user (not verified)",
       "origin": {
         "manual": "drawn by hand",
-        "externalTool": "external tool {{tool}} {{version}}"
+        "externalTool": "external tool {{tool}} {{version}}",
+        "syntheticExample": "synthetic example lesion (provided by the platform)"
       },
       "runAgain": "Run again with the same plan",
       "runAgainNewFiles": "Run again with new files",

@@ -295,6 +295,8 @@ export interface MockOptions {
    * (`succeeded`) or stays active (`running`); without `run` the case has no run yet.
    */
   seedCase?: { origin?: unknown; run?: 'succeeded' | 'running' };
+  /** Offer one synthetic example lesion (`GET /v1/example-inputs`); default none, as when the feature is off. */
+  exampleInputs?: boolean;
 }
 
 function runDetail(status: 'running' | 'succeeded', plan: Plan, inputs: Array<Record<string, unknown>> = []) {
@@ -398,6 +400,23 @@ export async function installMockApi(page: Page, options: MockOptions = {}): Pro
         free_mode_allowed: Boolean(options.freeMode),
       });
     }
+    if (method === 'GET' && path === '/v1/example-inputs') {
+      return json(
+        route,
+        options.exampleInputs
+          ? [
+              {
+                id: 'mni-lesion-left-medium',
+                role: 'lesion_mni',
+                label: 'Left hemisphere, medium (12 mL)',
+                description: 'Synthetic lesion mask.',
+                licence: 'CC0-1.0',
+                synthetic: true,
+              },
+            ]
+          : [],
+      );
+    }
     if (method === 'GET' && path === '/v1/pipelines') return json(route, [PIPELINE]);
     if (method === 'GET' && path === '/v1/pipelines/stroke-lnm/versions/0.1.0/slots') return json(route, SLOTS);
     if (method === 'GET' && path === '/v1/pipelines/stroke-lnm/versions/0.1.0/presets') {
@@ -426,6 +445,12 @@ export async function installMockApi(page: Page, options: MockOptions = {}): Pro
       if (hasRun) return json(route, { detail: 'Inputs cannot change after the first run', code: 'case_has_runs' }, 409);
       declared[input[1]] = (JSON.parse(request.postData() ?? '{}') as { origin: unknown }).origin;
       return json(route, inputFiles().find((file) => file.role === input[1]));
+    }
+    const example = /^\/v1\/cases\/c1\/inputs\/([a-z_]+)\/example$/.exec(path);
+    if (method === 'POST' && example) {
+      const origin = { kind: 'external-tool', tool: 'stroke-server-example', version: 'mni-lesion-left-medium' };
+      declared[example[1]] = origin;
+      return json(route, { id: `in-${example[1]}`, role: example[1], artefact_type: 'x', created_at: NOW, origin }, 201);
     }
     if (method === 'PUT' && input) {
       const sent = /name="origin"\r?\n\r?\n([^\r\n]*)/.exec(request.postData() ?? '');

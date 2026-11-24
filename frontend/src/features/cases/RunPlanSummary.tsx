@@ -1,11 +1,13 @@
 import { useTranslation } from 'react-i18next';
 import type { InputOrigin, RunPlan } from '../../api/v1';
+import { isExampleOrigin } from './origin';
 
 /** Text of a declared input origin (contract 1.2): what the user said, not something the platform verified. */
 type Translate = ReturnType<typeof useTranslation>['t'];
 
 export function originText(t: Translate, origin: InputOrigin): string {
   if (origin.kind === 'manual') return t('cases.run.origin.manual');
+  if (isExampleOrigin(origin)) return t('cases.run.origin.syntheticExample');
   if (origin.kind === 'external-tool') {
     return t('cases.run.origin.externalTool', { tool: origin.tool ?? '', version: origin.version ?? '' }).trim();
   }
