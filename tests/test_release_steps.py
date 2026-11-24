@@ -139,6 +139,9 @@ class FakeDocker:
             if "{{.Id}}" in cmd:
                 return done("sha256:" + "9" * 64 + "\n")
             repository = cmd[3].rsplit(":", 1)[0]
+            # like Docker: Docker Hub references are printed without "docker.io/"
+            if repository.startswith("docker.io/"):
+                repository = repository[len("docker.io/") :]
             return done(f"{repository}@{self.built}\n")
         if cmd[:2] == ["docker", "run"] and cmd[-1] == "/opt/step/step.yaml":
             image = cmd[-2]
@@ -463,3 +466,15 @@ def test_a_manifest_generator_runs_before_the_bundles_are_mounted(tmp_path):
     assert scripts and scripts[0][1].replace(chr(92), "/").endswith(
         "tests/make_reference.py"
     )
+
+
+def test_short_name_strips_docker_hub_hosts():
+    assert (
+        release._short_name("docker.io/compneurobilbaolab/step-x")
+        == "compneurobilbaolab/step-x"
+    )
+    assert (
+        release._short_name("index.docker.io/compneurobilbaolab/step-x")
+        == "compneurobilbaolab/step-x"
+    )
+    assert release._short_name("localhost:5000/ci/step-x") == "localhost:5000/ci/step-x"

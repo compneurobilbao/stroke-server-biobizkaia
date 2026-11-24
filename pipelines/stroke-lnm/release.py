@@ -143,6 +143,14 @@ class Context:
         return self.dest_override.rstrip("/") + "/" + t.repository[len(prefix) :]
 
 
+
+def _short_name(reference: str) -> str:
+    """Repository name as Docker prints it: Docker Hub host prefixes removed."""
+    for prefix in ("docker.io/", "index.docker.io/", "registry-1.docker.io/"):
+        if reference.startswith(prefix):
+            return reference[len(prefix) :]
+    return reference
+
 def image_repository(image: str) -> str:
     return image.split("@", 1)[0]
 
@@ -387,7 +395,9 @@ def publish(t: Target, ctx: Context, local: str) -> tuple[str, str]:
     refs = _run(
         ctx, "docker", "image", "inspect", tag, "--format", "{{range .RepoDigests}}{{println .}}{{end}}"
     ).stdout.split()
-    mine = [r for r in refs if r.startswith(repository + "@")]
+    # Docker reports Docker Hub references without the registry host
+    # ("compneurobilbaolab/step-x@sha256:..."), so compare normalised names.
+    mine = [r for r in refs if _short_name(r.split("@", 1)[0]) == _short_name(repository)]
     match = SHA.search(mine[0]) if mine else None
     if not match:
         raise ReleaseError(f"{t.key}: no digest of {repository} after the push ({refs})")
