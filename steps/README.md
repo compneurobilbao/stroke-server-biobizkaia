@@ -52,7 +52,7 @@ What stays your job: no network, no writes outside `/out` and `/tmp`, determinis
 
 ## Wrapping an external tool
 
-A third-party tool enters the platform as a *wrapper step* that fills a slot next to the lab's own implementations ([run-plans.md](../docs/design/run-plans.md#4-external-tools-per-slot), [ADR-0018](../docs/adr/0018-presets-free-mode-external-tools.md)). The wrapper is an adapter: it converts formats and names, and it never changes the tool's algorithm. The worked example is [`flnm-fast`](flnm-fast/) (registry entry `functional-disconnection/flnm-fast`, step version 2.0.0, contract 1.2). Work through this checklist and put the answers in the pull request; `python pipelines/<id>/registry.py check` enforces what a machine can check.
+A third-party tool enters the platform as a *wrapper step* that fills a slot next to the lab's own implementations ([run-plans.md](../docs/design/run-plans.md#4-external-tools-per-slot), [ADR-0018](../docs/adr/0018-presets-free-mode-external-tools.md)). The wrapper is an adapter: it converts formats and names, and it never changes the tool's algorithm. The worked example is [`flnm-fast`](flnm-fast/) (registry entries `functional-disconnection/flnm-fast-hcp-aging` and siblings, step version 3.0.0, contract 1.2). Work through this checklist and put the answers in the pull request; `python pipelines/<id>/registry.py check` enforces what a machine can check.
 
 **Checklist**
 

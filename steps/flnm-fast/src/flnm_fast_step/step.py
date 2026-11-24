@@ -9,11 +9,11 @@ declared error codes. It computes nothing itself.
 Mapping:
 
 * input ``lesion_mask`` becomes ``<tmp>/lesion/case.nii.gz``;
-* parameters ``sex`` and ``age_band`` become the single row of ``<tmp>/participants.tsv``
-  (age = midpoint of the band; sex written with the label the normative table uses) and
-  ``--match-age-sex`` selects the ``control_count`` same-sex, nearest-age controls (engine 2.x
-  uses every normative participant without it and then ignores ``control_count``);
-* bundle ``normative`` supplies ``--fc``, ``--normative-subjects`` and ``--parcellation``;
+* ``<tmp>/participants.tsv`` has one row, the identifier of the case: the engine is run without
+  ``--match-age-sex``, so it uses every participant of the normative cohort (the bundle is the
+  normative choice) and needs neither the age and sex of the case nor ``--control-count``;
+* bundle ``normative`` supplies ``--fc``, ``--normative-subjects`` and ``--parcellation``; the
+  parcellation file is named by the bundle (see ``parcellation_path``);
 * ``<tmp>/zmaps/case_zmap.nii.gz`` becomes output ``fdisconnection_map``.
 
 The engine's other outputs (control table with the participant identifiers of the normative
@@ -32,6 +32,7 @@ from pathlib import Path
 
 import nibabel as nib
 import numpy as np
+import yaml
 
 from stroke_step_sdk import InputRejected, InternalFailure, StepContext, contracts
 
@@ -39,24 +40,19 @@ ENGINE_SCRIPT = Path("/opt/lesion_zmaps/create_lesion_zmaps.py")
 BUNDLE = "normative"
 FC_FILE = "fc_row_subject_col.npy"
 SUBJECTS_FILE = "normative_subjects.csv"
-PARCELLATION_FILE = "standard/schaefer1000_tian54_2mm.nii.gz"
+BUNDLE_MANIFEST = "bundle.yaml"
+PARCELLATION_DIR = "standard"
+PARCELLATION_SUFFIX = ".nii.gz"
 GRID = "MNI152NLin6Asym-res2"
 PARTICIPANT_ID = "case"
-SEX_PREFIX = {"female": "F", "male": "M"}
 PATHS = re.compile(r"(?:/[\w.@+=,~-]+)+/?")
-BAND = re.compile(r"^([0-9]{1,3})-([0-9]{1,3})$")
 
 # Engine failure texts (str of the exception, written to failures.csv) -> declared code.
 FAILURES = (
-    (re.compile(r"^Only \d+ normative subjects with sex="), "insufficient_controls"),
     (re.compile(r"^Empty lesion mask after thresholding"), "mask_empty"),
     (re.compile(r"^Lesion does not overlap any parcellation ROI"), "lesion_outside_parcellation"),
 )
 MESSAGES = {
-    "insufficient_controls": (
-        "The normative dataset has fewer participants of the case's sex than the number of "
-        "controls requested."
-    ),
     "mask_empty": "The lesion mask has no voxels set.",
     "lesion_outside_parcellation": (
         "The lesion does not overlap any region of the normative parcellation."
@@ -64,45 +60,57 @@ MESSAGES = {
 }
 
 
-def age_from_band(band: str) -> float:
-    """Midpoint of an age band such as ``65-69`` (the age the controls are matched to)."""
-    match = BAND.match(band)
-    if not match or int(match.group(1)) > int(match.group(2)):
-        raise InputRejected(
-            "invalid_parameters", "The age band is not a valid range of whole years."
-        )
-    return (int(match.group(1)) + int(match.group(2))) / 2.0
+def parcellation_path(bundle: Path) -> Path:
+    """The parcellation file of a ``normative-fc`` bundle (documented rule, in this order).
 
+    1. ``metadata.parcellation`` of ``bundle.yaml``: a path relative to the bundle root
+       (for example ``standard/firsT_2566.nii.gz``) that must name an existing ``.nii.gz`` file
+       inside the bundle;
+    2. otherwise the only ``*.nii.gz`` file directly under ``standard/``.
 
-def normative_sex_label(subjects_csv: Path, sex: str) -> str:
-    """The sex label of the normative table (as the engine reads it) for ``female``/``male``."""
-    with subjects_csv.open(newline="", encoding="utf-8") as fh:
-        reader = csv.DictReader(fh)
-        if not reader.fieldnames or "sex" not in reader.fieldnames:
+    Anything else (no file, several files and no metadata, a path leaving the bundle) is a
+    ``bundle_layout_unsupported`` failure: the step never guesses between parcellations.
+    """
+    rel = None
+    manifest = bundle / BUNDLE_MANIFEST
+    if manifest.is_file():
+        doc = yaml.safe_load(manifest.read_text(encoding="utf-8")) or {}
+        rel = (doc.get("metadata") or {}).get("parcellation")
+    if rel is not None:
+        path = (bundle / str(rel)).resolve()
+        inside = path.is_relative_to(bundle.resolve())
+        if not inside or not str(rel).endswith(PARCELLATION_SUFFIX) or not path.is_file():
             raise InternalFailure(
-                "bundle_layout_unsupported", "The normative table has no sex column."
+                "bundle_layout_unsupported",
+                "The parcellation named by the bundle metadata is not a .nii.gz file of the "
+                "bundle.",
             )
-        labels = {row["sex"].upper() for row in reader}
-    wanted = SEX_PREFIX[sex]
-    matching = sorted(label for label in labels if label[:1] == wanted)
-    if len(matching) != 1:
+        return path
+    found = sorted(
+        p for p in (bundle / PARCELLATION_DIR).glob("*" + PARCELLATION_SUFFIX) if p.is_file()
+    )
+    if len(found) != 1:
         raise InternalFailure(
             "bundle_layout_unsupported",
-            "The sex labels of the normative table do not identify female and male participants.",
-            details={"labels_found": len(labels)},
+            "The bundle does not identify one parcellation: set metadata.parcellation in "
+            f"bundle.yaml or keep exactly one {PARCELLATION_SUFFIX} file under "
+            f"{PARCELLATION_DIR}/.",
+            details={"parcellation_files_found": len(found)},
         )
-    return matching[0]
+    return found[0]
 
 
-def _check_bundle(bundle: Path) -> None:
-    for rel in (FC_FILE, SUBJECTS_FILE, PARCELLATION_FILE):
+def _check_bundle(bundle: Path) -> Path:
+    """Checks the layout of the normative bundle; returns the parcellation file."""
+    for rel in (FC_FILE, SUBJECTS_FILE):
         if not (bundle / rel).is_file():
             raise InternalFailure(
                 "bundle_layout_unsupported",
                 "The normative bundle does not have the layout of a normative-fc bundle.",
                 details={"missing": rel},
             )
-    img = nib.load(str(bundle / PARCELLATION_FILE))
+    parcellation = parcellation_path(bundle)
+    img = nib.load(str(parcellation))
     grid = contracts.registry()["grids"][GRID]
     if list(img.shape) != list(grid["shape"]) or not np.allclose(
         img.affine, np.asarray(grid["affine"], dtype=float), rtol=0, atol=1e-4
@@ -110,6 +118,40 @@ def _check_bundle(bundle: Path) -> None:
         raise InternalFailure(
             "bundle_layout_unsupported",
             "The parcellation of the normative bundle is not on the working grid.",
+        )
+    _check_subjects(bundle / FC_FILE, bundle / SUBJECTS_FILE)
+    return parcellation
+
+
+def _check_subjects(fc_file: Path, subjects_csv: Path) -> None:
+    """Every participant of the FC array has exactly one row of the table (the engine requires
+    it when it does not match by age and sex). The table needs no age or sex column; extra
+    columns are ignored."""
+    fc = np.load(fc_file, mmap_mode="r")
+    if fc.ndim != 3 or fc.shape[0] != fc.shape[2]:
+        raise InternalFailure(
+            "bundle_layout_unsupported",
+            "The connectivity array is not (parcels x participants x parcels).",
+            details={"ndim": int(fc.ndim)},
+        )
+    with subjects_csv.open(newline="", encoding="utf-8") as fh:
+        reader = csv.DictReader(fh)
+        if not reader.fieldnames or "subject_index" not in reader.fieldnames:
+            raise InternalFailure(
+                "bundle_layout_unsupported", "The normative table has no subject_index column."
+            )
+        try:
+            indices = sorted(int(row["subject_index"]) for row in reader)
+        except (TypeError, ValueError):
+            raise InternalFailure(
+                "bundle_layout_unsupported", "The normative table has a non-integer subject_index."
+            ) from None
+    if indices != list(range(int(fc.shape[1]))):
+        raise InternalFailure(
+            "bundle_layout_unsupported",
+            "The normative table must have one row for every participant of the connectivity "
+            "array (subject_index 0 to n-1, no gaps or duplicates).",
+            details={"table_rows": len(indices), "array_participants": int(fc.shape[1])},
         )
 
 
@@ -146,24 +188,8 @@ def _record_software(ctx: StepContext) -> None:
 
 
 def run(ctx: StepContext) -> None:
-    sex = ctx.params["sex"]
-    band = ctx.params["age_band"]
-    if sex is None:
-        raise InputRejected(
-            "participant_sex_missing",
-            "The sex of the case is needed to select the normative controls; record it on the "
-            "case and run again.",
-        )
-    if band is None:
-        raise InputRejected(
-            "participant_age_missing",
-            "The age band of the case is needed to select the normative controls; record it on "
-            "the case and run again.",
-        )
-    age = age_from_band(band)
     bundle = ctx.bundle_path(BUNDLE)
-    _check_bundle(bundle)
-    label = normative_sex_label(bundle / SUBJECTS_FILE, sex)
+    parcellation = _check_bundle(bundle)
 
     work = ctx.tmp_dir / "flnm-fast"
     lesion_dir, out_dir = work / "lesion", work / "zmaps"
@@ -172,7 +198,7 @@ def run(ctx: StepContext) -> None:
         ctx.input_path("lesion_mask").read_bytes()
     )
     participants = work / "participants.tsv"
-    participants.write_text(f"id\tage\tsex\n{PARTICIPANT_ID}\t{age}\t{label}\n", encoding="utf-8")
+    participants.write_text(f"id\n{PARTICIPANT_ID}\n", encoding="utf-8")
 
     cmd = [
         sys.executable,
@@ -180,12 +206,10 @@ def run(ctx: StepContext) -> None:
         "--participants", str(participants),
         "--participant-id", PARTICIPANT_ID,
         "--lesion-dir", str(lesion_dir),
-        "--parcellation", str(bundle / PARCELLATION_FILE),
+        "--parcellation", str(parcellation),
         "--normative-subjects", str(bundle / SUBJECTS_FILE),
         "--fc", str(bundle / FC_FILE),
         "--out-dir", str(out_dir),
-        "--match-age-sex",
-        "--control-count", str(int(ctx.params["control_count"])),
     ]  # fmt: skip
     ctx.log.info("running the flnm-fast engine on one participant")
     proc = subprocess.run(
@@ -204,11 +228,7 @@ def run(ctx: StepContext) -> None:
     for text in _engine_failures(out_dir / "failures.csv"):
         for pattern, code in FAILURES:
             if pattern.match(text):
-                raise InputRejected(
-                    code,
-                    MESSAGES[code],
-                    port=None if code == "insufficient_controls" else "lesion_mask",
-                )
+                raise InputRejected(code, MESSAGES[code], port="lesion_mask")
         raise InternalFailure(
             "engine_failed",
             "The flnm-fast engine could not process the participant.",
@@ -225,10 +245,9 @@ def run(ctx: StepContext) -> None:
         )
     n_overlapped = _count_rows(tables["overlap"])
     ctx.log.info(
-        "%d lesion-overlapped parcels used, %d controls, control_count=%d",
+        "%d lesion-overlapped parcels used, %d normative participants",
         n_overlapped,
         _count_rows(tables["controls"]),
-        ctx.params["control_count"],
     )
     undefined = _undefined_parcels(tables["roi_z"])
     if undefined:

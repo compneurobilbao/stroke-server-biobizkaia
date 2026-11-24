@@ -230,6 +230,78 @@ def test_highest_matching_version_and_pinning(reg, tmp_path):
         reg.resolve(step(r), selection={"demo": ("synthetic-demo", "2.0.0")})
 
 
+class ShuffledStore:
+    """A store whose ``list`` order is arbitrary, like an unordered database query."""
+
+    def __init__(self, inner, order):
+        self.inner, self.order = inner, order
+
+    def list(self):
+        records = sorted(self.inner.list(), key=lambda r: r.bundle_id)
+        return [records[i] for i in self.order(len(records))]
+
+    def get(self, bundle_id, version):
+        return self.inner.get(bundle_id, version)
+
+    def save(self, record):
+        self.inner.save(record)
+
+
+def _two_ids(tmp_path, order=lambda n: range(n), ids=("cohort-b", "cohort-a"), versions=("1.0.0", "1.0.0")):
+    reg = b.BundleRegistry(tmp_path / "root")
+    for i, (bid, ver) in enumerate(zip(ids, versions)):
+        reg.register(make_bundle(tmp_path / f"s{i}", bundle_id=bid, version=ver, payload=bid.encode()))
+    reg.store = ShuffledStore(reg.store, order)
+    return reg
+
+
+def test_tied_bundles_resolve_deterministically_and_warn(tmp_path, caplog):
+    """Equal bundles of different ids: the same one for every store order, with a warning."""
+    chosen = set()
+    for order in (lambda n: range(n), lambda n: reversed(range(n))):
+        reg = _two_ids(tmp_path / str(len(chosen)), order)
+        caplog.clear()
+        with caplog.at_level("WARNING", logger="orchestrator.bundles"):
+            chosen.add(reg.resolve(step(REQ))["demo"].bundle_id)
+        warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert len(warnings) == 1 and "ambiguous" in warnings[0].getMessage()
+        assert "cohort-a" in warnings[0].getMessage() and "cohort-b" in warnings[0].getMessage()
+    assert chosen == {"cohort-a"}  # smallest id
+
+
+def test_explicit_pin_and_id_remove_the_ambiguity(tmp_path, caplog):
+    reg = _two_ids(tmp_path)
+    with caplog.at_level("WARNING", logger="orchestrator.bundles"):
+        pinned = reg.resolve(step(REQ), selection={"demo": ("cohort-b", "1.0.0")})
+        by_id = reg.resolve(step(dict(REQ, id="cohort-b")))
+    assert pinned["demo"].bundle_id == "cohort-b" and by_id["demo"].bundle_id == "cohort-b"
+    assert not [r for r in caplog.records if r.levelname == "WARNING"]
+
+
+def test_a_single_matching_bundle_id_is_not_ambiguous(tmp_path, caplog):
+    reg = _two_ids(tmp_path, ids=("cohort-a", "cohort-a"), versions=("1.0.0", "1.1.0"))
+    with caplog.at_level("WARNING", logger="orchestrator.bundles"):
+        assert reg.resolve(step(REQ))["demo"].version == "1.1.0"
+    assert not [r for r in caplog.records if r.levelname == "WARNING"]
+
+
+def test_higher_version_still_beats_a_lower_one_of_another_id(tmp_path, caplog):
+    reg = _two_ids(tmp_path, versions=("1.0.0", "1.2.0"))  # cohort-b 1.0.0, cohort-a 1.2.0
+    with caplog.at_level("WARNING", logger="orchestrator.bundles"):
+        assert reg.resolve(step(REQ))["demo"].bundle_id == "cohort-a"
+        reg = _two_ids(tmp_path / "x", versions=("1.2.0", "1.0.0"))  # cohort-b 1.2.0
+        assert reg.resolve(step(REQ))["demo"].bundle_id == "cohort-b"
+    assert len([r for r in caplog.records if r.levelname == "WARNING"]) == 2
+
+
+def test_verified_bundle_is_preferred_over_a_failed_equal_one(tmp_path):
+    reg = _two_ids(tmp_path)
+    rec = reg.store.get("cohort-a", "1.0.0")
+    rec.verification_status = "failed"
+    reg.store.save(rec)
+    assert reg.resolve(step(REQ))["demo"].bundle_id == "cohort-b"
+
+
 def test_json_store_persists(tmp_path, demo):
     root = tmp_path / "root"
     b.BundleRegistry(root).register(demo)

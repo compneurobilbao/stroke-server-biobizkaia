@@ -4,12 +4,13 @@ Writes, deterministically (fixed formulas, no random generator, no time stamps):
 
 * ``reference/bundle/``: a synthetic ``normative-fc`` bundle (bundle.yaml,
   ``fc_row_subject_col.npy``, ``normative_subjects.csv``, ``standard/<parcellation>.nii.gz``)
-  with 27 block parcels, 2100 participants with sex and age, and connectivity values from an
-  integer hash;
+  with 27 block parcels, 200 participants (identifiers only: no age or sex, as in the real
+  cohorts) and connectivity values from an integer hash; ``bundle.yaml`` names the
+  parcellation in ``metadata.parcellation``;
 * ``reference/lesion_mask.nii.gz``: a ball straddling several parcels on the 2 mm working grid;
 * ``reference/expected/fdisconnection_map.nii.gz``: the expected z-map, computed here with
-  the standard library and numpy only (exact Student t and normal quantile functions), not
-  by running the engine or the step.
+  the standard library and numpy only (exact Student t and normal quantile functions), over
+  every participant of the cohort, not by running the engine or the step.
 
 Nothing is real data. Used by the step tests, by ``stroke-step-reftest`` (contract 1.1
 ``reference_test.generator``) and by the stroke-lnm end-to-end test (the bundle).
@@ -34,9 +35,9 @@ BUNDLE_ID = "synthetic-normative-fc"
 BUNDLE_VERSION = "1.0.0"
 FC_FILE = "fc_row_subject_col.npy"
 SUBJECTS_FILE = "normative_subjects.csv"
-PARCELLATION_FILE = "standard/schaefer1000_tian54_2mm.nii.gz"
+PARCELLATION_FILE = "standard/synthetic_blocks27_2mm.nii.gz"  # named in metadata.parcellation
 
-N_SUBJECTS = 2100  # at least 1000 of each sex: the engine default control_count is 1000
+N_SUBJECTS = 200
 # Parcels are the blocks of a 3 x 3 x 3 partition of a box of the working grid (voxel indices).
 X_EDGES = (10, 35, 60, 81)
 Y_EDGES = (10, 45, 75, 101)
@@ -45,7 +46,6 @@ N_ROI = 27
 
 LESION_CENTRE = (35, 45, 40)  # on a corner shared by 8 parcels
 LESION_RADIUS = 7.0
-REFERENCE_CONTROLS = 16  # splits the group of females of age 62 (tie: subject index)
 
 MASK64 = (1 << 64) - 1
 
@@ -86,19 +86,14 @@ def _unit(h: np.ndarray) -> np.ndarray:
 
 def subjects() -> list[dict]:
     """Participants indexed by their position on the FC subject axis."""
-    out = []
-    for s in range(N_SUBJECTS):
-        age = 40 + int(_hash(s, 1) % np.uint64(41))
-        sex = "F" if int(_hash(s, 2) % np.uint64(2)) == 0 else "M"  # roughly half each
-        out.append({"subject_index": s, "eid": f"synthetic-{s:04d}", "age": age, "sex": sex})
-    return out
+    return [{"subject_index": s, "subject_id": f"synthetic-{s:04d}"} for s in range(N_SUBJECTS)]
 
 
 def subjects_csv(rows: list[dict]) -> str:
     """CSV rows in a hash-permuted order, so that row order is not the subject axis order."""
     order = sorted(rows, key=lambda r: int(_hash(r["subject_index"], 3)))
-    lines = ["subject_index,eid,age,sex"]
-    lines += [f"{r['subject_index']},{r['eid']},{r['age']},{r['sex']}" for r in order]
+    lines = ["subject_index,subject_id"]
+    lines += [f"{r['subject_index']},{r['subject_id']}" for r in order]
     return "\n".join(lines) + "\n"
 
 
@@ -199,31 +194,20 @@ def signed_z(t: float, df: int) -> float:
     return math.copysign(z, t)
 
 
-def select_controls(rows: list[dict], age: float, sex: str, count: int) -> list[int]:
-    """Subject indices of the ``count`` same-sex participants nearest in age (ties: age, index)."""
-    same = sorted(
-        (abs(r["age"] - age), r["age"], r["subject_index"]) for r in rows if r["sex"] == sex
-    )
-    return sorted(index for _d, _a, index in same[:count])
-
-
 def expected_zmap(
     labels: np.ndarray,
     mask: np.ndarray,
     fc: np.ndarray,
-    rows: list[dict],
-    *,
-    age: float,
-    sex: str,
-    count: int,
+    n_subjects: int = N_SUBJECTS,
 ) -> np.ndarray:
-    """Z-map by the definition of the method, one scalar at a time."""
+    """Z-map by the definition of the method, one scalar at a time, over the first
+    ``n_subjects`` participants of the cohort (all of them by default: no age/sex matching)."""
     in_lesion = labels[mask > 0]
     counts = np.bincount(in_lesion[in_lesion > 0], minlength=N_ROI + 1)
     overlapped = [r for r in range(1, N_ROI + 1) if counts[r]]
     total = sum(int(counts[r]) for r in overlapped)
     weights = {r: int(counts[r]) / total for r in overlapped}
-    controls = select_controls(rows, age, sex, count)
+    controls = list(range(n_subjects))
     z = np.full(N_ROI, np.nan)
     for target in range(N_ROI):
         profile = [
@@ -274,7 +258,6 @@ def write_bundle(
     digest = hashlib.sha256(
         "".join(f"{f['sha256']}  {f['path']}\n" for f in files).encode("utf-8")
     ).hexdigest()
-    n_female = sum(r["sex"] == "F" for r in rows)
     doc = {
         "contract_version": "1.1",
         "kind": "Bundle",
@@ -284,7 +267,7 @@ def write_bundle(
         "title": "Synthetic normative functional connectivity (CI fixture)",
         "description": (
             "27 block parcels on the 2 mm MNI152NLin6Asym grid and hash-generated parcel-by-"
-            "parcel connectivity of 2100 synthetic participants with sex and age. Same layout as "
+            "parcel connectivity of 200 synthetic participants (no age or sex). Same layout as "
             "a real normative-fc bundle. For CI and demos only."
         ),
         "synthetic": True,
@@ -295,9 +278,8 @@ def write_bundle(
         },
         "metadata": {
             "n_participants": N_SUBJECTS,
-            "n_female": n_female,
-            "n_male": N_SUBJECTS - n_female,
             "n_parcels": N_ROI,
+            "parcellation": PARCELLATION_FILE,
             "layout": "fc-row-subject-col-v1",
         },
         "content_digest": "sha256:" + digest,
@@ -314,9 +296,7 @@ def generate(dest: Path, registry_path: Path) -> dict:
     rows = write_bundle(dest / "bundle", shape, affine)
     mask = lesion_mask(shape)
     write_nifti(dest / "lesion_mask.nii.gz", mask, affine)
-    expected = expected_zmap(
-        parcellation(shape), mask, fc_array(), rows, age=62.0, sex="F", count=REFERENCE_CONTROLS
-    )
+    expected = expected_zmap(parcellation(shape), mask, fc_array())
     write_nifti(dest / "expected" / "fdisconnection_map.nii.gz", expected, affine)
     return {"lesion_voxels": int(mask.sum()), "parcels": N_ROI, "participants": N_SUBJECTS}
 

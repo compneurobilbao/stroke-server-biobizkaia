@@ -87,6 +87,8 @@ implementations:
       bundles: {connectome: {id: ..., version: 1.0.0}} # optional pins
 ```
 
+A bundle pin names one version of one bundle for the step's bundle requirement of that name. Entries of one slot that use the same image may differ only by their pins, which is how one tool is offered with different reference data (for example one normative cohort per entry); see [bundles.md](bundles.md#4-verification-and-use) for how an unpinned requirement is resolved.
+
 1. `image` MUST be pinned by digest. Tags are not accepted anywhere in a pipeline.
 2. Within one pipeline, a given step `name`+`version` MUST always be pinned to the same image. The same image MAY appear in several implementation entries of a slot with different parameters (a *configured variant*, e.g. with and without ventricle removal).
 3. `default`, if present, MUST be one of the allowed ids. A slot whose only implementations are stubs SHOULD have no default.

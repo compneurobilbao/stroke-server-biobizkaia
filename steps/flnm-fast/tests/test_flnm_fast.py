@@ -124,7 +124,7 @@ def assert_contract_valid(out: Path, *extra: str) -> None:
     assert [i.message for i in issues if i.severity == "error"] == []
 
 
-PARAMS = {"sex": "female", "age_band": "60-64", "control_count": 16}
+PARAMS: dict = {}  # the step has no parameters
 
 
 # --- manifest, bundle and reference data (no engine needed) ---------------------------------
@@ -182,17 +182,14 @@ def test_reference_data_is_byte_identical_on_regeneration(reference, tmp_path):
         assert (reference / rel).read_bytes() == (tmp_path / rel).read_bytes(), rel
 
 
-def test_reference_cohort_exercises_the_tie_break():
-    """The 16th and 17th nearest females are tied in age distance and in age: the index decides."""
-    rows = make_reference.subjects()
-    females = sorted(
-        (abs(r["age"] - 62.0), r["age"], r["subject_index"]) for r in rows if r["sex"] == "F"
-    )
-    n = make_reference.REFERENCE_CONTROLS
-    assert females[n - 1][:2] == females[n][:2]
-    chosen = make_reference.select_controls(rows, 62.0, "F", n)
-    assert females[n - 1][2] in chosen and females[n][2] not in chosen
-    assert chosen == sorted(chosen) and len(chosen) == n
+def test_reference_cohort_has_no_age_or_sex(reference):
+    """Like the real cohorts: identifiers only, so nothing in the step may need age or sex."""
+    with (reference / "bundle" / "normative_subjects.csv").open(newline="") as fh:
+        reader = csv.DictReader(fh)
+        assert reader.fieldnames == ["subject_index", "subject_id"]
+        rows = list(reader)
+    assert sorted(int(r["subject_index"]) for r in rows) == list(range(make_reference.N_SUBJECTS))
+    assert [int(r["subject_index"]) for r in rows] != list(range(make_reference.N_SUBJECTS))
 
 
 def test_independent_statistics_match_scipy():
@@ -205,70 +202,90 @@ def test_independent_statistics_match_scipy():
             assert make_reference.signed_z(t, df) == pytest.approx(z, rel=1e-9, abs=1e-12)
 
 
-def test_age_from_band():
-    assert step_module.age_from_band("65-69") == 67.0
-    assert step_module.age_from_band("90-104") == 97.0
-    from stroke_step_sdk import InputRejected
+def test_step_has_no_parameters_and_only_the_two_lesion_rejections():
+    doc = yaml.safe_load(MANIFEST.read_text(encoding="utf-8"))
+    assert doc["parameters"]["properties"] == {}
+    assert doc["parameters"]["additionalProperties"] is False
+    codes = {e["code"] for e in doc["errors"]}
+    assert codes == {"mask_empty", "lesion_outside_parcellation"}
 
-    with pytest.raises(InputRejected):
-        step_module.age_from_band("70-65")
+
+def _bundle_copy(reference, tmp_path, name="b") -> Path:
+    bundle = tmp_path / name
+    shutil.copytree(reference / "bundle", bundle)
+    return bundle
+
+
+def _set_metadata(bundle: Path, **values) -> None:
+    doc = yaml.safe_load((bundle / "bundle.yaml").read_text(encoding="utf-8"))
+    doc["metadata"].pop("parcellation", None)
+    doc["metadata"].update({k: v for k, v in values.items() if v is not None})
+    (bundle / "bundle.yaml").write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
+
+
+def test_parcellation_comes_from_the_bundle_metadata(reference, tmp_path):
+    bundle = _bundle_copy(reference, tmp_path)
+    assert step_module.parcellation_path(bundle) == (
+        bundle / "standard" / "synthetic_blocks27_2mm.nii.gz"
+    ).resolve()
+    # another file name, also outside standard/: the metadata decides, not the name or place
+    (bundle / "standard" / "synthetic_blocks27_2mm.nii.gz").rename(bundle / "firsT_2566.nii.gz")
+    _set_metadata(bundle, parcellation="firsT_2566.nii.gz")
+    assert step_module.parcellation_path(bundle) == (bundle / "firsT_2566.nii.gz").resolve()
+
+
+def test_single_file_under_standard_is_the_fallback(reference, tmp_path):
+    bundle = _bundle_copy(reference, tmp_path)
+    _set_metadata(bundle)  # no metadata.parcellation
+    assert step_module.parcellation_path(bundle).name == "synthetic_blocks27_2mm.nii.gz"
+    (bundle / "bundle.yaml").unlink()  # not even a manifest: still the single file
+    assert step_module.parcellation_path(bundle).name == "synthetic_blocks27_2mm.nii.gz"
 
 
 @pytest.mark.parametrize(
-    ("labels", "expected"),
-    [
-        (["F", "M"], ("F", "M")),
-        (["female", "male"], ("FEMALE", "MALE")),
-        (["f", "m", "F", "M"], ("F", "M")),
-    ],
+    "case",
+    ["two_files_no_metadata", "no_file", "metadata_missing_file", "metadata_escapes", "not_nifti"],
 )
-def test_sex_label_follows_the_normative_table(tmp_path, labels, expected):
-    table = tmp_path / "normative_subjects.csv"
-    rows = ["subject_index,eid,age,sex"] + [f"{i},x{i},50,{s}" for i, s in enumerate(labels)]
-    table.write_text("\n".join(rows) + "\n", encoding="utf-8")
-    assert step_module.normative_sex_label(table, "female") == expected[0]
-    assert step_module.normative_sex_label(table, "male") == expected[1]
-
-
-def test_sex_label_refuses_unrecognisable_tables(tmp_path):
+def test_ambiguous_or_invalid_parcellation_is_refused(reference, tmp_path, case):
     from stroke_step_sdk import InternalFailure
 
-    table = tmp_path / "normative_subjects.csv"
-    table.write_text("subject_index,eid,age,sex\n0,x,50,1\n1,y,50,2\n", encoding="utf-8")
+    bundle = _bundle_copy(reference, tmp_path)
+    parcel = bundle / "standard" / "synthetic_blocks27_2mm.nii.gz"
+    if case == "two_files_no_metadata":
+        shutil.copyfile(parcel, bundle / "standard" / "other.nii.gz")
+        _set_metadata(bundle)
+    elif case == "no_file":
+        parcel.unlink()
+        _set_metadata(bundle)
+    elif case == "metadata_missing_file":
+        _set_metadata(bundle, parcellation="standard/absent.nii.gz")
+    elif case == "metadata_escapes":
+        shutil.copyfile(parcel, tmp_path / "outside.nii.gz")
+        _set_metadata(bundle, parcellation="../outside.nii.gz")
+    else:
+        _set_metadata(bundle, parcellation="standard/synthetic_blocks27_2mm.txt")
     with pytest.raises(InternalFailure) as info:
-        step_module.normative_sex_label(table, "female")
+        step_module.parcellation_path(bundle)
     assert info.value.code == "bundle_layout_unsupported"
+
+
+def test_metadata_resolves_ambiguity_between_two_parcellations(reference, tmp_path):
+    bundle = _bundle_copy(reference, tmp_path)
+    shutil.copyfile(
+        bundle / "standard" / "synthetic_blocks27_2mm.nii.gz", bundle / "standard" / "other.nii.gz"
+    )
+    assert step_module.parcellation_path(bundle).name == "synthetic_blocks27_2mm.nii.gz"
 
 
 # --- rejections that do not need the engine --------------------------------------------------
 
 
 @pytest.mark.parametrize(
-    ("params", "code"),
-    [
-        ({"age_band": "60-64"}, "participant_sex_missing"),
-        ({"sex": "female"}, "participant_age_missing"),
-        ({}, "participant_sex_missing"),
-    ],
-)
-def test_missing_case_metadata_is_rejected(reference, tmp_path, params, code):
-    result, out = execute(tmp_path, reference / "lesion_mask.nii.gz", reference / "bundle", params)
-    assert result == EXIT_REJECTED
-    assert error_code(out) == code
-    assert not (out / MAP).exists()
-    assert_contract_valid(out, "error.json")
-
-
-@pytest.mark.parametrize(
     "params",
-    [
-        {"sex": "other"},
-        {"sex": "female", "age_band": "sixty"},
-        {"sex": "female", "age_band": "60-64", "control_count": 1},
-        {"sex": "female", "age_band": "60-64", "unknown": 1},
-    ],
+    [{"sex": "female"}, {"age_band": "60-64"}, {"control_count": 16}, {"unknown": 1}],
 )
-def test_invalid_parameters_use_the_reserved_code(reference, tmp_path, params):
+def test_removed_and_unknown_parameters_use_the_reserved_code(reference, tmp_path, params):
+    """sex, age_band and control_count were removed in 3.0.0: they are refused like any other."""
     result, out = execute(tmp_path, reference / "lesion_mask.nii.gz", reference / "bundle", params)
     assert result == EXIT_REJECTED
     assert error_code(out) == "invalid_parameters"
@@ -307,6 +324,37 @@ def test_parcellation_off_the_working_grid_is_an_internal_failure(reference, tmp
     assert error_code(out) == "bundle_layout_unsupported"
 
 
+def _rewrite_table(bundle: Path, mutate) -> None:
+    path = bundle / "normative_subjects.csv"
+    with path.open(newline="") as fh:
+        rows = list(csv.reader(fh))
+    rows = mutate(rows)
+    with path.open("w", newline="") as fh:
+        csv.writer(fh, lineterminator="\n").writerows(rows)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda rows: rows[:-1],  # a participant of the array without a row
+        lambda rows: rows + [rows[-1]],  # duplicate subject_index
+        lambda rows: [["subject_id"]] + [[r[1]] for r in rows[1:]],  # no subject_index
+        lambda rows: [rows[0]] + [["x", *r[1:]] for r in rows[1:]],  # not integers
+    ],
+    ids=["missing-row", "duplicate", "no-index-column", "non-integer"],
+)
+def test_normative_table_that_does_not_cover_the_array_is_an_internal_failure(
+    reference, tmp_path, mutate
+):
+    bundle = _bundle_copy(reference, tmp_path)
+    _rewrite_table(bundle, mutate)
+    (tmp_path / "run").mkdir()
+    result, out = execute(tmp_path / "run", reference / "lesion_mask.nii.gz", bundle, PARAMS)
+    assert result == EXIT_INTERNAL
+    assert error_code(out) == "bundle_layout_unsupported"
+    assert not (out / MAP).exists()
+
+
 # --- mapping of engine failures, with a fake engine ------------------------------------------
 
 
@@ -319,9 +367,8 @@ def fake_engine(tmp_path: Path, monkeypatch, body: str) -> None:
             from pathlib import Path
             ap = argparse.ArgumentParser()
             for name in ("participants", "participant-id", "lesion-dir", "parcellation",
-                         "normative-subjects", "fc", "out-dir", "control-count"):
+                         "normative-subjects", "fc", "out-dir"):
                 ap.add_argument("--" + name)
-            ap.add_argument("--match-age-sex", action="store_true")
             a = ap.parse_args()
             out = Path(a.out_dir)
             out.mkdir(parents=True, exist_ok=True)
@@ -344,7 +391,6 @@ with (out / "failures.csv").open("w", newline="") as f:
 @pytest.mark.parametrize(
     ("text", "code", "category"),
     [
-        ("Only 5 normative subjects with sex=F; need 20", "insufficient_controls", "input_rejected"),
         ("Empty lesion mask after thresholding: /tmp/x/case.nii.gz", "mask_empty", "input_rejected"),
     ],
 )
@@ -395,6 +441,8 @@ def test_missing_engine_output_is_internal(reference, tmp_path, monkeypatch):
 
 
 def test_engine_command_line_carries_the_case_and_the_bundle(reference, tmp_path, monkeypatch):
+    """No age or sex row, no --match-age-sex, no --control-count: the engine would refuse them
+    (the fake engine's parser has no such options)."""
     seen = tmp_path / "seen.json"
     fake_engine(
         tmp_path,
@@ -404,25 +452,25 @@ import json
 rows = list(csv.reader(open(a.participants), delimiter="\\t"))
 lesion = Path(a.lesion_dir) / (a.participant_id + ".nii.gz")
 Path({str(seen)!r}).write_text(json.dumps({{
-    "rows": rows, "lesion_exists": lesion.is_file(), "control_count": a.control_count,
+    "rows": rows, "lesion_exists": lesion.is_file(),
     "fc": Path(a.fc).name, "subjects": Path(a.normative_subjects).name,
     "parcellation": Path(a.parcellation).name, "id": a.participant_id,
-    "match_age_sex": a.match_age_sex,
 }}))
 sys.exit(1)
 """,
     )
     execute(tmp_path, reference / "lesion_mask.nii.gz", reference / "bundle", PARAMS)
     info = json.loads(seen.read_text(encoding="utf-8"))
-    assert info["rows"] == [["id", "age", "sex"], ["case", "62.0", "F"]]
-    assert info["lesion_exists"] and info["control_count"] == "16" and info["id"] == "case"
-    # engine 2.x selects controls by sex and age only with this flag (else: every participant)
-    assert info["match_age_sex"] is True
-    assert (info["fc"], info["subjects"]) == (
-        "fc_row_subject_col.npy",
-        "normative_subjects.csv",
-    )
-    assert info["parcellation"] == "schaefer1000_tian54_2mm.nii.gz"
+    assert info["rows"] == [["id"], ["case"]]
+    assert info["lesion_exists"] and info["id"] == "case"
+    assert (info["fc"], info["subjects"]) == ("fc_row_subject_col.npy", "normative_subjects.csv")
+    assert info["parcellation"] == "synthetic_blocks27_2mm.nii.gz"  # from the bundle metadata
+
+
+def test_engine_flags_that_would_match_by_age_and_sex_are_never_passed():
+    source = (STEP_DIR / "src" / "flnm_fast_step" / "step.py").read_text(encoding="utf-8")
+    code = "\n".join(line for line in source.splitlines() if not line.lstrip().startswith("#"))
+    assert '"--match-age-sex"' not in code and '"--control-count"' not in code
 
 
 # --- the real engine --------------------------------------------------------------------------
@@ -441,39 +489,46 @@ def test_reference_run_equals_the_independent_zmap(reference, tmp_path, use_engi
     assert_contract_valid(out)
     prov = json.loads((out / "provenance.json").read_text(encoding="utf-8"))
     assert prov.get("warnings", []) == []
+    assert prov["parameters"] == {}
     assert [b["id"] for b in prov["bundles"]] == ["synthetic-normative-fc"]
     assert {s["name"] for s in prov["software"]} >= {"flnm-fast engine", "numpy", "nibabel"}
     assert sorted(p.name for p in out.iterdir()) == [MAP, "provenance.json"]
 
 
 @engine
-@pytest.mark.parametrize(
-    ("sex", "band", "age", "count"),
-    [
-        ("female", "60-64", 62.0, 8),  # inside the group of age 62: the subject index decides
-        ("female", "60-64", 62.0, 40),  # reaches ages 61 and 63, tied in distance: age decides
-        ("male", "45-49", 47.0, 10),
-        ("male", "45-49", 47.0, 60),
-        ("female", "90-104", 97.0, 1000),  # the engine default; ages far from the cohort's
-    ],
-)
-def test_control_selection_and_ties_follow_the_independent_computation(
-    reference, tmp_path, use_engine, sex, band, age, count
-):
-    params = {"sex": sex, "age_band": band, "control_count": count}
-    result, out = execute(tmp_path, reference / "lesion_mask.nii.gz", reference / "bundle", params)
+def test_every_participant_of_the_cohort_is_used(reference, tmp_path, use_engine):
+    """No matching and no subset: the expected map over all participants, and not the one over
+    a subset (the engine would give the latter with --match-age-sex --control-count)."""
+    result, out = execute(tmp_path, reference / "lesion_mask.nii.gz", reference / "bundle", PARAMS)
     assert result == EXIT_OK
-    expected = make_reference.expected_zmap(
+    subset = make_reference.expected_zmap(
         make_reference.parcellation(SHAPE),
         zmap(reference / "lesion_mask.nii.gz"),
         make_reference.fc_array(),
-        make_reference.subjects(),
-        age=age,
-        sex=sex[0].upper(),
-        count=count,
+        n_subjects=make_reference.N_SUBJECTS // 2,
     )
-    assert np.allclose(zmap(out / MAP), expected, rtol=1e-5, atol=1e-5)
-    assert not np.allclose(zmap(out / MAP), zmap(reference / "expected" / MAP), atol=1e-3)
+    assert not np.allclose(zmap(out / MAP), subset, atol=1e-3)
+
+
+@engine
+def test_extra_columns_and_another_parcellation_name_are_accepted(reference, tmp_path, use_engine):
+    """A real table also has source_file, site and FD columns (and maybe others): ignored. The
+    parcellation is found through the metadata whatever its name."""
+    bundle = _bundle_copy(reference, tmp_path, "real-like")
+    _rewrite_table(
+        bundle,
+        lambda rows: [rows[0] + ["source_file", "site_a", "FD"]]
+        + [r + [f"f{r[0]}.nii", "0", "0.1"] for r in rows[1:]],
+    )
+    (bundle / "standard" / "synthetic_blocks27_2mm.nii.gz").rename(
+        bundle / "standard" / "firsT_2566.nii.gz"
+    )
+    _set_metadata(bundle, parcellation="standard/firsT_2566.nii.gz")
+    (tmp_path / "run").mkdir()
+    result, out = execute(tmp_path / "run", reference / "lesion_mask.nii.gz", bundle, PARAMS)
+    assert result == EXIT_OK
+    expected = zmap(reference / "expected" / MAP)
+    assert np.allclose(zmap(out / MAP), expected, rtol=1e-5, atol=1e-5, equal_nan=True)
 
 
 @engine
@@ -543,10 +598,6 @@ def test_lesion_in_a_single_parcel_is_processed(reference, tmp_path, use_engine)
         make_reference.parcellation(SHAPE),
         data,
         make_reference.fc_array(),
-        make_reference.subjects(),
-        age=62.0,
-        sex="F",
-        count=16,
     )
     actual = zmap(out / MAP)
     assert np.isfinite(actual).all() and (actual != 0).any()
@@ -565,14 +616,9 @@ def test_lowest_overlapped_parcel_is_part_of_the_weighting(
     rest = mask.copy()
     rest[labels == lowest] = 0  # the same lesion without the lowest overlapped parcel
     assert 0 < rest.sum() < mask.sum()
-    kwargs = dict(age=62.0, sex="F", count=16)
-    args = (labels, make_reference.fc_array(), make_reference.subjects())
-    with_lowest = make_reference.expected_zmap(
-        args[0], mask, args[1], args[2], **kwargs
-    )
-    without_lowest = make_reference.expected_zmap(
-        args[0], rest, args[1], args[2], **kwargs
-    )
+    args = (labels, make_reference.fc_array())
+    with_lowest = make_reference.expected_zmap(args[0], mask, args[1])
+    without_lowest = make_reference.expected_zmap(args[0], rest, args[1])
     assert not np.allclose(with_lowest, without_lowest, atol=1e-3)
     result, out = execute(
         tmp_path, reference / "lesion_mask.nii.gz", reference / "bundle", PARAMS
@@ -593,15 +639,6 @@ def test_engine_script_is_the_pinned_version():
         check=True,
     )
     assert proc.stdout.strip().endswith(ENGINE_VERSION)
-
-
-@engine
-def test_too_few_controls_are_rejected(reference, tmp_path, use_engine):
-    params = dict(PARAMS, control_count=5000)
-    result, out = execute(tmp_path, reference / "lesion_mask.nii.gz", reference / "bundle", params)
-    assert result == EXIT_REJECTED
-    assert error_code(out) == "insufficient_controls"
-    assert_contract_valid(out, "error.json")
 
 
 @engine

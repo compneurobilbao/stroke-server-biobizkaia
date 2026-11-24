@@ -8,7 +8,7 @@
 contract_version: "1.0"
 kind: Pipeline
 id: stroke-lnm
-version: 0.5.0
+version: 0.6.0
 title: Lesion network mapping v0
 description: >-
   Lesion intake and QC, normalisation of CT lesions to MNI152 (skipped when an MNI mask is
@@ -25,6 +25,11 @@ description: >-
   Version 0.5.0: the functional-disconnection slot pins flnm-fast 2.0.0, which wraps engine 2.1.0
   (the lowest-numbered lesion-overlapped parcel is no longer left out of the weighting) with the
   same ports, parameters and bundle requirement.
+  Version 0.6.0: the functional-disconnection slot pins flnm-fast 3.0.0, which has no parameters
+  (no age or sex matching: the normative choice is the cohort only) and reads its parcellation
+  from the bundle. The slot offers the same step image three times, each pinned to one
+  normative-fc bundle through `bundles`: the HCP Aging cohort (default), the HCP Young Adult
+  cohort, and a synthetic cohort for CI only.
 
 inputs:
   - name: ct
@@ -93,14 +98,30 @@ slots:
     produces:
       - {port: fdisconnection_map, type: fdisconnection_map}
     implementations:
-      default: flnm-fast
+      default: flnm-fast-hcp-aging
       allowed:
-        - id: flnm-fast
-          step: {name: flnm-fast, version: 2.0.0}
+        # One step image, one entry per normative cohort: the pinned bundle is the whole
+        # difference (the step has no parameters). The bundle must be installed on the
+        # deployment (docs/reference-data.md); a run on a missing bundle is refused.
+        # Normative cohort: HCP Aging (older adults), 1.0.0.
+        - id: flnm-fast-hcp-aging
+          step: {name: flnm-fast, version: 3.0.0}
           image: docker.io/compneurobilbaolab/step-flnm-fast@sha256:0000000000000000000000000000000000000000000000000000000000000000
-          parameter_bindings:
-            sex: case.sex
-            age_band: case.age_band
+          bundles:
+            normative: {id: normative-fc-hcp-aging, version: 1.0.0}
+        # Normative cohort: HCP Young Adult, 1.0.0.
+        - id: flnm-fast-hcp-ya
+          step: {name: flnm-fast, version: 3.0.0}
+          image: docker.io/compneurobilbaolab/step-flnm-fast@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          bundles:
+            normative: {id: normative-fc-hcp-ya, version: 1.0.0}
+        # CI fixture: the real step on the small synthetic normative bundle. Only enabled in
+        # the ci profile; its output has no scientific meaning.
+        - id: flnm-fast-synthetic
+          step: {name: flnm-fast, version: 3.0.0}
+          image: docker.io/compneurobilbaolab/step-flnm-fast@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          bundles:
+            normative: {id: synthetic-normative-fc, version: 1.0.0}
         # CI fixture and placeholder: synthetic output, only enabled in the ci profile.
         - id: fdisconnection-stub
           step: {name: fdisconnection-stub, version: 0.1.0}
