@@ -97,7 +97,23 @@ def test_deployment_enables_real_entries_only(factory, capsys):
     assert got[("cognet-profile", "cognet-stroke")] == (False, False)
     assert got[("normalisation", "ct-lesion-to-mni152")] == (False, False)
     out = capsys.readouterr().out
-    assert "placeholder" not in out  # the digests are the published ones
+    if reg.get("published", False):
+        assert "placeholder" not in out  # the digests are the published ones
+    else:
+        # Between a step release and its publication (`published: false`) the entries of the new
+        # version carry the placeholder digest: the seed warns about exactly those entries.
+        pinned = {
+            (slot, impl)
+            for slot, impls in reg["implementations"].items()
+            for impl, e in impls.items()
+            if e.get("image", "").endswith("0" * 64)
+        }
+        warned = {
+            tuple(line.split()[1].split("/")[1:])
+            for line in out.splitlines()
+            if line.startswith("warning") and "placeholder" in line
+        }
+        assert warned <= pinned
     assert "insert" in out and "committed" in out
 
 

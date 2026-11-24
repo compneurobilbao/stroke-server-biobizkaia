@@ -20,6 +20,8 @@ import shutil
 import sys
 from pathlib import Path
 
+import nibabel as nib
+import numpy as np
 import pytest
 from jsonschema import Draft202012Validator
 
@@ -206,7 +208,7 @@ def test_report_json_golden_without_tract_table_en(tmp_path, reference, no_pdf):
         "cognitive_profile": "available",
     }
     assert doc["tract_disconnection"] == {"status": "absent"}
-    assert doc["generator"] == {"step": "research-report", "version": "0.3.0"}
+    assert doc["generator"] == {"step": "research-report", "version": "0.4.0"}
     absent = [i["port"] for i in doc["inputs"] if not i["present"]]
     assert absent == ["ct_mni", "tract_disconnection"]
 
@@ -241,7 +243,7 @@ def test_record_without_plan_gives_the_content_of_report_1_0(tmp_path, reference
     assert staged.run() == EXIT_OK
     doc = json.loads(staged.json_bytes())
     _assert_no_plan_keys(doc)
-    assert doc["report_version"] == "1.1" and doc["generator"]["version"] == "0.3.0"
+    assert doc["report_version"] == "1.2" and doc["generator"]["version"] == "0.4.0"
     assert set(doc) == {
         "kind", "report_version", "language", "research_use_only", "research_use_statement",
         "generator", "sections", "notes", "lesion", "functional_disconnection",
@@ -463,6 +465,83 @@ def test_cognet_profile_violating_its_schema_is_rejected(tmp_path, reference, no
     assert err["code"] == "input_format_invalid" and err["port"] == "cognet_profile"
 
 
+EXCLUDED = {"count": 3, "fraction": 0.03, "reason": "undefined_in_disconnection_map"}
+
+
+def _stage_excluded(staged: Staged, excluded) -> None:
+    doc = make_reference.cognet_profile()
+    if excluded is not None:
+        doc["excluded_parcels"] = excluded
+    # same layout as the reference file, so that equal content gives equal input digests
+    (staged.in_dir / "cognet_profile.json").write_bytes(
+        (json.dumps(doc, indent=2, sort_keys=True) + chr(10)).encode("utf-8")
+    )
+
+
+def test_report_json_golden_excluded_parcels_en(tmp_path, reference, no_pdf):
+    staged = Staged(tmp_path, reference)
+    _stage_excluded(staged, EXCLUDED)
+    assert staged.run() == EXIT_OK
+    data = staged.json_bytes()
+    _check_golden_bytes("report_excluded_parcels_en.json", data)
+    doc = json.loads(data)
+    SCHEMA.validate(doc)
+    assert doc["cognitive_profile"]["excluded_parcels"] == EXCLUDED
+    assert "parcels_excluded_from_cognitive_profile" in doc["notes"]
+
+
+@pytest.mark.parametrize("excluded", [None, {"count": 0, "fraction": 0.0, "reason": "none"}])
+def test_no_excluded_parcels_gives_the_report_without_the_field(tmp_path, reference, no_pdf, excluded):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    base = Staged(tmp_path / "a", reference)
+    assert base.run() == EXIT_OK
+    other = Staged(tmp_path / "b", reference)
+    _stage_excluded(other, excluded)
+    assert other.run() == EXIT_OK
+    doc = json.loads(other.json_bytes())
+    # the staged profile file differs (its digest is in the inputs), nothing else does
+    expected = json.loads(base.json_bytes())
+    assert {k: v for k, v in doc.items() if k != "inputs"} == {
+        k: v for k, v in expected.items() if k != "inputs"
+    }
+    assert "excluded_parcels" not in doc["cognitive_profile"]
+    assert "parcels_excluded_from_cognitive_profile" not in doc["notes"]
+
+
+def test_excluded_parcels_violating_the_profile_schema_is_rejected(tmp_path, reference, no_pdf):
+    staged = Staged(tmp_path, reference)
+    _stage_excluded(staged, {"count": -1, "fraction": 0.5, "reason": "x"})
+    assert staged.run() == EXIT_REJECTED
+    assert staged.error()["port"] == "cognet_profile"
+
+
+def test_functional_map_with_nan_voxels_is_summarised_over_defined_voxels(tmp_path, reference, no_pdf):
+    staged = Staged(tmp_path, reference)
+    path = staged.in_dir / "fdisconnection_map.nii.gz"
+    img = nib.load(str(path))
+    data = np.asanyarray(img.dataobj).astype(np.float32)
+    base_max = float(data.max())
+    data[0:2, 0:2, 0:2] = np.nan  # zero-valued corner of the map
+    nib.save(nib.Nifti1Image(data, img.affine), str(path))
+    assert staged.run() == EXIT_OK
+    doc = json.loads(staged.json_bytes())
+    SCHEMA.validate(doc)
+    fd = doc["functional_disconnection"]
+    assert fd["n_undefined_voxels"] == 8 and fd["max"] == pytest.approx(base_max, abs=1e-4)
+
+
+def test_functional_map_with_infinite_voxel_is_rejected(tmp_path, reference, no_pdf):
+    staged = Staged(tmp_path, reference)
+    path = staged.in_dir / "fdisconnection_map.nii.gz"
+    img = nib.load(str(path))
+    data = np.asanyarray(img.dataobj).astype(np.float32)
+    data[0, 0, 0] = np.inf
+    nib.save(nib.Nifti1Image(data, img.affine), str(path))
+    assert staged.run() == EXIT_REJECTED
+    assert staged.error()["port"] == "fdisconnection_map"
+
+
 def test_lesion_qc_without_required_fields_is_rejected(tmp_path, reference, no_pdf):
     staged = Staged(tmp_path, reference)
     (staged.in_dir / "lesion_qc.json").write_text('{"mode": "mni_mask"}', encoding="utf-8")
@@ -543,6 +622,37 @@ def test_pdf_full_en_golden_text_banner_and_provenance(tmp_path, reference):
         if rec["present"]:
             assert rec["sha256"] in flat
     assert "5.1Stepsandcontainerimages" in flat
+
+
+@needs_pdf
+@pytest.mark.parametrize(
+    "language, sentence",
+    [
+        (
+            "en",
+            "3 parcels (3.0 %) had no defined value in the disconnection map and were excluded "
+            "from the cognitive profile.",
+        ),
+        (
+            "es",
+            "3 parcelas (3.0 %) no tenían un valor definido en el mapa de desconexión y se "
+            "excluyeron del perfil cognitivo.",
+        ),
+    ],
+)
+def test_pdf_states_excluded_parcels_only_when_present(tmp_path, reference, language, sentence):
+    for name, excluded in (("with", EXCLUDED), ("without", None)):
+        (tmp_path / name).mkdir()
+        staged = Staged(tmp_path / name, reference, language=language)
+        _stage_excluded(staged, excluded)
+        assert staged.run() == EXIT_OK
+        pdf = staged.out_dir / "report_pdf.pdf"
+        assert report_pdftext.pages_without_banner(pdf, language) == []
+        flat = report_pdftext.squash("".join(report_pdftext.page_texts(pdf)))
+        assert (report_pdftext.squash(sentence) in flat) == (excluded is not None)
+        if ACTUAL:
+            Path(ACTUAL).mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(pdf, Path(ACTUAL) / f"report_excluded_{name}_{language}.pdf")
 
 
 @needs_pdf

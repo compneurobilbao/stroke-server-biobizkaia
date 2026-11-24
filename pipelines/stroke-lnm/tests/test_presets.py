@@ -47,7 +47,7 @@ from orchestrator.planning import (  # noqa: E402
 
 PRESETS = ["full", "mni-mask-analysis", "ct-normalisation", "lesion-qc-report"]
 CT, MNI = "ct-and-native-mask", "mni-mask"
-VERSION = "0.7.0"
+VERSION = "0.8.0"
 ALL_SLOTS = [
     "lesion-intake",
     "normalisation",
@@ -104,17 +104,17 @@ def test_registry_check_validates_the_presets(documents):
 
 
 def test_presets_are_attached_to_the_pipeline_version(presets):
-    """P1-P8 through the orchestrator's own loader: all four are offered for 0.7.0."""
+    """P1-P8 through the orchestrator's own loader: all four are offered for 0.8.0."""
     assert [p.id for p in presets.presets("stroke-lnm", VERSION)] == sorted(PRESETS)
     for preset in presets.presets("stroke-lnm", VERSION):
-        assert preset.version == "1.5.0"
+        assert preset.version == "1.6.0"
         assert preset.sha256 == hashlib.sha256((HERE / "presets" / f"{preset.id}.yaml").read_bytes()).hexdigest()
 
 
 def test_the_presets_are_written_for_the_current_pipeline_range():
     for name in PRESETS:
         data = yaml.safe_load((HERE / "presets" / f"{name}.yaml").read_text(encoding="utf-8"))
-        assert data["pipeline"] == {"id": "stroke-lnm", "versions": ">=0.2.0, <0.8.0"}
+        assert data["pipeline"] == {"id": "stroke-lnm", "versions": ">=0.2.0, <0.9.0"}
 
 
 # What each profile offers: the ci profile every preset (default `full`); the deployment (lab)
@@ -433,7 +433,7 @@ def _too_old(pipeline, presets, documents, preset_id, input_set):
 def test_presets_with_the_report_are_accepted_by_the_report_step(
     documents, pipeline, presets, preset_id, input_set
 ):
-    """research-report 0.3.0 declares contract 1.2 and reads `run.provenance`: no preset is
+    """research-report 0.3.0 and later declare contract 1.2 and read `run.provenance`: no preset is
     refused with `step_contract_too_old` any more (card F1-25 lifted the refusal)."""
     assert str(REPORT_MANIFEST["contract_version"]) == "1.2"
     assert _too_old(pipeline, presets, documents, preset_id, input_set) == []

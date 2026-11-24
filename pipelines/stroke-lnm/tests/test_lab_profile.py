@@ -43,7 +43,7 @@ from orchestrator.planning import (  # noqa: E402
 
 PRESETS = ["full", "mni-mask-analysis", "ct-normalisation", "lesion-qc-report"]
 CT, MNI = "ct-and-native-mask", "mni-mask"
-VERSION = "0.7.0"
+VERSION = "0.8.0"
 MINIMUM_SLOTS = {
     "lesion-intake",
     "functional-disconnection",
@@ -61,8 +61,11 @@ PUBLISHED = {
     "flnm-fast@3.0.0": "docker.io/compneurobilbaolab/step-flnm-fast@sha256:368df2c450b30f02d43d30bdf8ec9750bcf43f6b208731dde64d30bbf3c5efb0",
     "lesion-qc@1.0.0": "docker.io/compneurobilbaolab/step-lesion-qc@sha256:c23607186e6c771164ca6f0b8dcdd0509ec895344602cb60d9c4b0d841dcaf32",
     "lnm-tracts@1.0.0": "docker.io/compneurobilbaolab/step-lnm-tracts@sha256:f80735a43d1ee90ea134ae2f3ff5fb1e304815e8861b97a4fed4a845b7f928ab",
-    "research-report@0.3.0": "docker.io/compneurobilbaolab/step-research-report@sha256:fd3ece4683cd822d6c841a4efcbb2416a5e7b81123e3400e7d9a209784a0410b",
 }
+# Step versions added by a later change than the release runs above: placeholder digest (and
+# `published: false`) until released and pinned with `registry.py pin`; any real digest after.
+# research-report 0.4.0: COGNET-02 (parcels excluded from the cognitive profile are stated).
+PENDING_RELEASE = {"research-report@0.4.0"}
 
 
 @pytest.fixture(scope="module")
@@ -213,20 +216,27 @@ def test_deployment_entries_pin_the_lab_bundles_and_ci_entries_stay_unpinned(doc
 
 def test_every_step_is_pinned_to_its_published_digest(documents):
     pipeline_doc, registry = documents
-    assert registry["published"] is True
     for slot in pipeline_doc["slots"]:
         for entry in slot["implementations"]["allowed"]:
             key = f"{entry['step']['name']}@{entry['step']['version']}"
-            assert entry["image"] == PUBLISHED[key], (slot["name"], entry["id"])
+            if key in PENDING_RELEASE:
+                assert registry_tool.DIGEST_REF.match(entry["image"]), (slot["name"], entry["id"])
+            else:
+                assert entry["image"] == PUBLISHED[key], (slot["name"], entry["id"])
             assert entry["image"] == registry["implementations"][slot["name"]][entry["id"]]["image"]
-    assert registry_tool.PLACEHOLDER not in (HERE / "pipeline.yaml").read_text(encoding="utf-8")
-    assert registry_tool.PLACEHOLDER not in (HERE / "registry.yaml").read_text(encoding="utf-8")
+    # `published` is true exactly when no placeholder is left
+    pending = any(
+        registry_tool.PLACEHOLDER in (HERE / name).read_text(encoding="utf-8")
+        for name in ("pipeline.yaml", "registry.yaml")
+    )
+    assert registry["published"] is (not pending)
 
 
 def test_registry_check_passes_and_requires_real_digests_once_published(documents):
     pipeline_doc, registry = documents
     assert registry_tool.check(pipeline_doc, registry, registry_tool.load_presets(HERE)) == []
     broken = copy.deepcopy(registry)
+    broken["published"] = True
     entry = broken["implementations"]["tract-disconnection"]["lnm-tracts-hcp1065"]
     entry["image"] = "docker.io/compneurobilbaolab/step-lnm-tracts@sha256:" + "0" * 64
     errors = registry_tool.published_errors(broken)
@@ -235,9 +245,12 @@ def test_registry_check_passes_and_requires_real_digests_once_published(document
 
 def test_materialize_still_replaces_every_digest_for_ci(documents):
     pipeline_doc, registry = documents
-    digests = {
-        key: f"registry.example/{key.split('@')[0]}@sha256:" + "b" * 64 for key in PUBLISHED
+    keys = {
+        f"{e['step']['name']}@{e['step']['version']}"
+        for slot in pipeline_doc["slots"]
+        for e in slot["implementations"]["allowed"]
     }
+    digests = {key: f"registry.example/{key.split('@')[0]}@sha256:" + "b" * 64 for key in keys}
     out_pipeline, out_registry = registry_tool.materialize(pipeline_doc, registry, digests)
     for slot in out_pipeline["slots"]:
         for entry in slot["implementations"]["allowed"]:

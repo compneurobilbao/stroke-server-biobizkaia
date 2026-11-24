@@ -56,6 +56,17 @@
         }
       }
     },
+    "excluded_parcels": {
+      "description": "Optional. Parcels of the concept-map parcellation that had no defined value in the disconnection map (NaN, as written by the functional disconnection step for a parcel whose statistic is undefined) and were left out of the disconnection scores. count is the number of excluded parcels, fraction is count / method.n_parcels, reason says why (currently undefined_in_disconnection_map, but any string is accepted). May be absent or have count 0 when nothing was excluded; consumers act only on count > 0.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["count", "fraction", "reason"],
+      "properties": {
+        "count": { "type": "integer", "minimum": 0 },
+        "fraction": { "type": "number", "minimum": 0, "maximum": 1 },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 200 }
+      }
+    },
     "domains": {
       "type": "array",
       "minItems": 1,

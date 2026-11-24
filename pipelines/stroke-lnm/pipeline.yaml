@@ -8,7 +8,7 @@
 contract_version: "1.0"
 kind: Pipeline
 id: stroke-lnm
-version: 0.7.0
+version: 0.8.0
 title: Lesion network mapping v0
 description: >-
   Lesion intake and QC, normalisation of CT lesions to MNI152 (skipped when an MNI mask is
@@ -35,6 +35,10 @@ description: >-
   bundle (`lnm-tracts-hcp1065` pins `hcp1065-tracts` 1.0.0, `cognet-stroke-concept-maps` pins
   `cognet-concept-maps` 1.0.0); the unpinned entries stay for CI, which registers synthetic
   bundles. Nothing else changes in the wiring.
+  Version 0.8.0: the report slot pins research-report 0.4.0, which accepts a functional
+  disconnection map with NaN voxels (parcels without a value, as flnm-fast writes them) and
+  states in the cognitive-profile section how many parcels a COGNET profile left out
+  (`excluded_parcels`). Wiring, ports and parameters are unchanged.
 
 inputs:
   - name: ct
@@ -200,11 +204,11 @@ slots:
       default: research-report
       allowed:
         - id: research-report
-          step: {name: research-report, version: 0.3.0}
-          image: docker.io/compneurobilbaolab/step-research-report@sha256:fd3ece4683cd822d6c841a4efcbb2416a5e7b81123e3400e7d9a209784a0410b
+          step: {name: research-report, version: 0.4.0}
+          image: docker.io/compneurobilbaolab/step-research-report@sha256:0000000000000000000000000000000000000000000000000000000000000000
         # Configured variant of the same image: the report text in Spanish.
         - id: research-report-es
-          step: {name: research-report, version: 0.3.0}
-          image: docker.io/compneurobilbaolab/step-research-report@sha256:fd3ece4683cd822d6c841a4efcbb2416a5e7b81123e3400e7d9a209784a0410b
+          step: {name: research-report, version: 0.4.0}
+          image: docker.io/compneurobilbaolab/step-research-report@sha256:0000000000000000000000000000000000000000000000000000000000000000
           parameters:
             language: es
