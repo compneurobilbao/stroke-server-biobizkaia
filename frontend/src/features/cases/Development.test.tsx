@@ -118,8 +118,8 @@ describe('SlotSelector with cohort titles and stages in development', () => {
     const slots = makeSlots();
     const base = slots[2].implementations[0];
     slots[2].implementations = [
-      { ...base, id: 'flnm-fast-hcp-aging', title: 'flnm-fast · HCP Aging', is_default: true },
-      { ...base, id: 'flnm-fast-hcp-ya', title: 'flnm-fast · HCP Young Adult', is_default: false },
+      { ...base, id: 'flnm-fast-hcp-aging', title: 'flnm-fast · HCP Aging', is_default: true, stub: false },
+      { ...base, id: 'flnm-fast-hcp-ya', title: 'flnm-fast · HCP Young Adult', is_default: false, stub: false },
     ];
     slots[2].default_implementation = 'flnm-fast-hcp-aging';
     render(<SlotSelector slots={slots} roles={MNI} value={{}} onChange={() => {}} />);
