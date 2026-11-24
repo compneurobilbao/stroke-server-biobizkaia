@@ -806,3 +806,12 @@ button.small { padding: 4px 10px; font-size: .85rem; margin-top: 4px; }
   .process { padding: 18px; }
   .process-branches { grid-template-columns: 1fr; }
 }
+
+/* Stages in development (wizard analysis step, plan preview, run page): greyed, never selectable. */
+.development { margin-top: 16px; }
+.development h4 { margin: 0 0 4px; color: #4a4f63; }
+.development-list { list-style: none; padding: 0; margin: 8px 0 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.development-item { background: #f1f2f6; border: 1px dashed #b9bdcc; border-radius: 12px; padding: 10px 14px; color: #6b7185; opacity: .85; cursor: not-allowed; }
+.development-item strong { color: #4a4f63; }
+.radio-row[data-development], .slot-row[data-state="development"] { opacity: .65; cursor: not-allowed; }
+.slot-row[data-state="development"] { border-left-color: #cbd5e1; background: #f1f2f6; }

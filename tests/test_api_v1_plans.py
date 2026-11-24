@@ -1168,8 +1168,7 @@ def test_disabling_a_preset_hides_it_but_keeps_runs_readable(syn_ready):
 # ------------------------------------------------------------ the real pipeline
 
 
-@pytest.fixture()
-def real(client, monkeypatch):
+def _real_env(client, monkeypatch):
     pipelines = DirectoryPipelineRegistry(ROOT / "pipelines")
     assert [p.id for p in pipelines.all()] == ["stroke-lnm"]
     directory = DirectoryStepCatalog(ROOT / "steps")
@@ -1206,8 +1205,34 @@ def real(client, monkeypatch):
     return env
 
 
+@pytest.fixture()
+def lab(client, monkeypatch):
+    """The `deployment` profile as seeded: the lab's minimum pipeline, no normalisation."""
+    return _real_env(client, monkeypatch)
+
+
+@pytest.fixture()
+def real(client, monkeypatch):
+    """The deployment profile with normalisation mounted and every preset enabled: what the
+    lab instance becomes once the normalisation slot graduates from "in development"."""
+    env = _real_env(client, monkeypatch)
+    r = env.put(
+        f"/api/v1/admin/implementations/{PIPE_REAL}/normalisation/ct-lesion-to-mni152",
+        enabled=True,
+        is_default=True,
+    )
+    assert r.status_code == 200, r.text
+    r = env.put(f"/api/v1/admin/presets/{PIPE_REAL}/mni-mask-analysis", enabled=True, is_default=False)
+    assert r.status_code == 200, r.text
+    for name in ("full", "ct-normalisation", "lesion-qc-report"):
+        r = env.put(f"/api/v1/admin/presets/{PIPE_REAL}/{name}", enabled=True, is_default=name == "full")
+        assert r.status_code == 200, r.text
+    return env
+
+
 REAL = "stroke-lnm"
-REAL_BASE = f"/api/v1/pipelines/{REAL}/versions/0.6.0"
+PIPE_REAL = REAL
+REAL_BASE = f"/api/v1/pipelines/{REAL}/versions/0.7.0"
 CT = ["ct", "lesion_native"]
 MNI = ["lesion_mni"]
 
@@ -1223,7 +1248,7 @@ def test_real_pipeline_lists_the_four_presets(real):
         "lesion-qc-report",
     }
     assert [p["id"] for p in listing.values() if p["is_default"]] == ["full"]
-    assert all(p["version"] == "1.4.0" for p in listing.values())
+    assert all(p["version"] == "1.5.0" for p in listing.values())
     ct = listing["ct-normalisation"]
     assert ct["input_sets"] == ["ct-and-native-mask"]
     (plan,) = ct["plans"]
@@ -1315,10 +1340,10 @@ def test_real_pipeline_refusals_preview_and_create_agree(
 ):
     case_id = real.case(roles)
     before = real.counts()
-    created = real.start(case_id, pipeline=REAL, pipeline_version="0.6.0", **body)
+    created = real.start(case_id, pipeline=REAL, pipeline_version="0.7.0", **body)
     assert (created.status_code, created.json()["code"]) == (status, code), created.text
     assert real.counts() == before
-    preview = real.preview(roles, pipeline=REAL, version="0.6.0", **body)
+    preview = real.preview(roles, pipeline=REAL, version="0.7.0", **body)
     assert preview.status_code == 200, preview.text
     shown = preview.json()
     assert shown["feasible"] is False
@@ -1331,7 +1356,7 @@ def test_real_pipeline_free_mode_adds_what_the_target_needs(real):
     plan = real.preview(
         CT,
         pipeline=REAL,
-        version="0.6.0",
+        version="0.7.0",
         targets={
             "required": ["tract_disconnection"],
             "if_available": ["cognet-profile"],
@@ -1350,7 +1375,7 @@ def test_real_pipeline_free_mode_adds_what_the_target_needs(real):
     r = real.preview(
         CT,
         pipeline=REAL,
-        version="0.6.0",
+        version="0.7.0",
         targets={"required": ["tract_disconnection"]},
     )
     assert (r.status_code, r.json()["code"]) == (403, "free_mode_not_allowed")
@@ -1362,7 +1387,7 @@ def test_p8_recorded_digest_hides_a_changed_preset(real, tmp_path):
     r = real.start(
         case_id,
         pipeline=REAL,
-        pipeline_version="0.6.0",
+        pipeline_version="0.7.0",
         preset={"id": "ct-normalisation"},
     )
     # Run creation needs the registered bundles of the selected steps, which this
@@ -1371,7 +1396,7 @@ def test_p8_recorded_digest_hides_a_changed_preset(real, tmp_path):
     with real.Session() as db:
         recorded = recorded_preset_digests(db)
     if r.status_code == 201:
-        assert ("stroke-lnm", "ct-normalisation", "1.4.0") in recorded
+        assert ("stroke-lnm", "ct-normalisation", "1.5.0") in recorded
         changed = tmp_path / "pipelines"
         (changed / "stroke-lnm").mkdir(parents=True)
         for name in ("pipeline.yaml",):
@@ -1385,7 +1410,7 @@ def test_p8_recorded_digest_hides_a_changed_preset(real, tmp_path):
         registry = DirectoryPresetRegistry(
             changed, real.services.pipelines, real.services.steps, recorded
         )
-        assert registry.presets("stroke-lnm", "0.6.0") == []
+        assert registry.presets("stroke-lnm", "0.7.0") == []
 
 
 def test_api_wires_the_preset_registry_with_recorded_digests(
@@ -1418,13 +1443,13 @@ def test_api_wires_the_preset_registry_with_recorded_digests(
     monkeypatch.setattr(
         resolution,
         "recorded_preset_digests",
-        lambda db: calls.append(db) or {("stroke-lnm", "full", "1.4.0"): "0" * 64},
+        lambda db: calls.append(db) or {("stroke-lnm", "full", "1.5.0"): "0" * 64},
     )
     deps._default_orchestration.cache_clear()
     try:
         orch = deps._default_orchestration()
         assert calls, "the recorded digests were not read"
-        names = {p.id for p in orch.presets.presets("stroke-lnm", "0.6.0")}
+        names = {p.id for p in orch.presets.presets("stroke-lnm", "0.7.0")}
         # `full` is refused: its file differs from the digest recorded for its version.
         assert names == {"mni-mask-analysis", "ct-normalisation", "lesion-qc-report"}
         monkeypatch.setattr(resolution, "recorded_preset_digests", original)
@@ -1432,7 +1457,7 @@ def test_api_wires_the_preset_registry_with_recorded_digests(
         names = {
             p.id
             for p in deps._default_orchestration().presets.presets(
-                "stroke-lnm", "0.6.0"
+                "stroke-lnm", "0.7.0"
             )
         }
         assert names == {
@@ -1445,10 +1470,126 @@ def test_api_wires_the_preset_registry_with_recorded_digests(
         monkeypatch.setenv("PRESETS_DIR", str(tmp_path / "none"))
         deps._default_orchestration.cache_clear()
         assert (
-            deps._default_orchestration().presets.presets("stroke-lnm", "0.6.0") == []
+            deps._default_orchestration().presets.presets("stroke-lnm", "0.7.0") == []
         )
     finally:
         deps._default_orchestration.cache_clear()
+
+
+# ------------------------------------------------- the lab deployment (MVP-01)
+
+LAB_DEVELOPMENT = ["segmentation", "lesion-bank", "voxel-lnm"]
+
+
+def test_lab_offers_only_the_minimum_preset_as_default(lab):
+    listing = {
+        p["id"]: p
+        for p in lab.client.get(f"{REAL_BASE}/presets", headers=lab.alice).json()
+    }
+    assert set(listing) == {"mni-mask-analysis"}
+    preset = listing["mni-mask-analysis"]
+    assert preset["is_default"] is True and preset["version"] == "1.5.0"
+    assert sorted(preset["targets"]["required"]) == [
+        "cognet-profile",
+        "functional-disconnection",
+        "report",
+        "tract-disconnection",
+    ]
+    assert preset["targets"]["if_available"] == []
+    (plan,) = preset["plans"]
+    assert plan["input_set"] == "mni-mask"
+
+
+def test_lab_slot_listing_has_cohort_titles_and_no_enabled_normalisation(lab):
+    slots = {
+        s["name"]: s
+        for s in lab.client.get(f"{REAL_BASE}/slots", headers=lab.alice).json()
+    }
+    functional = {i["id"]: i for i in slots["functional-disconnection"]["implementations"]}
+    assert set(functional) == {"flnm-fast-hcp-aging", "flnm-fast-hcp-ya"}
+    assert functional["flnm-fast-hcp-aging"]["title"] == "flnm-fast · HCP Aging"
+    assert functional["flnm-fast-hcp-ya"]["title"] == "flnm-fast · HCP Young Adult"
+    assert slots["functional-disconnection"]["default_implementation"] == "flnm-fast-hcp-aging"
+    assert {i["id"] for i in slots["tract-disconnection"]["implementations"]} == {
+        "lnm-tracts-hcp1065"
+    }
+    assert {i["id"] for i in slots["cognet-profile"]["implementations"]} == {
+        "cognet-stroke-concept-maps"
+    }
+    assert slots["normalisation"]["implementations"] == []
+    assert slots["normalisation"]["default_implementation"] is None
+
+
+def test_lab_lists_the_stages_in_development(lab):
+    r = lab.client.get(f"{REAL_BASE}/in-development", headers=lab.alice)
+    assert r.status_code == 200, r.text
+    stages = r.json()
+    assert [s["id"] for s in stages] == ["normalisation", *LAB_DEVELOPMENT]
+    normalisation = stages[0]
+    assert normalisation["slot"] == "normalisation"
+    assert normalisation["title"] == "CT lesion to MNI152"
+    assert [s["slot"] for s in stages[1:]] == [None, None, None]
+    assert all(s["title"] for s in stages)
+    detail = lab.client.get(REAL_BASE, headers=lab.alice).json()
+    assert detail["in_development"] == stages
+
+
+def test_in_development_slot_disappears_once_it_is_mounted(real):
+    stages = real.client.get(f"{REAL_BASE}/in-development", headers=real.alice).json()
+    assert [s["id"] for s in stages] == LAB_DEVELOPMENT
+
+
+def test_in_development_needs_a_signed_in_user_and_an_existing_pipeline(lab):
+    assert lab.client.get(f"{REAL_BASE}/in-development").status_code == 401
+    r = lab.client.get(
+        f"/api/v1/pipelines/{REAL}/versions/9.9.9/in-development", headers=lab.alice
+    )
+    assert (r.status_code, r.json()["code"]) == (404, "pipeline_not_found")
+
+
+def test_stages_in_development_cannot_be_enabled_or_chosen(lab):
+    # They are not slot implementations: the admin endpoint knows no such slot ...
+    r = lab.put(
+        f"/api/v1/admin/implementations/{REAL}/segmentation/anything",
+        enabled=True,
+        is_default=True,
+    )
+    assert r.status_code == 404
+    # ... and a run cannot ask for one as a target.
+    case_id = lab.case(MNI)
+    created = lab.start(
+        case_id,
+        pipeline=REAL,
+        pipeline_version="0.7.0",
+        targets={"required": ["segmentation"]},
+    )
+    assert created.status_code == 422
+    assert created.json()["code"] == "unknown_target"
+
+
+def test_lab_refuses_a_ct_run_because_normalisation_is_unmounted(lab):
+    preview = lab.preview(CT, pipeline=REAL, version="0.7.0")
+    assert preview.status_code == 200
+    shown = preview.json()
+    assert shown["feasible"] is False
+    assert [(r["code"], r["slot"]) for r in shown["reasons"]] == [
+        ("no_implementation", "normalisation")
+    ]
+
+
+def test_lab_plan_of_the_minimum_preset(lab):
+    shown = lab.preview(
+        MNI, pipeline=REAL, version="0.7.0", preset={"id": "mni-mask-analysis"}
+    ).json()
+    assert shown["feasible"] is True, shown
+    chosen = {s["name"]: s["implementation"] for s in shown["slots"] if s["status"] == "selected"}
+    assert chosen == {
+        "lesion-intake": "lesion-qc",
+        "functional-disconnection": "flnm-fast-hcp-aging",
+        "tract-disconnection": "lnm-tracts-hcp1065",
+        "cognet-profile": "cognet-stroke-concept-maps",
+        "report": "research-report",
+    }
 
 
 # --------------------------------------------------------------------- OpenAPI

@@ -47,7 +47,7 @@ from orchestrator.planning import (  # noqa: E402
 
 PRESETS = ["full", "mni-mask-analysis", "ct-normalisation", "lesion-qc-report"]
 CT, MNI = "ct-and-native-mask", "mni-mask"
-VERSION = "0.6.0"
+VERSION = "0.7.0"
 ALL_SLOTS = [
     "lesion-intake",
     "normalisation",
@@ -104,29 +104,34 @@ def test_registry_check_validates_the_presets(documents):
 
 
 def test_presets_are_attached_to_the_pipeline_version(presets):
-    """P1-P8 through the orchestrator's own loader: all four are offered for 0.6.0."""
+    """P1-P8 through the orchestrator's own loader: all four are offered for 0.7.0."""
     assert [p.id for p in presets.presets("stroke-lnm", VERSION)] == sorted(PRESETS)
     for preset in presets.presets("stroke-lnm", VERSION):
-        assert preset.version == "1.4.0"
+        assert preset.version == "1.5.0"
         assert preset.sha256 == hashlib.sha256((HERE / "presets" / f"{preset.id}.yaml").read_bytes()).hexdigest()
 
 
 def test_the_presets_are_written_for_the_current_pipeline_range():
     for name in PRESETS:
         data = yaml.safe_load((HERE / "presets" / f"{name}.yaml").read_text(encoding="utf-8"))
-        assert data["pipeline"] == {"id": "stroke-lnm", "versions": ">=0.2.0, <0.7.0"}
+        assert data["pipeline"] == {"id": "stroke-lnm", "versions": ">=0.2.0, <0.8.0"}
 
 
-def test_the_profiles_enable_every_preset_with_one_default(documents):
+# What each profile offers: the ci profile every preset (default `full`); the deployment (lab)
+# profile only the minimum preset, because the others also accept the CT input set, which needs
+# the normalisation slot that the lab does not mount yet (MVP-01).
+PROFILE_PRESETS = {"ci": (set(PRESETS), "full"), "deployment": ({"mni-mask-analysis"}, "mni-mask-analysis")}
+
+
+@pytest.mark.parametrize("profile", sorted(PROFILE_PRESETS))
+def test_the_profiles_enable_their_presets_with_one_default(documents, profile):
     _pipeline, registry = documents
-    for profile in ("deployment", "ci"):
-        rows = registry_tool.enabled_preset_settings(registry, profile, PRESETS)
-        assert {r["preset_id"] for r in rows if r["enabled"]} == set(PRESETS)
-        assert [r["preset_id"] for r in rows if r["is_default"]] == ["full"]
-        # without the list of the pipeline's presets: the enabled ones
-        assert registry_tool.enabled_preset_settings(registry, profile) == [
-            r for r in rows if r["enabled"]
-        ]
+    enabled, default = PROFILE_PRESETS[profile]
+    rows = registry_tool.enabled_preset_settings(registry, profile, PRESETS)
+    assert {r["preset_id"] for r in rows if r["enabled"]} == enabled
+    assert [r["preset_id"] for r in rows if r["is_default"]] == [default]
+    # without the list of the pipeline's presets: the enabled ones
+    assert registry_tool.enabled_preset_settings(registry, profile) == [r for r in rows if r["enabled"]]
 
 
 def test_an_unlisted_preset_is_a_disabled_row(documents):
@@ -216,9 +221,9 @@ def test_check_without_presets_keeps_the_earlier_behaviour(documents):
 VARIANTS = [(), ("functional-disconnection",), ("cognet-profile",), ("functional-disconnection", "cognet-profile")]
 
 
-@pytest.mark.parametrize("profile", ["deployment", "ci"])
+# ci only: the deployment (lab) profile enables just the minimum preset and mounts no normalisation.
+@pytest.mark.parametrize(("profile", "input_set"), [("ci", CT), ("ci", MNI)])
 @pytest.mark.parametrize("unmounted", VARIANTS, ids=lambda v: "+".join(v) or "all-mounted")
-@pytest.mark.parametrize("input_set", [CT, MNI])
 def test_full_preset_gives_the_full_plan(documents, pipeline, presets, profile, unmounted, input_set):
     """Same slots, statuses, reasons and implementations as the full plan (rule R0); only the
     plan role differs (slots reached from the targets are `upstream`)."""
@@ -287,7 +292,7 @@ EXPECTED = {
             "lesion-intake": "upstream",
             "functional-disconnection": "target",
             "tract-disconnection": "target",
-            "cognet-profile": "if_available",
+            "cognet-profile": "target",
             "report": "target",
         },
     ),
@@ -327,8 +332,11 @@ EXPECTED = {
 }
 
 
-@pytest.mark.parametrize("profile", ["deployment", "ci"])
-@pytest.mark.parametrize(("preset_id", "input_set"), sorted(EXPECTED))
+# Every preset is enabled in the ci profile; the deployment profile offers only the minimum one.
+@pytest.mark.parametrize(
+    ("profile", "preset_id", "input_set"),
+    [("ci", *key) for key in sorted(EXPECTED)] + [("deployment", "mni-mask-analysis", MNI)],
+)
 def test_plan_statuses_match_the_design_table(documents, pipeline, presets, profile, preset_id, input_set):
     expected_statuses, expected_roles = EXPECTED[(preset_id, input_set)]
     result = plan(
@@ -346,7 +354,7 @@ def test_lesion_qc_report_leaves_the_analyses_out(documents, pipeline, presets):
     """The plan of `lesion-qc-report` is the intake and the report (plus normalisation in CT
     mode); tract and functional disconnection are not pulled in, since the report's tract
     port is optional from 0.2.0."""
-    en = enablement(documents[1], "deployment")
+    en = enablement(documents[1], "ci")
     request = PlanRequest(preset=presets.get("stroke-lnm", VERSION, "lesion-qc-report"))
     for input_set in (CT, MNI):
         result = plan(pipeline, input_set, request, en)
@@ -360,7 +368,7 @@ def test_lesion_qc_report_leaves_the_analyses_out(documents, pipeline, presets):
 def test_mni_mask_analysis_requires_functional_disconnection(documents, pipeline, presets):
     """Unlike `full`, the run is refused (not silently reduced) when functional
     disconnection has no enabled implementation."""
-    en = enablement(documents[1], "deployment", ("functional-disconnection",))
+    en = enablement(documents[1], "ci", ("functional-disconnection",))
     request = PlanRequest(preset=presets.get("stroke-lnm", VERSION, "mni-mask-analysis"))
     refused = plan(pipeline, MNI, request, en)
     assert isinstance(refused, PlanRefused)
@@ -374,11 +382,11 @@ def test_mni_mask_analysis_requires_functional_disconnection(documents, pipeline
 
 def test_ct_normalisation_is_unavailable_while_normalisation_is_unmounted(documents, pipeline, presets):
     request = PlanRequest(preset=presets.get("stroke-lnm", VERSION, "ct-normalisation"))
-    refused = plan(pipeline, CT, request, enablement(documents[1], "deployment", ("normalisation",)))
+    refused = plan(pipeline, CT, request, enablement(documents[1], "ci", ("normalisation",)))
     assert isinstance(refused, PlanRefused)
     assert [(r.code, r.slot) for r in refused.reasons] == [("no_implementation", "normalisation")]
     # and available again once it is mounted
-    assert isinstance(plan(pipeline, CT, request, enablement(documents[1], "deployment")), Plan)
+    assert isinstance(plan(pipeline, CT, request, enablement(documents[1], "ci")), Plan)
 
 
 @pytest.mark.parametrize("preset_id", ["mni-mask-analysis", "ct-normalisation"])
@@ -388,7 +396,7 @@ def test_single_input_set_presets_refuse_the_other_one(documents, pipeline, pres
         pipeline,
         other,
         PlanRequest(preset=presets.get("stroke-lnm", VERSION, preset_id)),
-        enablement(documents[1], "deployment"),
+        enablement(documents[1], "ci"),
     )
     assert isinstance(refused, PlanRefused)
     assert refused.code == "preset_input_set_mismatch"
@@ -396,7 +404,7 @@ def test_single_input_set_presets_refuse_the_other_one(documents, pipeline, pres
 
 def test_a_preset_that_is_not_enabled_is_refused(documents, pipeline, presets):
     registry = documents[1]
-    en = enablement(registry, "deployment")
+    en = enablement(registry, "ci")
     off = Enablement(en.enabled, en.defaults, frozenset(PRESETS) - {"full"})
     refused = plan(pipeline, MNI, PlanRequest(preset=presets.get("stroke-lnm", VERSION, "full")), off)
     assert isinstance(refused, PlanRefused) and refused.code == "preset_not_enabled"

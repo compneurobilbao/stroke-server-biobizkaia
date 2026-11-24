@@ -116,8 +116,21 @@ class PipelineSummary(BaseModel):
     input_sets: list[InputSetRead]
 
 
+class InDevelopmentStageRead(BaseModel):
+    """A stage of the platform's process that cannot be used yet (registry ``in_development``).
+    Display only: it is never a slot implementation and can neither be chosen nor enabled."""
+
+    id: str
+    title: str
+    description: str | None = None
+    # The slot of the pipeline this stage is, when it has one but the deployment enables no
+    # implementation for it (for example normalisation); null for a stage with no slot yet.
+    slot: str | None = None
+
+
 class PipelineDetail(PipelineSummary):
     slots: list[SlotRead]
+    in_development: list[InDevelopmentStageRead] = []
 
 
 # ---------------------------------------------------------------------- cases

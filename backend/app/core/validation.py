@@ -73,10 +73,16 @@ def below_minimum(level: str, minimum: str) -> bool:
 class DirectoryValidationLevels:
     """Levels of the implementations in every ``registry.yaml`` below ``root`` (loaded once),
     keyed by (pipeline id, slot, implementation id). An implementation without a registry
-    entry is ``unvalidated``."""
+    entry is ``unvalidated``.
+
+    The same registries carry two display-only facts, read here because nothing else reads the
+    registry while the API runs: the optional ``title`` of an implementation entry (``title``)
+    and the top-level ``in_development`` stages (``in_development``)."""
 
     def __init__(self, root: Path | str) -> None:
         self._levels: dict[tuple[str, str, str], str] = {}
+        self._titles: dict[tuple[str, str, str], str] = {}
+        self._stages: dict[str, list[dict[str, Any]]] = {}
         root = Path(root)
         if not root.is_dir():
             return
@@ -87,23 +93,55 @@ class DirectoryValidationLevels:
                 for slot, impls in doc["implementations"].items():
                     for impl_id, entry in impls.items():
                         self._levels[(pid, slot, impl_id)] = implementation_level(entry)
+                        title = entry.get("title")
+                        if isinstance(title, str) and title.strip():
+                            self._titles[(pid, slot, impl_id)] = title.strip()
+                self._stages[pid] = [
+                    {
+                        "id": str(stage["id"]),
+                        "slot": stage.get("slot"),
+                        "title": stage.get("title"),
+                        "description": stage.get("description"),
+                    }
+                    for stage in doc.get("in_development") or []
+                ]
             except (OSError, yaml.YAMLError, KeyError, TypeError, AttributeError) as exc:
                 log.error("Ignoring unreadable registry %s: %s", path, exc)
 
     def level(self, pipeline_id: str, slot: str, implementation_id: str) -> str:
         return self._levels.get((pipeline_id, slot, implementation_id), "unvalidated")
 
+    def title(self, pipeline_id: str, slot: str, implementation_id: str) -> str | None:
+        """Display title of the registry entry, or None (the step manifest's title applies)."""
+        return self._titles.get((pipeline_id, slot, implementation_id))
+
+    def in_development(self, pipeline_id: str) -> list[dict[str, Any]]:
+        """Stages the registry lists as in development: ``id`` and, as written there, ``slot``,
+        ``title`` and ``description`` (None when absent)."""
+        return [dict(stage) for stage in self._stages.get(pipeline_id, [])]
+
 
 class StaticValidationLevels:
-    """Levels given as a mapping (tests); anything else gets ``default``."""
+    """Levels given as a mapping (tests); anything else gets ``default``. ``titles`` and
+    ``stages`` stand in for the registry's display fields."""
 
     def __init__(
         self,
         levels: Mapping[tuple[str, str, str], str] | None = None,
         default: str = "unvalidated",
+        titles: Mapping[tuple[str, str, str], str] | None = None,
+        stages: Mapping[str, list[dict[str, Any]]] | None = None,
     ) -> None:
         self._levels = dict(levels or {})
         self._default = default
+        self._titles = dict(titles or {})
+        self._stages = {k: list(v) for k, v in (stages or {}).items()}
 
     def level(self, pipeline_id: str, slot: str, implementation_id: str) -> str:
         return self._levels.get((pipeline_id, slot, implementation_id), self._default)
+
+    def title(self, pipeline_id: str, slot: str, implementation_id: str) -> str | None:
+        return self._titles.get((pipeline_id, slot, implementation_id))
+
+    def in_development(self, pipeline_id: str) -> list[dict[str, Any]]:
+        return [dict(stage) for stage in self._stages.get(pipeline_id, [])]

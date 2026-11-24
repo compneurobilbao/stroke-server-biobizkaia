@@ -4,17 +4,18 @@
 # pipeline file does not carry: where each step comes from, whether it is real, a stub or
 # not available yet, and what a deployment or the CI mounts.
 #
-# Image digests are placeholders (64 zeros) until the step images are published. The release
+# Image digests are those of the published step images (`published: true`). The release
 # workflow (.github/workflows/release-steps.yml, `release.py`) builds, tests and pushes them to
-# docker.io/compneurobilbaolab/step-<name>:<step version>; `registry.py pin` then writes the
+# docker.io/compneurobilbaolab/step-<name>:<step version>; `registry.py pin` writes the
 # published digests here and into pipeline.yaml and sets `published: true`, after which
 # `registry.py check` requires real digests for everything the `deployment` profile enables
-# (build: local entries excepted). CI builds the steps into a throwaway registry and writes
+# (build: local entries excepted). A new step version starts with placeholder digests (64 zeros)
+# until it is released and pinned. CI builds the steps into a throwaway registry and writes
 # those digests at run time (`registry.py materialize`) without touching this file. Nothing
-# here is ever pulled while a digest is a placeholder.
+# is ever pulled while a digest is a placeholder.
 registry_version: 1
-pipeline: {id: stroke-lnm, version: 0.6.0}
-published: false
+pipeline: {id: stroke-lnm, version: 0.7.0}
+published: true
 
 # kind: real     a merged step that runs on real data
 #       stub     synthetic output, only enabled in the ci profile (and demo deployments)
@@ -39,6 +40,10 @@ published: false
 #   build: published|local      `local` (never pushed or built by CI, never a public-registry image): the licence forbids publishing an image containing the
 #                               tool; each deployment builds the wrapper itself and the image is
 #                               never pushed to the public registry (owner decision 7).
+#   title: <text>               optional display title of the entry (the UI and the API show it instead of
+#                               the step manifest's title; the frontend catalogue may translate it by
+#                               implementation id). It lives here, not in pipeline.yaml, because the
+#                               pipeline schema (contract 1.2) has no title on implementation entries.
 # A deployment does not enable, and its runs do not use, an implementation below its minimum
 # validation level (MIN_IMPLEMENTATION_VALIDATION, docs/configuration.md); the `deployment`
 # profile here enables nothing below reference-tested. No step is `validated` until a validation
@@ -53,7 +58,7 @@ implementations:
         status: reference-tested
         notes: >-
           The step's reference test runs in CI on synthetic or public data. No signed validation record exists, so it is not validated.
-      image: docker.io/compneurobilbaolab/step-lesion-qc@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      image: docker.io/compneurobilbaolab/step-lesion-qc@sha256:c23607186e6c771164ca6f0b8dcdd0509ec895344602cb60d9c4b0d841dcaf32
       source: {repository: this, dockerfile: steps/lesion-qc/Dockerfile}
   normalisation:
     ct-lesion-to-mni152:
@@ -76,7 +81,7 @@ implementations:
         status: reference-tested
         notes: >-
           The step's reference test runs in CI on synthetic or public data. No signed validation record exists, so it is not validated. Known limitation: the step's regression floor on its reference case is Dice 0.40.
-      image: docker.io/compneurobilbaolab/step-ct-lesion-to-mni152@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      image: docker.io/compneurobilbaolab/step-ct-lesion-to-mni152@sha256:a8242fcf9056ead332a298bb1aa3759f1c31985e3cb24b1c8bd65a9f4d44c057
       source:
         repository: compneurobilbao/CTLesion2MNI152
         commit: 07702382b588f430b52005b61e71a9b48f5fcd15
@@ -88,6 +93,7 @@ implementations:
     # need their real bundle installed on the deployment (docs/reference-data.md); the entries
     # after the first reuse its fields through the YAML anchor.
     flnm-fast-hcp-aging: &flnm_fast
+      title: flnm-fast · HCP Aging
       step: {name: flnm-fast, version: 3.0.0}
       kind: real
       origin: external
@@ -122,13 +128,14 @@ implementations:
           validated, and the step is a new major version (3.x) with no field history. Cohort
           bundle of this entry: normative-fc-hcp-aging 1.0.0 (HCP Aging); the normative choice
           is the cohort only, there is no age or sex matching.
-      image: docker.io/compneurobilbaolab/step-flnm-fast@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      image: docker.io/compneurobilbaolab/step-flnm-fast@sha256:368df2c450b30f02d43d30bdf8ec9750bcf43f6b208731dde64d30bbf3c5efb0
       source:
         repository: this
         dockerfile: steps/flnm-fast/Dockerfile
         note: "wrapper over the public engine image compneurobilbaolab/flnm-fast (digest pinned in the Dockerfile; no source repository)"
     flnm-fast-hcp-ya:
       <<: *flnm_fast
+      title: flnm-fast · HCP Young Adult
       validation:
         status: reference-tested
         notes: >-
@@ -136,6 +143,7 @@ implementations:
           Young Adult).
     flnm-fast-synthetic:
       <<: *flnm_fast
+      title: flnm-fast · synthetic cohort (CI)
       validation:
         status: reference-tested
         notes: >-
@@ -145,34 +153,48 @@ implementations:
     fdisconnection-stub:
       step: {name: fdisconnection-stub, version: 0.1.0}
       kind: stub
-      image: docker.io/compneurobilbaolab/step-fdisconnection-stub@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      image: docker.io/compneurobilbaolab/step-fdisconnection-stub@sha256:8da4c433c7c9f6cf0dc9f59536d40f310fc8f09ff0d0c2dd28715a5e70c55745
       source: {repository: this, dockerfile: steps/stubs/fdisconnection-stub/Dockerfile}
   tract-disconnection:
-    lnm-tracts:
+    lnm-tracts: &lnm_tracts
+      title: lnm-tracts · registered tract atlas
       step: {name: lnm-tracts, version: 1.0.0}
       kind: real
       validation:
         status: reference-tested
         notes: >-
           The step's reference test runs in CI on synthetic or public data. No signed validation record exists, so it is not validated.
-      image: docker.io/compneurobilbaolab/step-lnm-tracts@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      image: docker.io/compneurobilbaolab/step-lnm-tracts@sha256:f80735a43d1ee90ea134ae2f3ff5fb1e304815e8861b97a4fed4a845b7f928ab
       source:
         repository: compneurobilbao/lnm
         commit: 123f3298b23dafa02a67b6f096790cfe3b775fb2
         dockerfile: step/Dockerfile
+    # The same step image, pinned in pipeline.yaml to the HCP1065 tract atlas bundle
+    # (hcp1065-tracts 1.0.0, which must be installed on the deployment, docs/reference-data.md).
+    # The entry above stays for CI, which registers a synthetic tract atlas.
+    lnm-tracts-hcp1065:
+      <<: *lnm_tracts
+      title: lnm-tracts · HCP1065 tract atlas
   cognet-profile:
-    cognet-stroke:
+    cognet-stroke: &cognet_stroke
+      title: COGNET-STROKE · registered concept maps
       step: {name: cognet-stroke, version: 1.0.0}
       kind: real
       validation:
         status: reference-tested
         notes: >-
           The step's reference test runs in CI on synthetic or public data. No signed validation record exists, so it is not validated.
-      image: docker.io/compneurobilbaolab/step-cognet-stroke@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      image: docker.io/compneurobilbaolab/step-cognet-stroke@sha256:12bb50346f3d88dc3e6043e144c6735bcf647a34663a99464dc8397ecd5aa0a1
       source:
         repository: compneurobilbao/COGNET-STROKE
         commit: 566721668922ff3383cc955e5ec67b8cc223416d
         dockerfile: step/Dockerfile
+    # The same step image, pinned in pipeline.yaml to the COGNET-STROKE concept maps bundle
+    # (cognet-concept-maps 1.0.0, installed on the deployment). The entry above stays for CI,
+    # which registers synthetic concept maps.
+    cognet-stroke-concept-maps:
+      <<: *cognet_stroke
+      title: COGNET-STROKE · concept maps
   report:
     research-report:
       step: {name: research-report, version: 0.3.0}
@@ -181,7 +203,7 @@ implementations:
         status: reference-tested
         notes: >-
           The step's reference test runs in CI on synthetic or public data. No signed validation record exists, so it is not validated.
-      image: docker.io/compneurobilbaolab/step-research-report@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      image: docker.io/compneurobilbaolab/step-research-report@sha256:fd3ece4683cd822d6c841a4efcbb2416a5e7b81123e3400e7d9a209784a0410b
       source: {repository: this, dockerfile: steps/report/Dockerfile}
     research-report-es:
       step: {name: research-report, version: 0.3.0}
@@ -190,37 +212,58 @@ implementations:
         status: reference-tested
         notes: >-
           The step's reference test runs in CI on synthetic or public data. No signed validation record exists, so it is not validated.
-      image: docker.io/compneurobilbaolab/step-research-report@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      image: docker.io/compneurobilbaolab/step-research-report@sha256:fd3ece4683cd822d6c841a4efcbb2416a5e7b81123e3400e7d9a209784a0410b
       source: {repository: this, dockerfile: steps/report/Dockerfile}
 
+# Stages that exist in the plan of the platform but cannot be used yet. The API lists them next to
+# the slots (`GET /api/v1/pipelines/<id>/versions/<v>/in-development`) and the UI shows them greyed
+# and labelled "In development", never selectable. An entry with `slot` is an existing slot of
+# pipeline.yaml: it is shown only while the deployment has no enabled implementation for it
+# (normalisation is enabled in the ci profile, so it is not listed there). An entry without `slot`
+# is a stage that has no slot (no step yet): it needs `title`, and `description` is optional. Neither
+# kind is a slot implementation, so no profile, seed or admin call can enable one.
+in_development:
+  - id: normalisation
+    slot: normalisation
+  - id: segmentation
+    title: Lesion segmentation
+    description: Delineate the lesion, including with external segmentation tools.
+  - id: lesion-bank
+    title: Lesion bank
+    description: Capture and store lesions for later reuse.
+  - id: voxel-lnm
+    title: Voxel-wise structural LNM
+    description: Runs on the HPC cluster. Its map is shown but not analysed further.
+
 profiles:
-  # What a deployment enables. Slots absent from `enabled` are left unmounted (the CT
-  # input set is then refused). Stubs and planned entries are never enabled here. The
-  # functional disconnection entries need their normative-fc bundle (HCP Aging, HCP Young
-  # Adult) installed locally (docs/reference-data.md); they do not use the case's sex or age.
-  # Normalisation needs no bundle (its small templates ship inside the image) and uses the
-  # age band when given.
+  # What a deployment enables: the minimum pipeline for the lab. A lesion mask already in MNI152
+  # space goes through intake and QC, functional disconnection with the HCP cohorts and the
+  # COGNET-STROKE profile, tract-wise disconnection, and the report. Normalisation of CT lesions
+  # stays enabled only in the ci profile: the slot is left unmounted here (CT-mode runs are
+  # refused and the UI lists it as in development). Stubs and planned entries are never enabled
+  # here. The functional disconnection entries need their normative-fc bundle (HCP Aging, HCP
+  # Young Adult), the tract and COGNET entries their reference bundle (hcp1065-tracts,
+  # cognet-concept-maps), installed locally (docs/reference-data.md).
   deployment:
     enabled:
       lesion-intake: [lesion-qc]
-      normalisation: [ct-lesion-to-mni152]
       functional-disconnection: [flnm-fast-hcp-aging, flnm-fast-hcp-ya]
-      tract-disconnection: [lnm-tracts]
-      cognet-profile: [cognet-stroke]
+      tract-disconnection: [lnm-tracts-hcp1065]
+      cognet-profile: [cognet-stroke-concept-maps]
       report: [research-report, research-report-es]
     default:
       lesion-intake: lesion-qc
-      normalisation: ct-lesion-to-mni152
       functional-disconnection: flnm-fast-hcp-aging
-      tract-disconnection: lnm-tracts
-      cognet-profile: cognet-stroke
+      tract-disconnection: lnm-tracts-hcp1065
+      cognet-profile: cognet-stroke-concept-maps
       report: research-report
     # Presets (presets/<id>.yaml) offered to users: `enabled` ids seed `preset_settings`, `default`
-    # is the preselected one (at most one). `ct-normalisation` is listed as unavailable by the
-    # plan when a deployment leaves the normalisation slot unmounted.
+    # is the preselected one (at most one). Only the minimum preset is enabled: `full` and
+    # `lesion-qc-report` also accept the CT input set, `ct-normalisation` needs the normalisation
+    # slot; the other analyses of this pipeline are not offered until that slot is mounted.
     presets:
-      enabled: [full, mni-mask-analysis, ct-normalisation, lesion-qc-report]
-      default: full
+      enabled: [mni-mask-analysis]
+      default: mni-mask-analysis
 
   # The CI configuration: every slot that can run on fixtures is filled with the real step
   # where a light one exists. Functional disconnection enables both: the real flnm-fast step

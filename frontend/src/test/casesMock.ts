@@ -1,5 +1,5 @@
 import { vi } from 'vitest';
-import type { Config, PipelineSummary, PlanPreview, PlanReason, PlanRequest, PlanSlot, Preset, RunDetail, Slot } from '../api/v1';
+import type { Config, DevelopmentStage, PipelineSummary, PlanPreview, PlanReason, PlanRequest, PlanSlot, Preset, RunDetail, Slot } from '../api/v1';
 import { defaultImplementationId, slotApplies } from '../features/cases/slots';
 
 /** Shapes below follow docs/api/openapi-v1.json (only the fields the UI reads). */
@@ -195,6 +195,8 @@ export interface MockOptions {
   run?: RunDetail;
   /** Enabled presets of the pipeline version (default: none, so the wizard offers the full plan). */
   presets?: Preset[];
+  /** `GET .../in-development` (default: none listed, as a deployment with nothing in development). */
+  development?: DevelopmentStage[];
   /** `GET /config` (default: free mode not allowed). */
   config?: Partial<Config>;
   /** Answer of the plan preview for a request (default: `defaultPlan`). */
@@ -215,6 +217,7 @@ export function mockApi(options: MockOptions = {}) {
     'GET /auth/me': () => jsonResponse(USER),
     'GET /v1/pipelines': () => jsonResponse(options.pipelines ?? [PIPELINE]),
     'GET /v1/pipelines/stroke-lnm/versions/0.1.0/slots': () => jsonResponse(options.slots ?? makeSlots()),
+    'GET /v1/pipelines/stroke-lnm/versions/0.1.0/in-development': () => jsonResponse(options.development ?? []),
     'GET /v1/config': () =>
       jsonResponse({ deployment_profile: 'research-public', run_plan_policy: 'presets_only', free_mode_allowed: false, ...options.config }),
     'GET /v1/pipelines/stroke-lnm/versions/0.1.0/presets': () => jsonResponse(options.presets ?? []),
@@ -245,3 +248,14 @@ export function mockApi(options: MockOptions = {}) {
   vi.stubGlobal('fetch', fetchMock);
   return { calls, fetchMock };
 }
+
+/**
+ * What the lab deployment lists as in development: normalisation (a slot with no enabled
+ * implementation) and three stages that have no slot yet.
+ */
+export const DEVELOPMENT: DevelopmentStage[] = [
+  { id: 'normalisation', title: 'CT lesion to MNI152', description: null, slot: 'normalisation' },
+  { id: 'segmentation', title: 'Lesion segmentation', description: 'Delineate the lesion.', slot: null },
+  { id: 'lesion-bank', title: 'Lesion bank', description: 'Capture and store lesions.', slot: null },
+  { id: 'voxel-lnm', title: 'Voxel-wise structural LNM', description: 'Runs on the HPC cluster.', slot: null },
+];

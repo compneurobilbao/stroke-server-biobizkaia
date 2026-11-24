@@ -1,14 +1,14 @@
 # stroke-lnm v0 (plan section 2.3) written with slots (D15). Contract: docs/contracts/pipeline.md.
 #
-# Image digests are PLACEHOLDERS (sha256 of nothing: 64 zeros). No registry exists yet;
-# the release process (and, in CI, pipelines/stroke-lnm/registry.py materialize) replaces
-# each placeholder with the digest of the published or locally built image of the step.
+# Image digests are those of the published images (docker.io/compneurobilbaolab/step-<name>,
+# written by `registry.py pin` from the release run). In CI, `pipelines/stroke-lnm/registry.py
+# materialize` replaces each of them with the digest of the locally built image of the step.
 # registry.yaml in this directory holds the same entries plus which of them a deployment
 # enables; `registry.py check` fails when the two files disagree.
 contract_version: "1.0"
 kind: Pipeline
 id: stroke-lnm
-version: 0.6.0
+version: 0.7.0
 title: Lesion network mapping v0
 description: >-
   Lesion intake and QC, normalisation of CT lesions to MNI152 (skipped when an MNI mask is
@@ -30,6 +30,11 @@ description: >-
   from the bundle. The slot offers the same step image three times, each pinned to one
   normative-fc bundle through `bundles`: the HCP Aging cohort (default), the HCP Young Adult
   cohort, and a synthetic cohort for CI only.
+  Version 0.7.0: the step images are the published ones (real digests). The tract-disconnection
+  and cognet-profile slots each gain an entry of the same step image that pins the lab's reference
+  bundle (`lnm-tracts-hcp1065` pins `hcp1065-tracts` 1.0.0, `cognet-stroke-concept-maps` pins
+  `cognet-concept-maps` 1.0.0); the unpinned entries stay for CI, which registers synthetic
+  bundles. Nothing else changes in the wiring.
 
 inputs:
   - name: ct
@@ -65,7 +70,7 @@ slots:
       allowed:
         - id: lesion-qc
           step: {name: lesion-qc, version: 1.0.0}
-          image: docker.io/compneurobilbaolab/step-lesion-qc@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          image: docker.io/compneurobilbaolab/step-lesion-qc@sha256:c23607186e6c771164ca6f0b8dcdd0509ec895344602cb60d9c4b0d841dcaf32
 
   - name: normalisation
     title: CT lesion to MNI152
@@ -84,7 +89,7 @@ slots:
       allowed:
         - id: ct-lesion-to-mni152
           step: {name: ct-lesion-to-mni152, version: 1.0.0}
-          image: docker.io/compneurobilbaolab/step-ct-lesion-to-mni152@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          image: docker.io/compneurobilbaolab/step-ct-lesion-to-mni152@sha256:a8242fcf9056ead332a298bb1aa3759f1c31985e3cb24b1c8bd65a9f4d44c057
           parameter_bindings:
             age_band: case.age_band
 
@@ -106,26 +111,26 @@ slots:
         # Normative cohort: HCP Aging (older adults), 1.0.0.
         - id: flnm-fast-hcp-aging
           step: {name: flnm-fast, version: 3.0.0}
-          image: docker.io/compneurobilbaolab/step-flnm-fast@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          image: docker.io/compneurobilbaolab/step-flnm-fast@sha256:368df2c450b30f02d43d30bdf8ec9750bcf43f6b208731dde64d30bbf3c5efb0
           bundles:
             normative: {id: normative-fc-hcp-aging, version: 1.0.0}
         # Normative cohort: HCP Young Adult, 1.0.0.
         - id: flnm-fast-hcp-ya
           step: {name: flnm-fast, version: 3.0.0}
-          image: docker.io/compneurobilbaolab/step-flnm-fast@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          image: docker.io/compneurobilbaolab/step-flnm-fast@sha256:368df2c450b30f02d43d30bdf8ec9750bcf43f6b208731dde64d30bbf3c5efb0
           bundles:
             normative: {id: normative-fc-hcp-ya, version: 1.0.0}
         # CI fixture: the real step on the small synthetic normative bundle. Only enabled in
         # the ci profile; its output has no scientific meaning.
         - id: flnm-fast-synthetic
           step: {name: flnm-fast, version: 3.0.0}
-          image: docker.io/compneurobilbaolab/step-flnm-fast@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          image: docker.io/compneurobilbaolab/step-flnm-fast@sha256:368df2c450b30f02d43d30bdf8ec9750bcf43f6b208731dde64d30bbf3c5efb0
           bundles:
             normative: {id: synthetic-normative-fc, version: 1.0.0}
         # CI fixture and placeholder: synthetic output, only enabled in the ci profile.
         - id: fdisconnection-stub
           step: {name: fdisconnection-stub, version: 0.1.0}
-          image: docker.io/compneurobilbaolab/step-fdisconnection-stub@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          image: docker.io/compneurobilbaolab/step-fdisconnection-stub@sha256:8da4c433c7c9f6cf0dc9f59536d40f310fc8f09ff0d0c2dd28715a5e70c55745
 
   - name: tract-disconnection
     title: Tract-wise structural disconnection
@@ -141,7 +146,15 @@ slots:
       allowed:
         - id: lnm-tracts
           step: {name: lnm-tracts, version: 1.0.0}
-          image: docker.io/compneurobilbaolab/step-lnm-tracts@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          image: docker.io/compneurobilbaolab/step-lnm-tracts@sha256:f80735a43d1ee90ea134ae2f3ff5fb1e304815e8861b97a4fed4a845b7f928ab
+        # Same image, pinned to the HCP1065 tract atlas bundle: what the deployment profile
+        # enables. The entry above takes whichever tract atlas is registered (CI registers a
+        # synthetic one).
+        - id: lnm-tracts-hcp1065
+          step: {name: lnm-tracts, version: 1.0.0}
+          image: docker.io/compneurobilbaolab/step-lnm-tracts@sha256:f80735a43d1ee90ea134ae2f3ff5fb1e304815e8861b97a4fed4a845b7f928ab
+          bundles:
+            tract_atlas: {id: hcp1065-tracts, version: 1.0.0}
 
   - name: cognet-profile
     title: COGNET-STROKE cognitive profile
@@ -159,7 +172,14 @@ slots:
       allowed:
         - id: cognet-stroke
           step: {name: cognet-stroke, version: 1.0.0}
-          image: docker.io/compneurobilbaolab/step-cognet-stroke@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          image: docker.io/compneurobilbaolab/step-cognet-stroke@sha256:12bb50346f3d88dc3e6043e144c6735bcf647a34663a99464dc8397ecd5aa0a1
+        # Same image, pinned to the COGNET-STROKE concept maps bundle: what the deployment
+        # profile enables (the entry above is for CI, which registers synthetic concept maps).
+        - id: cognet-stroke-concept-maps
+          step: {name: cognet-stroke, version: 1.0.0}
+          image: docker.io/compneurobilbaolab/step-cognet-stroke@sha256:12bb50346f3d88dc3e6043e144c6735bcf647a34663a99464dc8397ecd5aa0a1
+          bundles:
+            concept_maps: {id: cognet-concept-maps, version: 1.0.0}
 
   - name: report
     title: Research report
@@ -181,10 +201,10 @@ slots:
       allowed:
         - id: research-report
           step: {name: research-report, version: 0.3.0}
-          image: docker.io/compneurobilbaolab/step-research-report@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          image: docker.io/compneurobilbaolab/step-research-report@sha256:fd3ece4683cd822d6c841a4efcbb2416a5e7b81123e3400e7d9a209784a0410b
         # Configured variant of the same image: the report text in Spanish.
         - id: research-report-es
           step: {name: research-report, version: 0.3.0}
-          image: docker.io/compneurobilbaolab/step-research-report@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          image: docker.io/compneurobilbaolab/step-research-report@sha256:fd3ece4683cd822d6c841a4efcbb2416a5e7b81123e3400e7d9a209784a0410b
           parameters:
             language: es

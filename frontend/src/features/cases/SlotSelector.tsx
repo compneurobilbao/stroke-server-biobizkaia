@@ -1,8 +1,15 @@
 import { useTranslation } from 'react-i18next';
-import type { PlanSlot, Slot, SlotImplementation } from '../../api/v1';
+import type { DevelopmentStage, PlanSlot, Slot, SlotImplementation } from '../../api/v1';
 import { isPlanned, planSlotState } from './plan';
 import { upstreamText } from './RunTimeline';
-import { defaultImplementationId, isSelectable, isSlotUnavailable, slotApplies } from './slots';
+import {
+  defaultImplementationId,
+  developmentSlotNames,
+  implementationTitle,
+  isSelectable,
+  isSlotUnavailable,
+  slotApplies,
+} from './slots';
 
 interface SlotSelectorProps {
   slots: readonly Slot[];
@@ -18,11 +25,13 @@ interface SlotSelectorProps {
   plan?: readonly PlanSlot[] | null;
   /** Slot name to the implementation the chosen preset fixes; shown read-only. */
   fixed?: Record<string, string>;
+  /** Stages in development: a slot that is one is greyed and has no selector. */
+  development?: readonly DevelopmentStage[];
 }
 
-function fixedLabel(slot: Slot, id: string): string {
+function fixedLabel(t: ReturnType<typeof useTranslation>['t'], slot: Slot, id: string): string {
   const impl = slot.implementations.find((i) => i.id === id);
-  return impl ? impl.title || `${impl.step_name} ${impl.step_version}` : id;
+  return impl ? implementationTitle(t, impl) : id;
 }
 
 /**
@@ -41,7 +50,7 @@ function CandidateBadges({ impls, selected }: { impls: readonly SlotImplementati
         const level = impl.validation_level;
         return (
           <li key={impl.id} data-impl={impl.id} data-current={impl.id === selected ? 'true' : undefined}>
-            <span className="impl-name">{impl.title || `${impl.step_name} ${impl.step_version}`}</span>
+            <span className="impl-name">{implementationTitle(t, impl)}</span>
             {external && (
               <span className="tag tag-warn" data-testid="impl-external">
                 {t('cases.slots.externalTool', { tool: external })}
@@ -68,15 +77,25 @@ function CandidateBadges({ impls, selected }: { impls: readonly SlotImplementati
  * One selector per pipeline slot (per planned slot when a plan is given): the default preselected,
  * unavailable slots marked, preset-fixed choices read-only.
  */
-export function SlotSelector({ slots, roles, value, onChange, disabled, plan, fixed = {} }: SlotSelectorProps) {
+export function SlotSelector({
+  slots,
+  roles,
+  value,
+  onChange,
+  disabled,
+  plan,
+  fixed = {},
+  development = [],
+}: SlotSelectorProps) {
   const { t } = useTranslation();
+  const developmentSlots = developmentSlotNames(development);
   const planned = plan ? new Map(plan.filter(isPlanned).map((slot): [string, PlanSlot] => [slot.name, slot])) : null;
   const ordered = [...slots]
     .sort((a, b) => a.position - b.position)
     .filter((slot) => !planned || planned.has(slot.name));
 
   function label(impl: SlotImplementation, isDefault: boolean): string {
-    const base = impl.title || `${impl.step_name} ${impl.step_version}`;
+    const base = implementationTitle(t, impl);
     const flags = [
       isDefault ? t('cases.slots.default') : '',
       impl.stub ? t('cases.slots.stub') : '',
@@ -94,26 +113,28 @@ export function SlotSelector({ slots, roles, value, onChange, disabled, plan, fi
         const planSlot = planned?.get(slot.name);
         const role = planSlot ? planSlotState(planSlot) : null;
         const fixedId = fixed[slot.name];
-        const unavailable = isSlotUnavailable(slot);
+        const inDevelopment = developmentSlots.has(slot.name);
+        const unavailable = isSlotUnavailable(slot) && !inDevelopment;
         const defaultId = defaultImplementationId(slot);
-        const state = !applies ? 'unused' : unavailable ? 'unavailable' : 'ok';
+        const state = inDevelopment ? 'development' : !applies ? 'unused' : unavailable ? 'unavailable' : 'ok';
         return (
           <li key={slot.name} className="slot-row" data-slot={slot.name} data-state={state}>
             <div className="slot-head">
               <strong>{title}</strong>
+              {inDevelopment && <span className="tag tag-muted">{t('cases.development.badge')}</span>}
               {role && role !== 'unavailable' && <span className="tag">{t(`cases.plan.role.${role}`)}</span>}
               {slot.optional && <span className="tag">{t('cases.slots.optional')}</span>}
-              {!applies && <span className="tag tag-muted">{t('cases.slots.notUsed')}</span>}
+              {!applies && !inDevelopment && <span className="tag tag-muted">{t('cases.slots.notUsed')}</span>}
               {applies && unavailable && <span className="tag tag-warn">{t('cases.slots.unavailable')}</span>}
             </div>
             {slot.description && <p className="hint slot-description">{slot.description}</p>}
-            {applies && !unavailable && fixedId && (
+            {applies && !unavailable && !inDevelopment && fixedId && (
               <p className="hint slot-fixed" data-fixed={fixedId}>
                 {t('cases.slots.fixed')}:{' '}
-                <strong>{fixedLabel(slot, fixedId)}</strong>
+                <strong>{fixedLabel(t, slot, fixedId)}</strong>
               </p>
             )}
-            {applies && !unavailable && !fixedId && (
+            {applies && !unavailable && !inDevelopment && !fixedId && (
               <select
                 aria-label={title}
                 value={value[slot.name] ?? defaultId ?? ''}
@@ -127,7 +148,7 @@ export function SlotSelector({ slots, roles, value, onChange, disabled, plan, fi
                 ))}
               </select>
             )}
-            {applies && !unavailable && (
+            {applies && !unavailable && !inDevelopment && (
               <CandidateBadges
                 impls={fixedId ? slot.implementations.filter((impl) => impl.id === fixedId) : slot.implementations.filter(isSelectable)}
                 selected={fixedId ?? value[slot.name] ?? defaultId ?? ''}

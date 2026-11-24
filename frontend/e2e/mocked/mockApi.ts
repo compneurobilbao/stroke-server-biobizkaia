@@ -297,7 +297,20 @@ export interface MockOptions {
   seedCase?: { origin?: unknown; run?: 'succeeded' | 'running' };
   /** Offer one synthetic example lesion (`GET /v1/example-inputs`); default none, as when the feature is off. */
   exampleInputs?: boolean;
+  /**
+   * As the lab deployment: normalisation has no enabled implementation and `GET .../in-development`
+   * lists it plus three stages without a slot; default none in development.
+   */
+  inDevelopment?: boolean;
 }
+
+/** The stages `GET .../in-development` lists when `inDevelopment` is set (shapes of docs/api/openapi-v1.json). */
+const DEVELOPMENT = [
+  { id: 'normalisation', title: 'CT lesion to MNI152', description: null, slot: 'normalisation' },
+  { id: 'segmentation', title: 'Lesion segmentation', description: 'Delineate the lesion.', slot: null },
+  { id: 'lesion-bank', title: 'Lesion bank', description: 'Capture and store lesions.', slot: null },
+  { id: 'voxel-lnm', title: 'Voxel-wise structural LNM', description: 'Runs on the HPC cluster.', slot: null },
+];
 
 function runDetail(status: 'running' | 'succeeded', plan: Plan, inputs: Array<Record<string, unknown>> = []) {
   const done = status === 'succeeded';
@@ -418,7 +431,17 @@ export async function installMockApi(page: Page, options: MockOptions = {}): Pro
       );
     }
     if (method === 'GET' && path === '/v1/pipelines') return json(route, [PIPELINE]);
-    if (method === 'GET' && path === '/v1/pipelines/stroke-lnm/versions/0.1.0/slots') return json(route, SLOTS);
+    if (method === 'GET' && path === '/v1/pipelines/stroke-lnm/versions/0.1.0/slots') {
+      return json(
+        route,
+        options.inDevelopment
+          ? SLOTS.map((slot) => (slot.name === 'normalisation' ? { ...slot, implementations: [] } : slot))
+          : SLOTS,
+      );
+    }
+    if (method === 'GET' && path === '/v1/pipelines/stroke-lnm/versions/0.1.0/in-development') {
+      return json(route, options.inDevelopment ? DEVELOPMENT : []);
+    }
     if (method === 'GET' && path === '/v1/pipelines/stroke-lnm/versions/0.1.0/presets') {
       return json(route, options.presets ? PRESETS : []);
     }

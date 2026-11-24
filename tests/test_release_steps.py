@@ -7,6 +7,7 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -40,10 +41,23 @@ def digest_ref(name: str, c: str = "a") -> str:
 
 @pytest.fixture()
 def tree(tmp_path):
+    """A copy of the committed tree put back in the state before the first release: the real
+    digests of the published step images replaced by the placeholder, `published: false`. The
+    pin tests start from there; the committed (published) state is tested on its own."""
     out = tmp_path / "stroke-lnm"
     shutil.copytree(
         HERE, out, ignore=shutil.ignore_patterns("__pycache__", "tests", "ci")
     )
+    for name in ("registry.yaml", "pipeline.yaml"):
+        path = out / name
+        text = path.read_text(encoding="utf-8")
+        text = re.sub(
+            r"(docker\.io/compneurobilbaolab/step-[a-z0-9-]+)@sha256:[0-9a-f]{64}",
+            lambda m: m.group(1) + registry_tool.PLACEHOLDER,
+            text,
+        )
+        text = re.sub(r"^published:.*$", "published: false", text, count=1, flags=re.M)
+        path.write_text(text, encoding="utf-8", newline="")
     return out
 
 
@@ -323,10 +337,20 @@ def test_summary_marks_dry_runs():
 # --------------------------------------------------------------------------- pin and published
 
 
-def test_committed_registry_is_unpublished_with_placeholders():
-    reg = registry_tool.load(HERE)[1]
+def test_committed_registry_is_published_with_real_digests():
+    pipeline, reg = registry_tool.load(HERE)
+    assert reg["published"] is True
+    assert registry_tool.PLACEHOLDER not in json.dumps(reg)
+    assert registry_tool.PLACEHOLDER not in json.dumps(pipeline)
+    assert registry_tool.published_errors(reg) == []
+    assert registry_tool.check(pipeline, reg, registry_tool.load_presets(HERE)) == []
+
+
+def test_the_tree_fixture_is_the_unpublished_state(tree):
+    reg = registry_tool.load(tree)[1]
     assert reg["published"] is False
     assert registry_tool.PLACEHOLDER in json.dumps(reg)
+    assert registry_tool.check(*registry_tool.load(tree), registry_tool.load_presets(tree)) == []
 
 
 def test_published_true_requires_real_digests_in_the_deployment_profile(tree):

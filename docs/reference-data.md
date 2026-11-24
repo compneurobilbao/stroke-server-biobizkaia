@@ -58,7 +58,7 @@ The step is refused, with an exception that names every problem, when a required
 ## Limits and open points
 
 - The cheap check does not detect a same-size content change; that needs a full verification (scheduled or forced with `full=True`).
-- Bundle layouts per bundle type are defined by the consuming steps. The `tract-atlas` type has the layout the structural-disconnection step reads (`labels.txt` plus one `<tract>.tck` per tract at the bundle root); the synthetic fixture `toy-tract-atlas` uses it. The `normative-fc` type is described [below](#the-normative-fc-bundle).
+- Bundle layouts per bundle type are defined by the consuming steps. The `tract-atlas` type has the layout the structural-disconnection step reads (`labels.txt` plus one `<tract>.tck` per tract at the bundle root); the synthetic fixture `toy-tract-atlas` uses it. The `normative-fc` type is described [below](#the-normative-fc-bundle). The lab's deployment profile pins `hcp1065-tracts` 1.0.0 for `tract-atlas` (entry `lnm-tracts-hcp1065`) and `cognet-concept-maps` 1.0.0 for `concept-maps` (entry `cognet-stroke-concept-maps`) since `stroke-lnm` 0.7.0; CI keeps the unpinned entries and its synthetic bundles.
 - Installers and release tarballs must skip bundles whose `licence.redistributable` is `false`.
 
 ## The `normative-fc` bundle

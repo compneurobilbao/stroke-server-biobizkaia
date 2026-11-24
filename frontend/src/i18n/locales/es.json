@@ -436,11 +436,12 @@
       "origin": {
         "manual": "dibujada a mano",
         "externalTool": "herramienta externa {{tool}} {{version}}",
-        "syntheticExample": "lesión de ejemplo sintética (proporcionada por la plataforma)"
+        "syntheticExample": "Lesión de ejemplo sintética"
       },
       "runAgain": "Ejecutar de nuevo con el mismo plan",
       "runAgainNewFiles": "Ejecutar de nuevo con archivos nuevos",
-      "runAgainActive": "Hay una ejecución de este caso en curso: ejecute de nuevo cuando termine."
+      "runAgainActive": "Hay una ejecución de este caso en curso: ejecute de nuevo cuando termine.",
+      "providedByPlatform": "Proporcionado por la plataforma"
     },
     "analysis": {
       "hint": "Elija qué ejecutar en este caso. El plan de abajo muestra qué pasos se ejecutarán y por qué.",
@@ -509,6 +510,40 @@
         "bundle_unavailable": "No está disponible un paquete de datos de referencia que necesita {{slot}}.",
         "manifest_unavailable": "La imagen del paso de {{slot}} no está disponible en este despliegue.",
         "no_implementation_plain": "{{slot}} no tiene ninguna implementación habilitada en este despliegue."
+      }
+    },
+    "development": {
+      "badge": "En desarrollo",
+      "heading": "En desarrollo",
+      "hint": "Estas etapas todavía no están disponibles. No se pueden seleccionar.",
+      "modeNote": "En desarrollo: no disponible en este despliegue.",
+      "notPartOfRun": "No forma parte de esta ejecución",
+      "stages": {
+        "normalisation": {
+          "title": "Normalización a MNI",
+          "text": "Llevar una lesión de TAC o RM al espacio común."
+        },
+        "segmentation": {
+          "title": "Segmentación de la lesión",
+          "text": "Delinear la lesión, también con herramientas de segmentación externas."
+        },
+        "lesion-bank": {
+          "title": "Banco de lesiones",
+          "text": "Capturar y almacenar lesiones para reutilizarlas."
+        },
+        "voxel-lnm": {
+          "title": "LNM estructural vóxel a vóxel",
+          "text": "Se ejecuta en el clúster HPC. Su mapa se muestra pero no se analiza más."
+        }
+      }
+    },
+    "implementation": {
+      "title": {
+        "flnm-fast-hcp-aging": "flnm-fast · HCP Envejecimiento",
+        "flnm-fast-hcp-ya": "flnm-fast · HCP Adultos jóvenes",
+        "flnm-fast-synthetic": "flnm-fast · cohorte sintética (CI)",
+        "lnm-tracts-hcp1065": "lnm-tracts · atlas de tractos HCP1065",
+        "cognet-stroke-concept-maps": "COGNET-STROKE · mapas de conceptos"
       }
     }
   },

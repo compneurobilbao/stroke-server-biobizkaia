@@ -183,7 +183,7 @@ test.describe('example lesion (mocked API)', () => {
     await page.getByRole('button', { name: 'Create case and start run' }).click();
 
     await expect(page).toHaveURL(/\/runs\/r1$/);
-    await expect(page.getByTestId('origin-lesion_mni')).toContainText('synthetic example lesion');
+    await expect(page.getByTestId('origin-lesion_mni')).toContainText('Provided by the platform: Synthetic example lesion');
     expect(handle.requests.filter((r) => r.method === 'PUT')).toHaveLength(0);
     const post = handle.requests.find((r) => r.method === 'POST' && r.path === '/v1/cases/c1/inputs/lesion_mni/example');
     expect(JSON.parse(post?.body ?? 'null')).toEqual({ example_id: 'mni-lesion-left-medium' });
@@ -342,6 +342,46 @@ test.describe('wizard and run page follow-ups (mocked API)', () => {
     await expect(candidates.locator('[data-impl="fdc-stub"]')).toHaveAttribute('data-current', 'true');
     await row.getByRole('combobox').selectOption('fdc-alt');
     await expect(candidates.locator('[data-impl="fdc-alt"]')).toHaveAttribute('data-current', 'true');
+  });
+
+  test('stages in development are greyed and not selectable, and the CT mode is disabled', async ({ page }) => {
+    await installMockApi(page, { inDevelopment: true });
+    await openWizard(page);
+    // Normalisation has no enabled implementation: CT mode cannot be used, the wizard starts in MNI mode.
+    await expect(page.getByRole('radio', { name: /CT and lesion mask/ })).toBeDisabled();
+    await expect(page.getByRole('radio', { name: /Lesion mask already in MNI/ })).toBeChecked();
+    await uploadMniMask(page);
+
+    const development = page.getByTestId('in-development');
+    await expect(development.locator('[data-development]')).toHaveCount(4);
+    await expect(development.locator('.tag', { hasText: 'In development' })).toHaveCount(4);
+    await expect(development.getByText('Lesion segmentation')).toBeVisible();
+    await expect(development.getByText('Lesion bank')).toBeVisible();
+    for (const control of ['radio', 'checkbox', 'combobox', 'button']) {
+      await expect(development.getByRole(control as 'radio')).toHaveCount(0);
+    }
+    // The plan marks the slot in development instead of "does not apply".
+    await expect(planRow(page, 'normalisation')).toContainText('In development');
+
+    await page.getByRole('button', { name: 'Next' }).click();
+    await expect(page.getByTestId('in-development').locator('[data-development]')).toHaveCount(4);
+    await expect(page.locator('[data-slot="normalisation"]')).toHaveCount(0);
+  });
+
+  test('nothing is listed as in development for a deployment that has everything mounted', async ({ page }) => {
+    await installMockApi(page);
+    await openWizard(page);
+    await expect(page.getByRole('radio', { name: /CT and lesion mask/ })).toBeEnabled();
+    await uploadMniMask(page);
+    await expect(page.getByTestId('in-development')).toHaveCount(0);
+  });
+
+  test('the run page lists the stages in development as not part of the run', async ({ page }) => {
+    await installMockApi(page, { inDevelopment: true, seedCase: { run: 'succeeded' } });
+    await page.goto('/runs/r1');
+    const development = page.getByTestId('in-development');
+    await expect(development.getByRole('heading', { name: 'Not part of this run' })).toBeVisible();
+    await expect(development.locator('[data-development]')).toHaveCount(4);
   });
 
   test('run again on the same case: no files step, nothing is uploaded again, the run goes to the same case', async ({ page }) => {

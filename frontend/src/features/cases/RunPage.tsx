@@ -10,9 +10,11 @@ import {
   getStepLog,
   isActive,
   listArtifacts,
+  listInDevelopment,
   listReports,
   resumeRun,
   type Artifact,
+  type DevelopmentStage,
   type Report,
   type RunDetail,
 } from '../../api/v1';
@@ -20,8 +22,9 @@ import { formatBytes } from '../../shared/format';
 import { useMessage } from '../../shared/messages';
 import { useFormatters } from '../../shared/useFormatters';
 import { useAuth } from '../auth/AuthContext';
+import { DevelopmentList } from './DevelopmentList';
 import { rerunRequest } from './plan';
-import { RunPlanSummary, originText } from './RunPlanSummary';
+import { RunPlanSummary, originPrefix, originText } from './RunPlanSummary';
 import { RunStatusBadge } from './RunStatusBadge';
 import { RunTimeline } from './RunTimeline';
 import { selectLayers } from '../viewer/layers';
@@ -55,6 +58,8 @@ export function RunPage() {
   const [reports, setReports] = useState<Report[]>([]);
   const [loadError, setLoadError] = useState('');
   const [acting, setActing] = useState(false);
+  // Stages of the process that are not available yet; shown greyed, never part of a run.
+  const [development, setDevelopment] = useState<DevelopmentStage[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -75,6 +80,22 @@ export function RunPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const pipelineId = run?.pipeline_id;
+  const pipelineVersion = run?.pipeline_version;
+  useEffect(() => {
+    if (!pipelineId || !pipelineVersion) return;
+    let cancelled = false;
+    // Optional display: a failure just means no in-development stages are shown.
+    listInDevelopment(api, pipelineId, pipelineVersion)
+      .then((list) => {
+        if (!cancelled) setDevelopment(list);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [api, pipelineId, pipelineVersion]);
 
   const active = run ? isActive(run.status) : false;
   useEffect(() => {
@@ -154,7 +175,7 @@ export function RunPage() {
             <Fragment key={input.role}>
               <dt>{t('cases.run.inputOrigin', { role: input.role })}</dt>
               <dd data-testid={`origin-${input.role}`}>
-                {t('cases.run.declaredByUser')}: {input.origin ? originText(t, input.origin) : ''}
+                {input.origin ? `${originPrefix(t, input.origin)}: ${originText(t, input.origin)}` : ''}
               </dd>
             </Fragment>
           ))}
@@ -220,6 +241,7 @@ export function RunPage() {
       <section className="card">
         <h2>{t('cases.run.timeline')}</h2>
         <RunTimeline slots={slots} steps={steps} loadLog={(stepId) => getStepLog(api, runId, stepId)} />
+        <DevelopmentList stages={development} heading={t('cases.development.notPartOfRun')} hint={t('cases.development.hint')} />
       </section>
 
       <section className="card">

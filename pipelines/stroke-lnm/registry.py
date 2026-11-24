@@ -15,7 +15,8 @@
         repository (sources of this repository) or from the fetched sources (`--external DIR`). The presets in DIR/presets validate against
         this pipeline version (contract rules P1 and P3-P8, contracts/validate.py), are named
         after their file, and `profiles.<p>.presets` enables only presets that exist (with the
-        default among the enabled ones).
+        default among the enabled ones). The optional `title` of an entry and the `in_development`
+        list (display only: stages the UI shows greyed and never selectable) are validated too.
 
     registry.py materialize --digests FILE --out DIR [--dir DIR]
         Write DIR/stroke-lnm/pipeline.yaml and DIR/stroke-lnm/registry.yaml with the image
@@ -338,6 +339,49 @@ def published_errors(registry: dict) -> list[str]:
     return errors
 
 
+KEBAB = re.compile(r"^[a-z][a-z0-9]*(-[a-z0-9]+)*$")
+
+
+def display_errors(registry: dict, slots: set[str]) -> list[str]:
+    """Display-only fields: the optional `title` of an implementation entry and the top-level
+    `in_development` list (stages shown greyed and never selectable, docs/processing-pipeline.md).
+    An entry with `slot` names an existing slot; one without needs a `title` and must not reuse a
+    slot name. Nothing here makes anything enabled: these are not implementations."""
+    errors: list[str] = []
+    for name, impls in registry["implementations"].items():
+        for impl_id, entry in impls.items():
+            if "title" in entry and not str(entry["title"]).strip():
+                errors.append(f"slot {name}, {impl_id}: title must be a non-empty text")
+    stages = registry.get("in_development", [])
+    if not isinstance(stages, list):
+        return errors + ["in_development must be a list"]
+    seen: set[str] = set()
+    for index, stage in enumerate(stages):
+        where = f"in_development[{index}]"
+        if not isinstance(stage, dict):
+            errors.append(f"{where}: must be a mapping")
+            continue
+        extra = set(stage) - {"id", "slot", "title", "description"}
+        if extra:
+            errors.append(f"{where}: unknown keys {sorted(extra)}")
+        stage_id = str(stage.get("id", ""))
+        if not KEBAB.match(stage_id):
+            errors.append(f"{where}: id must be kebab-case")
+        if stage_id in seen:
+            errors.append(f"{where}: id {stage_id!r} is listed twice")
+        seen.add(stage_id)
+        slot = stage.get("slot")
+        if slot is not None:
+            if slot not in slots:
+                errors.append(f"{where}: slot {slot!r} is not a slot of the pipeline")
+        else:
+            if not str(stage.get("title", "")).strip():
+                errors.append(f"{where}: a stage without a slot needs a title")
+            if stage_id in slots:
+                errors.append(f"{where}: id {stage_id!r} is a slot name; give it `slot:`")
+    return errors
+
+
 def load(directory: Path = HERE) -> tuple[dict, dict]:
     pipeline = yaml.safe_load((directory / "pipeline.yaml").read_text(encoding="utf-8"))
     registry = yaml.safe_load((directory / "registry.yaml").read_text(encoding="utf-8"))
@@ -467,6 +511,7 @@ def check(
             if impl_id not in profile["enabled"].get(name, []):
                 errors.append(f"profile {pname}: default {name}/{impl_id} is not enabled")
     errors += published_errors(registry)
+    errors += display_errors(registry, set(slots))
     if presets is not None:
         errors += preset_check(pipeline, registry, presets)
     return errors

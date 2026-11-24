@@ -61,6 +61,19 @@ export interface Slot {
   implementations: SlotImplementation[];
 }
 
+/**
+ * A stage of the process that cannot be used yet (registry `in_development`): shown greyed and
+ * labelled "In development", never selectable. `slot` is set for a stage that is a slot of the
+ * pipeline with no enabled implementation in this deployment (normalisation), null for one that
+ * has no slot yet.
+ */
+export interface DevelopmentStage {
+  id: string;
+  title: string;
+  description?: string | null;
+  slot?: string | null;
+}
+
 export interface InputFile {
   id: string;
   role: string;
@@ -315,6 +328,9 @@ export const listPipelines = (api: ApiClient) => api.json<PipelineSummary[]>('/v
 
 export const listSlots = (api: ApiClient, pipelineId: string, version: string) =>
   api.json<Slot[]>(`/v1/pipelines/${enc(pipelineId)}/versions/${enc(version)}/slots`);
+
+export const listInDevelopment = (api: ApiClient, pipelineId: string, version: string) =>
+  api.json<DevelopmentStage[]>(`/v1/pipelines/${enc(pipelineId)}/versions/${enc(version)}/in-development`);
 
 export const getConfig = (api: ApiClient) => api.json<Config>('/v1/config');
 
