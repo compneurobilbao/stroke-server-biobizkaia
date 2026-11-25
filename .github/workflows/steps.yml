@@ -642,14 +642,14 @@ jobs:
   # from the author's repository (PREVIOUS_IMAGE, by digest).
 
   lnm-tracts-container:
-    name: lnm-tracts step under Docker and Apptainer, equivalence with 1.0.0
+    name: lnm-tracts step under Docker and Apptainer, atlas space, equivalence with 1.0.1
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       IMAGE: lnm-tracts-step:ci
       LEGACY_IMAGE: lnm-tracts-legacy:ci
-      # step-lnm-tracts 1.0.0, built from compneurobilbao/lnm step/ at 123f3298 (release run 45356289386)
-      PREVIOUS_IMAGE: docker.io/compneurobilbaolab/step-lnm-tracts@sha256:f80735a43d1ee90ea134ae2f3ff5fb1e304815e8861b97a4fed4a845b7f928ab
+      # step-lnm-tracts 1.0.1, built from steps/lnm-tracts (the digest pinned by stroke-lnm 0.9.0)
+      PREVIOUS_IMAGE: docker.io/compneurobilbaolab/step-lnm-tracts@sha256:760cccded0601c745a555073ac6d711343b40678b4688e6e5ca1ded25d0a4a5d
       STEP: steps/lnm-tracts
     steps:
       - uses: actions/checkout@v4.2.2
@@ -712,6 +712,22 @@ jobs:
           "$STEP/ci/run_cases.sh" "$IMAGE" "$STEP/tests/reference" "$RUNNER_TEMP/cases"
           python "$STEP/ci/compare_oracle.py" "$RUNNER_TEMP/cases" "$STEP/tests/reference/cases/expected"
 
+      - name: Atlas in another space (1.1.0), lesion resampled with a space-transform bundle
+        run: |
+          "$STEP/ci/run_space_cases.sh" "$IMAGE" "$STEP/tests/reference" "$RUNNER_TEMP/space"
+          python "$STEP/ci/compare_oracle.py" "$RUNNER_TEMP/space" "$STEP/tests/reference/space/expected"
+          # identity transform: byte-identical tables to the runs without any transform
+          cmp "$RUNNER_TEMP/space/identity_main.tsv" "$RUNNER_TEMP/cases/main.tsv"
+          cmp "$RUNNER_TEMP/space/identity_small.tsv" "$RUNNER_TEMP/cases/small.tsv"
+          ! cmp -s "$RUNNER_TEMP/space/shift_main.tsv" "$RUNNER_TEMP/cases/main.tsv"
+          for d in "$RUNNER_TEMP"/space/*/out; do
+            docs=("$d/provenance.json"); [ -f "$d/error.json" ] && docs+=("$d/error.json")
+            python contracts/validate.py "$STEP/step.yaml" "${docs[@]}"
+          done
+          mkdir -p artifacts/space
+          cp "$RUNNER_TEMP"/space/*.tsv artifacts/space/
+          cp "$RUNNER_TEMP/space/shift_main/out/provenance.json" artifacts/space/provenance-shift_main.json
+
       - name: The author's lnm_tracts.sh on the same input; results equal 1 - Disc
         run: |
           docker run --rm -v "$PWD/$STEP/tests/reference/legacy_project:/work" "$LEGACY_IMAGE" \
@@ -719,7 +735,7 @@ jobs:
           cp "$STEP/tests/reference/legacy_project/data/lnm_tracts.csv" artifacts/legacy-lnm_tracts.csv
           python "$STEP/ci/compare_legacy.py" artifacts/legacy-lnm_tracts.csv "$RUNNER_TEMP/cases" | tee artifacts/legacy-comparison.txt
 
-      - name: Equivalence with 1.0.0 (the previously published image) on every lesion
+      - name: Equivalence with 1.0.1 (the previously published image) on every lesion
         run: |
           docker pull -q "$PREVIOUS_IMAGE"
           "$STEP/ci/run_cases.sh" "$PREVIOUS_IMAGE" "$STEP/tests/reference" "$RUNNER_TEMP/cases-previous"
@@ -729,7 +745,7 @@ jobs:
             n=$((n + 1))
           done
           test "$n" -ge 4
-          echo "lnm-tracts 1.0.1 and 1.0.0: $n tables byte-identical" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "lnm-tracts 1.1.0 and 1.0.1: $n tables byte-identical" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: An empty lesion mask is rejected with mask_empty (exit 10)
         run: |
