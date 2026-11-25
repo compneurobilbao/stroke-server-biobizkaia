@@ -8,7 +8,7 @@
 contract_version: "1.0"
 kind: Pipeline
 id: stroke-lnm
-version: 0.9.0
+version: 0.10.0
 title: Lesion network mapping v0
 description: >-
   Lesion intake and QC, normalisation of CT lesions to MNI152 (skipped when an MNI mask is
@@ -45,6 +45,13 @@ description: >-
   this repository); cognet-profile pins cognet-stroke 1.1.0, which computes the CDR with the
   author's compute_cdr, accepts NaN in the functional disconnection map and reports the parcels
   it excluded (excluded_parcels). Wiring, ports and parameters are unchanged.
+  Version 0.10.0: tract-disconnection pins lnm-tracts 1.1.0, which resamples the lesion
+  (nearest neighbour) into the space of the tract atlas when the atlas bundle declares another
+  space (metadata.space), with the transform of an optional space-transform bundle. The
+  lnm-tracts-hcp1065 entry pins hcp1065-tracts 1.1.0 (the files of 1.0.0, declaring
+  MNI152NLin2009aAsym) and xfm-nlin6asym-to-nlin2009aasym 1.0.0. The unpinned lnm-tracts entry
+  (CI, a synthetic atlas without metadata.space) resamples nothing and gives the tables of
+  1.0.1. Ports and parameters are unchanged.
 
 inputs:
   - name: ct
@@ -156,16 +163,18 @@ slots:
       default: lnm-tracts
       allowed:
         - id: lnm-tracts
-          step: {name: lnm-tracts, version: 1.0.1}
-          image: docker.io/compneurobilbaolab/step-lnm-tracts@sha256:760cccded0601c745a555073ac6d711343b40678b4688e6e5ca1ded25d0a4a5d
-        # Same image, pinned to the HCP1065 tract atlas bundle: what the deployment profile
-        # enables. The entry above takes whichever tract atlas is registered (CI registers a
-        # synthetic one).
+          step: {name: lnm-tracts, version: 1.1.0}
+          image: docker.io/compneurobilbaolab/step-lnm-tracts@sha256:0000000000000000000000000000000000000000000000000000000000000000
+        # Same image, pinned to the HCP1065 tract atlas bundle (in MNI152NLin2009aAsym) and to
+        # the transform from the lesion space into it: what the deployment profile enables. The
+        # entry above takes whichever tract atlas is registered (CI registers a synthetic one in
+        # MNI152NLin6Asym, which needs no transform).
         - id: lnm-tracts-hcp1065
-          step: {name: lnm-tracts, version: 1.0.1}
-          image: docker.io/compneurobilbaolab/step-lnm-tracts@sha256:760cccded0601c745a555073ac6d711343b40678b4688e6e5ca1ded25d0a4a5d
+          step: {name: lnm-tracts, version: 1.1.0}
+          image: docker.io/compneurobilbaolab/step-lnm-tracts@sha256:0000000000000000000000000000000000000000000000000000000000000000
           bundles:
-            tract_atlas: {id: hcp1065-tracts, version: 1.0.0}
+            tract_atlas: {id: hcp1065-tracts, version: 1.1.0}
+            space_transform: {id: xfm-nlin6asym-to-nlin2009aasym, version: 1.0.0}
 
   - name: cognet-profile
     title: COGNET-STROKE cognitive profile

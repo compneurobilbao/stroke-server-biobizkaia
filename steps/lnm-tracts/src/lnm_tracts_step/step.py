@@ -10,10 +10,17 @@ three-digit truncated ratio.
 Differences from the script, none of which changes a result: per-case scratch in ``/tmp``
 (the script wrote into the shared data tree), exit codes of every MRtrix call are checked,
 and tract names are validated before they become file names.
+
+Since 1.1.0 the atlas may declare the space of its streamlines (``metadata.space`` of its
+``bundle.yaml``). When that space is not the lesion's (MNI152NLin6Asym), the lesion is
+first resampled into the atlas space with the optional ``space_transform`` bundle
+(``space.py``); otherwise nothing changes. An atlas without ``metadata.space`` is taken
+to be in MNI152NLin6Asym, as in 1.0.0.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -25,6 +32,8 @@ import nibabel as nib
 import numpy as np
 
 from stroke_step_sdk import InputRejected, InternalFailure, StepContext
+
+from . import space
 
 BUNDLE = "tract_atlas"
 LABELS_FILE = "labels.txt"
@@ -137,6 +146,64 @@ def tool_version(argv0: str) -> str | None:
     return m.group(1) if m else None
 
 
+def exclusion_mask(ctx: StepContext, lesion: Path, atlas: Path, scratch: Path) -> Path:
+    """The mask the streamlines are tested against: the lesion itself when the atlas is in
+    the lesion space, else the lesion resampled into the atlas space (``space.py``)."""
+    atlas_space = space.atlas_space(space.read_bundle_doc(atlas))
+    mounted = space.TRANSFORM_BUNDLE in ctx.bundles
+    if atlas_space == space.LESION_SPACE:
+        if mounted:
+            ctx.log.info(
+                "atlas is in the lesion space (%s): the space-transform bundle is not used",
+                atlas_space,
+            )
+        return lesion
+    if not mounted:
+        raise InternalFailure(
+            "space_transform_missing",
+            "The tract atlas is not in the lesion space and no space-transform bundle is mounted.",
+            details={"lesion_space": space.LESION_SPACE, "atlas_space": atlas_space},
+        )
+    transform = space.load_transform(
+        ctx.bundle_path(space.TRANSFORM_BUNDLE), space.LESION_SPACE, atlas_space
+    )
+    result = space.lesion_to_atlas_space(
+        lesion, transform, scratch / "lesion_mask_atlas_space.nii.gz"
+    )
+    record = {
+        "lesion_space": space.LESION_SPACE,
+        "atlas_space": atlas_space,
+        "transform_bundle": {"id": transform.bundle_id, "version": transform.version},
+        "method": space.METHOD,
+        "target_grid_shape": list(transform.coords.shape[:3]),
+        **result.summary(),
+    }
+    ctx.log.info("lesion resampled into the atlas space: %s", json.dumps(record))
+    change = (
+        100.0 * (result.volume_after_mm3 - result.volume_before_mm3) / result.volume_before_mm3
+    )
+    ctx.warn(
+        "lesion_resampled_to_atlas_space",
+        f"Lesion mask resampled from {space.LESION_SPACE} to the atlas space {atlas_space} "
+        f"with the space-transform bundle {transform.bundle_id} {transform.version} "
+        f"({space.METHOD}) before tract disconnection: {result.voxels_before} voxels, "
+        f"{result.volume_before_mm3:.1f} mm3 before; {result.voxels_after} voxels, "
+        f"{result.volume_after_mm3:.1f} mm3 after ({change:+.1f}%).",
+        port="lesion_mask",
+    )
+    ctx.extra_path("atlas_space_resampling.json").write_text(
+        json.dumps(record, indent=1) + "\n", encoding="utf-8"
+    )
+    shutil.copyfile(result.path, ctx.extra_path("lesion_mask_atlas_space.nii.gz"))
+    if result.voxels_after == 0:
+        raise InputRejected(
+            "mask_outside_atlas_space",
+            "The lesion mask has no voxel left after resampling into the atlas space.",
+            port="lesion_mask",
+        )
+    return result.path
+
+
 def run(ctx: StepContext) -> None:
     lesion = ctx.input_path("lesion_mask")
     if not np.any(np.asanyarray(nib.load(str(lesion)).dataobj)):
@@ -151,6 +218,7 @@ def run(ctx: StepContext) -> None:
     rows = []
     scratch = Path(tempfile.mkdtemp(prefix="lnm-tracts-", dir=os.environ.get("TMPDIR")))
     try:
+        mask = exclusion_mask(ctx, lesion, atlas, scratch)
         for name in tracts:
             source = atlas / f"{name}.tck"
             n_total = count_streamlines(ctx, source)
@@ -161,7 +229,7 @@ def run(ctx: StepContext) -> None:
                     details={"tract": name},
                 )
             kept = scratch / f"{name}.tck"
-            exclude_lesion(ctx, source, lesion, kept)
+            exclude_lesion(ctx, source, mask, kept)
             n_surviving = count_streamlines(ctx, kept)
             kept.unlink()
             n_cut = n_total - n_surviving

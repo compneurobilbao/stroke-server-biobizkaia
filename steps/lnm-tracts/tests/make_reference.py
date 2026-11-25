@@ -16,6 +16,18 @@ Written under DEST_DIR (default: tests/reference next to this file):
     cases/<name>.nii.gz                   all lesions, "main" included
     cases/expected/<name>.tsv             expected tables
     legacy_project/data/...               the directory tree lnm_tracts.sh expects
+    space/atlas/                          the toy atlas declaring metadata.space ToyAtlasSpace
+    space/identity/                       space-transform bundle, identity on the 2 mm grid
+    space/shift/                          space-transform bundle, every position + 4 mm in x
+    space/mismatch/                       space-transform bundle to another space
+    space/expected/<transform>_<case>.tsv expected tables with the atlas in ToyAtlasSpace
+
+The space/ bundles exercise the atlas-space resampling of step 1.1.0 (synthetic spaces:
+no real template is involved). With the identity transform the lesion is unchanged, so the
+expected tables are those of cases/expected. With the shift transform the resampled lesion
+is the lesion moved by 4 mm towards -x; the lesions are balls, so the expected tables are
+computed from balls whose centres are moved by 4 mm (two voxels), independently of the
+step's resampling code.
 """
 
 from __future__ import annotations
@@ -35,6 +47,10 @@ SEED = 20261113
 N_POINTS = 50
 HEADER = ("tract", "disconnection", "n_streamlines", "n_disconnected")
 BUNDLE_ID, BUNDLE_VERSION = "toy-lnm-tract-atlas", "1.0.0"
+LESION_SPACE, TOY_SPACE = "MNI152NLin6Asym", "ToyAtlasSpace"
+SHIFT_MM = (4.0, 0.0, 0.0)
+# centre (mm) and radius of the ball lesions; these two are also used shifted
+BALLS = {"main": ((-20, -15, 30), 10.0), "small": ((35, -20, -3), 5.0)}
 
 
 def working_grid(contracts_dir: Path) -> tuple[tuple[int, ...], np.ndarray]:
@@ -133,8 +149,8 @@ def lesions(shape, affine) -> dict[str, np.ndarray]:
     corner = np.zeros(shape, np.uint8)
     corner[3:8, 3:8, 3:8] = 1  # far from every tract
     return {
-        "main": ball(shape, affine, (-20, -15, 30), 10.0),
-        "small": ball(shape, affine, (35, -20, -3), 5.0),
+        "main": ball(shape, affine, *BALLS["main"]),
+        "small": ball(shape, affine, *BALLS["small"]),
         "wide": slab,
         "none": corner,
     }
@@ -160,12 +176,37 @@ def expected_table(
 # --- bundle and legacy tree --------------------------------------------------------------
 
 
-def write_bundle(bundle: Path, streamlines: dict[str, list[np.ndarray]]) -> None:
+def write_bundle(
+    bundle: Path,
+    streamlines: dict[str, list[np.ndarray]],
+    bundle_id: str = BUNDLE_ID,
+    space: str | None = None,
+) -> None:
     bundle.mkdir(parents=True, exist_ok=True)
     names = [t[0] for t in TRACTS]
     (bundle / "labels.txt").write_text("\n".join(names) + "\n", encoding="utf-8")
     for name in names:
         write_tck(streamlines[name], bundle / f"{name}.tck")
+    metadata = {"n_tracts": len(names)}
+    if space is not None:
+        metadata["space"] = space
+    write_manifest(
+        bundle,
+        bundle_id=bundle_id,
+        bundle_type="tract-atlas",
+        title="Toy tract atlas for the tract-wise disconnection step (synthetic)",
+        description=(
+            "Five synthetic streamline bundles (.tck) with labels.txt, in "
+            f"{space or 'MNI152NLin6Asym'} millimetre coordinates. For CI and demos only."
+        ),
+        metadata=metadata,
+    )
+
+
+def write_manifest(
+    bundle: Path, bundle_id: str, bundle_type: str, title: str, description: str, metadata: dict
+) -> None:
+    """bundle.yaml listing every other file of ``bundle`` (bundles.md sections 2 and 3)."""
     files = []
     for p in sorted(bundle.iterdir(), key=lambda q: q.name.encode()):
         if p.name == "bundle.yaml":
@@ -182,21 +223,18 @@ def write_bundle(bundle: Path, streamlines: dict[str, list[np.ndarray]]) -> None
     doc = {
         "contract_version": "1.0",
         "kind": "Bundle",
-        "id": BUNDLE_ID,
+        "id": bundle_id,
         "version": BUNDLE_VERSION,
-        "type": "tract-atlas",
-        "title": "Toy tract atlas for the tract-wise disconnection step (synthetic)",
-        "description": (
-            "Five synthetic streamline bundles (.tck) with labels.txt, in MNI152NLin6Asym "
-            "millimetre coordinates. For CI and demos only."
-        ),
+        "type": bundle_type,
+        "title": title,
+        "description": description,
         "synthetic": True,
         "licence": {
             "spdx": "CC0-1.0",
             "redistributable": True,
             "notes": "Generated data; no public ingredient.",
         },
-        "metadata": {"n_tracts": len(names)},
+        "metadata": metadata,
         "content_digest": "sha256:" + hashlib.sha256(lines.encode("utf-8")).hexdigest(),
         "files": files,
     }
@@ -218,6 +256,40 @@ def write_legacy_project(dest: Path, bundle: Path, cases: Path, names: list[str]
     (data / "lesion_list.txt").write_text("\n".join(names) + "\n", encoding="utf-8")
 
 
+def write_space_transform(
+    bundle: Path, bundle_id: str, to_space: str, shape, affine: np.ndarray, shift_mm
+) -> None:
+    """A space-transform bundle on the 2 mm working grid: every voxel centre maps to its own
+    position plus ``shift_mm`` (the identity for a zero shift)."""
+    bundle.mkdir(parents=True, exist_ok=True)
+    ii, jj, kk = np.indices(shape)
+    centres = np.stack([ii, jj, kk], -1) @ affine[:3, :3].T + affine[:3, 3]
+    coords = (centres + np.asarray(shift_mm, float)).astype(np.float32)
+    nib.save(nib.Nifti1Image(coords, affine), str(bundle / "coordinate_map.nii.gz"))
+    write_manifest(
+        bundle,
+        bundle_id=bundle_id,
+        bundle_type="space-transform",
+        title=f"Synthetic transform {LESION_SPACE} to {to_space}, shift {list(shift_mm)} mm",
+        description="Coordinate map on the 2 mm working grid. For CI only.",
+        metadata={"from_space": LESION_SPACE, "to_space": to_space, "shift_mm": list(shift_mm)},
+    )
+
+
+def generate_space(dest: Path, streamlines, shape, affine, tables: dict) -> None:
+    root = dest / "space"
+    (root / "expected").mkdir(parents=True, exist_ok=True)
+    write_bundle(root / "atlas", streamlines, "toy-lnm-tract-atlas-toyspace", TOY_SPACE)
+    write_space_transform(root / "identity", "toy-xfm-identity", TOY_SPACE, shape, affine, (0, 0, 0))
+    write_space_transform(root / "shift", "toy-xfm-shift-x4", TOY_SPACE, shape, affine, SHIFT_MM)
+    write_space_transform(root / "mismatch", "toy-xfm-other", "OtherSpace", shape, affine, (0, 0, 0))
+    for case, (centre, radius) in BALLS.items():
+        (root / "expected" / f"identity_{case}.tsv").write_text(tables[case], encoding="utf-8")
+        moved = np.asarray(centre, float) - np.asarray(SHIFT_MM)
+        table = expected_table(streamlines, ball(shape, affine, moved, radius), affine)
+        (root / "expected" / f"shift_{case}.tsv").write_text(table, encoding="utf-8")
+
+
 def generate(dest: Path, contracts_dir: Path) -> dict:
     shape, affine = working_grid(contracts_dir)
     streamlines = make_streamlines(affine)
@@ -235,6 +307,7 @@ def generate(dest: Path, contracts_dir: Path) -> dict:
         dest / "cases" / "expected" / "main.tsv", dest / "expected" / "tract_disconnection.tsv"
     )
     write_legacy_project(dest / "legacy_project", dest / "bundle", dest / "cases", list(masks))
+    generate_space(dest, streamlines, shape, affine, tables)
     return tables
 
 

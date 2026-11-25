@@ -3,7 +3,7 @@
 contract_version: "1.0"
 kind: Step
 name: lnm-tracts
-version: 1.0.1
+version: 1.1.0
 title: Tract-wise structural disconnection
 description: >-
   For every tract of a tract atlas bundle, removes the streamlines that pass through the
@@ -12,7 +12,10 @@ description: >-
   read-only on the atlas: all scratch is in /tmp. Voxel-wise structural disconnection is a
   different step. Version 1.0.1 is built from the platform repository (steps/lnm-tracts); the
   image contains no code of the lnm repository, whose script at the commit in upstream.env is
-  used by CI for comparison only. The code and the results are those of 1.0.0.
+  used by CI for comparison only. Since 1.1.0: when the atlas declares a space
+  (metadata.space) other than the lesion's (MNI152NLin6Asym), the lesion is first resampled
+  into the atlas space by nearest neighbour with a space-transform bundle; an atlas without
+  metadata.space is taken to be in MNI152NLin6Asym and gives the results of 1.0.x.
 provides: tract-disconnection
 image:
   repository: docker.io/compneurobilbaolab/step-lnm-tracts
@@ -47,10 +50,25 @@ bundles:
   - name: tract_atlas
     type: tract-atlas
     description: >-
-      Tract atlas as streamline files in MNI152NLin6Asym millimetre coordinates. Layout: labels.txt
+      Tract atlas as streamline files in the millimetre coordinates of the space named by
+      metadata.space of its bundle.yaml (MNI152NLin6Asym when absent). Layout: labels.txt
       (one tract name per line, [A-Za-z0-9_.+-], at most 64 characters, unique) and one
       <tract name>.tck per name, all at the bundle root (the layout of the former yeh_tracts
       directory). Every tract needs at least one streamline.
+  - name: space_transform
+    type: space-transform
+    required: false
+    description: >-
+      Needed only when the atlas space differs from MNI152NLin6Asym, and then required by the
+      step (internal failure space_transform_missing without it). metadata.from_space must be
+      MNI152NLin6Asym and metadata.to_space the atlas space (else space_transform_mismatch).
+      Layout: coordinate_map.nii.gz, a float image of shape (X, Y, Z, 3) on a grid of the atlas
+      space whose voxels hold the RAS millimetre position in MNI152NLin6Asym of their centre
+      (the image-resampling direction). The lesion is resampled onto that grid by nearest
+      neighbour; voxel counts and volumes before and after are recorded in the provenance
+      warning lesion_resampled_to_atlas_space and in extra/atlas_space_resampling.json, with
+      the resampled mask in extra/lesion_mask_atlas_space.nii.gz. Ignored when the atlas is in
+      MNI152NLin6Asym.
 
 resources:
   cpus: 2
@@ -71,6 +89,11 @@ errors:
   - code: mask_empty
     category: input_rejected
     description: The lesion mask has no voxels set.
+  - code: mask_outside_atlas_space
+    category: input_rejected
+    description: >-
+      The lesion mask has no voxel left after resampling into the atlas space (it lies outside
+      the grid of the space-transform bundle).
 
 reference_test:
   description: >-
