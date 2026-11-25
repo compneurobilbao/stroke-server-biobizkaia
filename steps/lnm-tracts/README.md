@@ -8,13 +8,14 @@ is a different step.
 
 ## Where the code lives
 
-This wrapper is platform code and lives here, not in the author's repository. The lnm repository
-is consumed **unmodified** at the commit pinned in [`upstream.env`](upstream.env) (the registry
-entry repeats it as `source.upstream`, and `pipelines/stroke-lnm/registry.py check` keeps the two
-equal). The step's algorithm is a port of `src/lnm_tracts.sh` in Python (`src/lnm_tracts_step`),
-so the step image does not contain the author's code; the CI-only `legacy` target of the
-[`Dockerfile`](Dockerfile) contains `src/lnm_tracts.sh` at the pinned commit, unchanged, and CI
-runs it on the same input to compare.
+This step is platform code and lives here, not in the author's repository. It is a **port**:
+the algorithm of `src/lnm_tracts.sh` re-written in Python (`src/lnm_tracts_step`), and the
+released image contains no code of the lnm repository. `upstream` ([`upstream.env`](upstream.env),
+repeated as `source.upstream` in the registry entry and kept equal by
+`pipelines/stroke-lnm/registry.py check`) only names the commit whose unmodified
+`src/lnm_tracts.sh` CI runs on the same input to compare: the CI-only `legacy` target of the
+[`Dockerfile`](Dockerfile), never released, holds that script (content checked against
+`UPSTREAM_SHA256`).
 
 Version 1.0.1 is version 1.0.0 (previously built from the `step/` folder of the lnm repository at
 that same commit) moved into this repository: same code, same manifest apart from the version,

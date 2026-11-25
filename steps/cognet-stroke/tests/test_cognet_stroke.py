@@ -198,7 +198,10 @@ def test_profile_content_and_schema(staged):
     assert [b["id"] for b in prov["bundles"]] == ["synthetic-concept-maps"]
     software = {s["name"]: s["version"] for s in prov["software"]}
     assert software["COGNET-STROKE"].startswith("git-")
-    assert not prov.get("warnings")
+    # the lesion lies wholly inside motor_left: overlap 1.0, which no null can exceed and some
+    # nulls reach; the author's strict rule gives 1/n, and the wrapper says so
+    assert [w["code"] for w in prov["warnings"]] == ["tied_null_values"]
+    assert "motor_left:lesion_overlap" in prov["warnings"][0]["message"]
 
 
 @needs_upstream
@@ -255,7 +258,10 @@ def test_the_scores_are_those_of_the_authors_compute_cdr(staged):
 
 
 @needs_upstream
-def test_the_wrapper_imports_the_authors_file_unchanged():
+def test_the_authors_module_is_loaded_from_the_pinned_checkout():
+    """Plumbing: the module the wrapper calls is the file at $COGNET_STROKE_SRC/src/cdr.py
+    (the image's copy is compared byte for byte with the pinned commit in CI), loaded under the
+    wrapper's own module name, and it is the nanmean version."""
     module = author()
     assert Path(module.__file__).resolve() == upstream.cdr_path().resolve()
     assert module.__name__ == upstream.MODULE_NAME
@@ -263,36 +269,73 @@ def test_the_wrapper_imports_the_authors_file_unchanged():
     assert "def compute_cdr(" in source and "np.nanmean(" in source
 
 
-def _previous_cdr(concept_mask, values, nulls):
-    """The CDR and p-value of step 1.0.0 (its own cognet_runtime.cdr, same logic), used to show
-    that 1.1.0 gives the same numbers on parcel vectors without NaN."""
+# ---- equivalence with the code of step 1.0.0 (its own cognet_runtime/cdr.py, read-only from
+# COGNET-STROKE at 56672166; CI fetches it into $COGNET_STROKE_PREVIOUS_SRC, SHA-256 checked)
 
-    def one(mask):
-        inside, outside = mask == 1, mask == -1
-        if not inside.any() or not outside.any():
-            return np.nan
-        a, b = np.mean(values[inside]), np.mean(values[outside])
-        return a if b == 0 else a / b
+PREVIOUS_SRC = os.environ.get("COGNET_STROKE_PREVIOUS_SRC")
+PREVIOUS_CDR = Path(PREVIOUS_SRC or "/nonexistent") / "runtime" / "src" / "cognet_runtime" / "cdr.py"
+if not PREVIOUS_CDR.is_file() and os.environ.get("COGNET_STROKE_REQUIRE_UPSTREAM") == "1":
+    raise RuntimeError(f"step 1.0.0's cdr.py is required but not found at {PREVIOUS_CDR}")
+needs_previous = pytest.mark.skipif(
+    not PREVIOUS_CDR.is_file(), reason="step 1.0.0's cognet_runtime/cdr.py not available"
+)
 
-    value = one(concept_mask)
-    null_values = np.array([one(n) for n in nulls])
-    if np.isnan(value):
-        return float(value), float("nan")
-    hits = int(np.count_nonzero(null_values > value))
-    return float(value), max(hits, 1) / null_values.size
+
+def previous():
+    spec = importlib.util.spec_from_file_location("cognet_runtime_cdr_1_0_0", PREVIOUS_CDR)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _vectors(rng, n, case):
+    mask = np.where(rng.random(n) > 0.7, 1, -1).astype(np.int8)
+    values = rng.random(n) * (rng.random(n) > 0.2)
+    if case == "empty_inside":
+        mask[:] = -1
+    elif case == "empty_outside":
+        mask[:] = 1
+    elif case == "zero_outside":
+        values[mask == -1] = 0.0
+    elif case == "all_zero":
+        values[:] = 0.0
+    return mask, values
 
 
 @needs_upstream
-def test_same_numbers_as_step_1_0_0_on_finite_vectors():
-    rng = np.random.default_rng(7)
-    cdr = author()
-    for _ in range(25):
-        n = 80
-        mask = np.where(rng.random(n) > 0.7, 1, -1).astype(np.int8)
-        values = rng.random(n) * (rng.random(n) > 0.2)
-        nulls = np.where(rng.random((300, n)) > 0.7, 1, -1).astype(np.int8)
-        score, p = cdr.compute_cdr(mask, values, nulls)
-        assert (float(score), float(p)) == _previous_cdr(mask, values, nulls)
+@needs_previous
+@pytest.mark.parametrize("case", ["random", "empty_inside", "empty_outside", "zero_outside", "all_zero"])
+def test_same_results_as_the_code_of_step_1_0_0(case):
+    """On finite vectors the wrapper (author's code plus the wrapper's handling) gives what
+    1.0.0's own implementation gave: the same score and flag, and the same p-value, except
+    where 1.0.0 reported 1/n_nulls for a degenerate null distribution (now null, with a
+    warning) or NaN for an empty mask (now null)."""
+    old = previous()
+    rng = np.random.default_rng(11)
+    for _ in range(10):
+        n = 60
+        mask, values = _vectors(rng, n, case)
+        nulls = np.where(rng.random((200, n)) > 0.7, 1, -1).astype(np.int8)
+        lesion = (rng.random(n) > 0.9).astype(float)
+        lesion[0] = 1.0
+        diagnostics = profile_module.Diagnostics()
+        vectors = {"disconnection_positive": values, "disconnection_negative": values, "lesion_overlap": lesion}
+        row = profile_module._concept_row("c", "d", mask, nulls, vectors, author(), diagnostics)
+        degenerate = {m for _c, m in diagnostics.degenerate}
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            expected = {
+                "disconnection_positive": (*old.compute_cdr(mask, values, nulls), old.cdr_flag(mask, values)),
+                "lesion_overlap": (*old.compute_overlap(mask, lesion, nulls), None),
+            }
+        for measure, (score, p, flag) in expected.items():
+            got = row[measure]
+            if np.isnan(score):
+                assert got["score"] is None and got["p_value"] is None
+            else:
+                assert got["score"] == score
+                assert got["p_value"] == (None if measure in degenerate else p)
+            assert got.get("flag") == flag
 
 
 @needs_upstream
@@ -351,7 +394,9 @@ def test_parcels_without_value_are_excluded_and_reported(staged, reference_dir, 
         "reason": "undefined_in_disconnection_map",
     }
     prov = staged.json("provenance.json")
-    assert [w["code"] for w in prov["warnings"]] == ["parcels_excluded"]
+    codes = [w["code"] for w in prov["warnings"]]
+    assert codes[0] == "parcels_excluded"
+    assert set(codes) <= {"parcels_excluded", "undefined_null_maps", "tied_null_values", "degenerate_null_distribution"}
 
     # independent check: the naive implementation of the reference generator on the vectors
     # with the excluded parcels removed (masks and nulls restricted the same way)
@@ -564,3 +609,113 @@ def test_the_parcel_count_comes_from_the_bundle(staged, reference_dir):
     assert profile["method"]["n_parcels"] == n
     assert n != int(labels.max())
     assert profile["method"]["n_nulls"] == 50
+
+
+# ----------------------------------------------------------------------------- null distributions
+
+
+@needs_upstream
+def test_a_map_without_positive_values_is_not_significant_anywhere(staged):
+    """Only negative values: the positive part is zero everywhere, so every concept's positive
+    score is 0 and so is every null. The author's strict rule gives p = 1/n for all of them,
+    which 1.0.0 reported as significant; the wrapper reports the p-value as null."""
+    values = staged.read("fdisconnection_map").astype(np.float32)
+    staged.write("fdisconnection_map", -np.abs(values))
+    assert staged.run() == EXIT_OK
+    assert staged.validate() == []
+    profile = staged.json("profile.json")
+    for row in profile["concepts"]:
+        result = row["disconnection_positive"]
+        assert result["score"] == 0.0
+        assert result["p_value"] is None and result["significant"] is False
+        assert result["flag"] == "zero_outside_mean"
+    for row in profile["domains"]:
+        assert row["disconnection_positive"]["significant"] is False
+    codes = [w["code"] for w in staged.json("provenance.json")["warnings"]]
+    assert "degenerate_null_distribution" in codes
+
+
+@needs_upstream
+def test_degenerate_undefined_and_tied_nulls_are_reported():
+    cdr = author()
+    # all nulls equal (zero spread): p would be 1/n whatever the data
+    mask = np.array([1, -1, -1, -1], dtype=np.int8)
+    nulls = np.array([[1, -1, -1, -1]] * 4, dtype=np.int8)
+    values = np.array([2.0, 1.0, 1.0, 1.0])
+    diagnostics = profile_module.Diagnostics(n_nulls=4)
+    row = profile_module._concept_row("c", "d", mask, nulls, {m: values for m in MEASURES}, cdr, diagnostics)
+    assert row["disconnection_positive"]["p_value"] is None
+    assert ("c", "disconnection_positive") in diagnostics.degenerate
+
+    # some nulls undefined (their only inside parcel is NaN): counted, p kept (author's denominator)
+    values = np.array([3.0, np.nan, 1.0, 2.0, 1.0])
+    mask = np.array([1, -1, -1, -1, -1], dtype=np.int8)
+    nulls = np.array([[-1, 1, -1, -1, -1], [-1, -1, 1, -1, -1], [-1, -1, -1, 1, -1]], dtype=np.int8)
+    diagnostics = profile_module.Diagnostics(n_nulls=3)
+    row = profile_module._concept_row("c", "d", mask, nulls, {m: values for m in MEASURES}, cdr, diagnostics)
+    score, p = cdr.compute_cdr(mask, values, nulls)
+    assert row["disconnection_positive"]["p_value"] == p
+    assert ("c", "disconnection_positive", 1) in diagnostics.undefined_nulls
+
+    # ties: nothing larger, some equal
+    values = np.array([1.0, 0.0, 1.0, 0.0])
+    mask = np.array([1, -1, -1, -1], dtype=np.int8)
+    nulls = np.array([[-1, -1, 1, -1], [-1, 1, -1, -1], [-1, -1, -1, 1]], dtype=np.int8)
+    diagnostics = profile_module.Diagnostics(n_nulls=3)
+    row = profile_module._concept_row(
+        "c", "d", mask, nulls, {m: np.array([1.0, 0.0, 1.0, 0.0]) for m in MEASURES}, cdr, diagnostics
+    )
+    assert row["lesion_overlap"]["p_value"] == pytest.approx(1 / 3)
+    assert ("c", "lesion_overlap", 1) in diagnostics.ties
+    codes = [code for code, _message in diagnostics.warnings()]
+    assert "tied_null_values" in codes
+    assert all(len(message) <= 500 for _code, message in diagnostics.warnings())
+
+
+def test_warning_messages_stay_within_the_provenance_limit():
+    diagnostics = profile_module.Diagnostics(n_nulls=5000)
+    diagnostics.degenerate = [(f"concept_{i}", "disconnection_positive") for i in range(200)]
+    ((code, message),) = diagnostics.warnings()
+    assert code == "degenerate_null_distribution" and len(message) <= 500
+    assert message.endswith("more")
+
+
+# ----------------------------------------------------------------------------- grids
+
+
+@needs_upstream
+def test_partly_defined_parcels_are_reported(staged, reference_dir):
+    labels = labels_of(reference_dir)
+    values = staged.read("fdisconnection_map").astype(np.float32)
+    target = int(labels[make_reference.LESION_CENTRE])
+    voxels = np.argwhere(labels == target)
+    values[tuple(voxels[: len(voxels) // 4].T)] = np.nan
+    staged.write("fdisconnection_map", values)
+    assert staged.run() == EXIT_OK
+    warnings_ = {w["code"]: w["message"] for w in staged.json("provenance.json")["warnings"]}
+    assert "1 of" in warnings_["parcels_partly_defined"]
+    assert "lowest share 7" in warnings_["parcels_partly_defined"]  # 3/4 of the voxels defined
+
+
+@needs_upstream
+def test_a_bundle_parcellation_off_the_working_grid_is_refused(staged):
+    bundle = staged.ref_dir / "concept_maps"
+    img = nib.load(str(bundle / "parcellation.nii.gz"))
+    shifted = img.affine.copy()
+    shifted[0, 3] += 2.0
+    nib.save(nib.Nifti1Image(np.asanyarray(img.dataobj), shifted), str(bundle / "parcellation.nii.gz"))
+    assert staged.run() == EXIT_INTERNAL
+    err = staged.json("error.json")
+    assert err["code"] == "bundle_layout_invalid"
+    assert "working grid" in err["details"]["reason"]
+
+
+@needs_upstream
+def test_a_disconnection_map_off_the_working_grid_is_rejected(staged):
+    values = staged.read("fdisconnection_map").astype(np.float32)
+    _, affine = make_reference.working_grid(CONTRACTS)
+    shifted = affine.copy()
+    shifted[1, 3] += 4.0
+    nib.save(nib.Nifti1Image(values, shifted), str(staged.in_dir / "fdisconnection_map.nii.gz"))
+    assert staged.run() == EXIT_REJECTED
+    assert staged.json("error.json")["code"] == "input_format_invalid"

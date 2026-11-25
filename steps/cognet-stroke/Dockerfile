@@ -14,11 +14,13 @@ FROM python:3.12.3-slim-bookworm AS upstream
 RUN apt-get update -qq && apt-get install -y -q --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 COPY steps/cognet-stroke/upstream.env /tmp/upstream.env
+COPY steps/upstream-digest.sh /tmp/upstream-digest.sh
 WORKDIR /src
 RUN . /tmp/upstream.env \
     && curl -fsSL "https://codeload.github.com/${UPSTREAM_REPOSITORY}/tar.gz/${UPSTREAM_COMMIT}" \
     | tar -xz --strip-components=1 --wildcards '*/src/cdr.py' '*/pyproject.toml' \
     && test -f src/cdr.py \
+    && test "$(sh /tmp/upstream-digest.sh . $UPSTREAM_PATHS)" = "$UPSTREAM_SHA256" \
     && printf '%s\n' "${UPSTREAM_COMMIT}" > UPSTREAM_COMMIT
 
 # ---- Step image ----

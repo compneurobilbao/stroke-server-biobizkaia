@@ -327,7 +327,8 @@ UPSTREAM_ENV = "upstream.env"
 
 
 def read_upstream_env(path: Path) -> dict[str, str]:
-    """``KEY=VALUE`` lines of a step's upstream.env (comments and blank lines ignored)."""
+    """``KEY=VALUE`` lines of a step's upstream.env (comments and blank lines ignored; one pair
+    of surrounding double quotes is removed, as the shell does)."""
     values: dict[str, str] = {}
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
@@ -335,7 +336,10 @@ def read_upstream_env(path: Path) -> dict[str, str]:
             continue
         key, sep, value = line.partition("=")
         if sep:
-            values[key.strip()] = value.strip()
+            value = value.strip()
+            if len(value) >= 2 and value[0] == value[-1] == '"':
+                value = value[1:-1]
+            values[key.strip()] = value
     return values
 
 
@@ -371,6 +375,11 @@ def upstream_errors(name: str, impl_id: str, entry: dict, *, root: Path = REPO_R
         errors.append(f"{where}: source.upstream needs {UPSTREAM_ENV} next to the step's Dockerfile")
         return errors
     env = read_upstream_env(env_path)
+    rel = env_path.relative_to(root).as_posix()
+    if not re.fullmatch(r"[0-9a-f]{64}", env.get("UPSTREAM_SHA256", "")):
+        errors.append(f"{where}: {rel} needs UPSTREAM_SHA256 (64 hex, steps/upstream-digest.sh)")
+    if not env.get("UPSTREAM_PATHS", "").split():
+        errors.append(f"{where}: {rel} needs UPSTREAM_PATHS (the files the wrapper uses)")
     if (env.get("UPSTREAM_REPOSITORY"), env.get("UPSTREAM_COMMIT")) != (
         upstream["repository"],
         upstream["commit"],

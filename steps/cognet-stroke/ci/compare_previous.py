@@ -5,6 +5,8 @@
 On a disconnection map without NaN, 1.1.0 (the author's compute_cdr) must give exactly the
 profile of 1.0.0 (its own implementation): every score, p-value, correction, flag and
 significance, the method and the bundle record. Only profile_version differs (1.0 -> 1.1).
+The reference case has no degenerate null distribution (where 1.1.0 reports the p-value as null
+and 1.0.0 reported 1/n_nulls); a difference there would show here.
 """
 
 from __future__ import annotations

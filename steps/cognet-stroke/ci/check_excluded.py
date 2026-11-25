@@ -24,5 +24,5 @@ assert excluded["count"] > 0, excluded
 assert excluded["reason"] == "undefined_in_disconnection_map", excluded
 assert excluded["fraction"] == excluded["count"] / profile["method"]["n_parcels"], excluded
 warnings = json.loads((out / "provenance.json").read_text(encoding="utf-8")).get("warnings", [])
-assert [w["code"] for w in warnings] == ["parcels_excluded"], warnings
+assert warnings and warnings[0]["code"] == "parcels_excluded", warnings
 print("excluded_parcels:", excluded)

@@ -108,3 +108,18 @@ def test_one_repository_at_two_commits_is_refused(docs):
     }
     with pytest.raises(SystemExit, match="two commits"):
         registry_tool.fetch_targets(registry)
+
+
+def test_upstream_env_needs_the_content_digest(docs, root):
+    env = root / "steps" / "lnm-tracts" / "upstream.env"
+    env.write_text(
+        "\n".join(l for l in env.read_text().splitlines() if not l.startswith("UPSTREAM_SHA256")) + "\n"
+    )
+    found = upstream_errors(docs[1], root)
+    assert any("lnm-tracts: steps/lnm-tracts/upstream.env needs UPSTREAM_SHA256" in e for e in found), found
+
+
+def test_upstream_env_files_pin_content():
+    for step in WRAPPERS.values():
+        env = registry_tool.read_upstream_env(REPO / "steps" / step / "upstream.env")
+        assert len(env["UPSTREAM_SHA256"]) == 64 and env["UPSTREAM_PATHS"].split()

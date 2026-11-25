@@ -167,8 +167,10 @@ implementations:
         notes: >-
           The step's reference test runs in CI on synthetic or public data. No signed validation record exists, so it is not validated.
       image: docker.io/compneurobilbaolab/step-lnm-tracts@sha256:0000000000000000000000000000000000000000000000000000000000000000
-      # Wrapper of this repository (a port of the author's src/lnm_tracts.sh, which CI runs
-      # unmodified from the upstream commit for comparison; steps/lnm-tracts/upstream.env).
+      # A port in this repository of the author's src/lnm_tracts.sh: the released image contains
+      # no code of the lnm repository. `upstream` names the commit whose unmodified script CI runs
+      # for the comparison only (Dockerfile target `legacy`, never released;
+      # steps/lnm-tracts/upstream.env).
       source:
         repository: this
         dockerfile: steps/lnm-tracts/Dockerfile
@@ -184,6 +186,22 @@ implementations:
       title: COGNET-STROKE · registered concept maps
       step: {name: cognet-stroke, version: 1.1.0}
       kind: real
+      licence_review:
+        status: pending  # an open question for the project owner, see notes
+        code: LicenseRef-COGNET-STROKE-unspecified
+        weights: >-
+          No model weights. The concept maps and null maps are a reference bundle (type
+          concept-maps, derived from Neurosynth data, ODbL-1.0), installed locally and never in the
+          image.
+        image_redistribution: allowed
+        notes: >-
+          OPEN QUESTION for the project owner: the published image contains src/cdr.py of the
+          COGNET-STROKE repository (compute_cdr and compute_overlap, copied unmodified), and that
+          repository has no licence file at the pinned commit, so the terms under which its code
+          may be redistributed in a public image are not stated. The 1.0.0 image, built from that
+          repository, had the same situation. The wrapper itself is MIT. To settle before the
+          release of 1.1.0: a licence file in COGNET-STROKE (the author's decision), or keep the
+          image unpublished (build: local with image_redistribution: forbidden).
       validation:
         status: reference-tested
         notes: >-

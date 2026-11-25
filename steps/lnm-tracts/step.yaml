@@ -10,9 +10,9 @@ description: >-
   lesion (MRtrix3 tckedit -exclude, as in the src/lnm_tracts.sh script of the lnm
   repository) and reports the fraction removed, with the streamline counts. Per-case and
   read-only on the atlas: all scratch is in /tmp. Voxel-wise structural disconnection is a
-  different step. Version 1.0.1 is built from the platform repository (steps/lnm-tracts),
-  with the lnm repository consumed unmodified at the commit in upstream.env; the code and
-  the results are those of 1.0.0.
+  different step. Version 1.0.1 is built from the platform repository (steps/lnm-tracts); the
+  image contains no code of the lnm repository, whose script at the commit in upstream.env is
+  used by CI for comparison only. The code and the results are those of 1.0.0.
 provides: tract-disconnection
 image:
   repository: docker.io/compneurobilbaolab/step-lnm-tracts

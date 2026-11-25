@@ -29,11 +29,13 @@ FROM python:3.12.8-slim-bookworm AS upstream
 RUN apt-get update -qq && apt-get install -y -q --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 COPY steps/lnm-tracts/upstream.env /tmp/upstream.env
+COPY steps/upstream-digest.sh /tmp/upstream-digest.sh
 WORKDIR /src
 RUN . /tmp/upstream.env \
     && curl -fsSL "https://codeload.github.com/${UPSTREAM_REPOSITORY}/tar.gz/${UPSTREAM_COMMIT}" \
     | tar -xz --strip-components=1 --wildcards '*/src/lnm_tracts.sh' \
-    && test -f src/lnm_tracts.sh
+    && test -f src/lnm_tracts.sh \
+    && test "$(sh /tmp/upstream-digest.sh . $UPSTREAM_PATHS)" = "$UPSTREAM_SHA256"
 
 # ---- Runtime base: Python and the two MRtrix3 commands ----
 FROM python:3.12.8-slim-bookworm AS runtime

@@ -17,6 +17,15 @@ of the author's analysis environment (concept-map generation, brainsmash, neurom
 pandas) is in the image: only numpy and nibabel (versions of the author's lock file), matplotlib
 for the figure, and the SDK.
 
+## Licence (open question)
+
+The wrapper is MIT. The image also contains the author's `src/cdr.py`, and the COGNET-STROKE
+repository has **no licence file** at the pinned commit, so the terms for redistributing that code
+in a public image are not stated (the published 1.0.0 image had the same situation). This is an
+open question for the project owner, recorded as `licence_review.status: pending` of the registry
+entry; it is to be settled before 1.1.0 is released (a licence file in the author's repository,
+or a `build: local` image that is never published). This pull request changes no licensing.
+
 ## What it computes
 
 1. Inputs: an empty lesion is rejected (`mask_empty`); infinite values in the map are rejected
@@ -39,7 +48,20 @@ for the figure, and the SDK.
    then returns the inside mean). Bonferroni over concepts per measure; a domain's score is the
    mean of its concepts' finite scores, its p-value the smallest concept p-value times their
    number, Bonferroni over domains.
-5. When parcels had no defined value, the profile carries
+5. Null distributions (the null values are computed with the author's functions, each null
+   mask as the concept mask, and must reproduce the author's p-value): when the defined null
+   values have no spread, or none is defined, the author's strict rule gives 1 / n_nulls whatever
+   the data (for example a map with no positive value: every positive score and every null is 0).
+   The wrapper then reports the p-value as `null` (not significant) and the warning
+   `degenerate_null_distribution`; 1.0.0 reported such scores as significant. Null maps without a
+   defined value stay in the author's denominator and are reported (`undefined_null_maps`);
+   scores that no null exceeds but some nulls equal keep the author's 1 / n_nulls and are
+   reported (`tied_null_values`, typically a lesion overlap of 1.0). A dedicated profile `flag`
+   for these cases needs a schema (contract) change, proposed as a follow-up.
+6. Parcels with a defined value on only part of their voxels use the mean of the defined voxels
+   and are reported (`parcels_partly_defined`, count and lowest defined share); no minimum
+   coverage is applied, since that would be a choice of the method's author.
+7. When parcels had no defined value, the profile carries
    `excluded_parcels: {count, fraction, reason: undefined_in_disconnection_map}` (schema
    `contracts/schemas/v1/cognet-profile.schema.json`), the provenance a warning
    `parcels_excluded`, and the figure a footnote. The research report states it.

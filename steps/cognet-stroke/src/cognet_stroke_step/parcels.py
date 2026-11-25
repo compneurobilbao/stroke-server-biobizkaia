@@ -41,3 +41,16 @@ def touched(mask: np.ndarray, labels: np.ndarray, ids: np.ndarray) -> np.ndarray
     lab = np.rint(np.asarray(labels)).astype(np.int64).ravel()
     hit = np.unique(lab[np.asarray(mask, dtype=bool).ravel()])
     return np.isin(ids, hit).astype(float)
+
+
+def defined_fraction(data: np.ndarray, labels: np.ndarray, ids: np.ndarray) -> np.ndarray:
+    """Share of the voxels of every parcel in ``ids`` whose value in ``data`` is defined (not
+    NaN): 1 for a fully defined parcel, 0 for an excluded one, in between for a parcel whose mean
+    uses only part of its voxels."""
+    lab = np.rint(np.asarray(labels)).astype(np.int64).ravel()
+    defined = ~np.isnan(np.asarray(data, dtype=np.float64)).ravel()
+    inside = np.isin(lab, ids)
+    index = np.searchsorted(ids, lab[inside])
+    total = np.bincount(index, minlength=ids.size)
+    good = np.bincount(index, weights=defined[inside].astype(np.float64), minlength=ids.size)
+    return np.divide(good, total, out=np.zeros(ids.size), where=total > 0)

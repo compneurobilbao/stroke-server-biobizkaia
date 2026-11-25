@@ -20,12 +20,14 @@ FROM python:3.11.11-slim-bookworm AS upstream
 RUN apt-get update -qq && apt-get install -y -q --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 COPY steps/ct-lesion-to-mni152/upstream.env /tmp/upstream.env
+COPY steps/upstream-digest.sh /tmp/upstream-digest.sh
 WORKDIR /src
 RUN . /tmp/upstream.env \
     && curl -fsSL "https://codeload.github.com/${UPSTREAM_REPOSITORY}/tar.gz/${UPSTREAM_COMMIT}" \
     | tar -xz --strip-components=1 --wildcards \
         '*/pyproject.toml' '*/MANIFEST.in' '*/README.md' '*/LICENSE' '*/src/*' \
     && test -f pyproject.toml && test -f src/ct_lesion_to_mni152/registration_workflow.py \
+    && test "$(sh /tmp/upstream-digest.sh . $UPSTREAM_PATHS)" = "$UPSTREAM_SHA256" \
     && printf '%s\n' "${UPSTREAM_COMMIT}" > UPSTREAM_COMMIT
 
 # ---- Step image ----

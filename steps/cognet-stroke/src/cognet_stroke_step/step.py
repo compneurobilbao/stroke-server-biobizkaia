@@ -27,7 +27,7 @@ from stroke_step_sdk import (
 from . import upstream
 from .bundle import BundleLayoutError, load_concept_maps
 from .figure import profile_figure
-from .parcels import parcellate_mean, touched
+from .parcels import defined_fraction, parcellate_mean, touched
 from .profile import build_profile, split_disconnection
 
 BUNDLE = "concept_maps"
@@ -141,6 +141,18 @@ def run(ctx: StepContext) -> None:
             "map and are left out of the disconnection scores.",
             port="fdisconnection_map",
         )
+    share = defined_fraction(disc, maps.labels, maps.ids)
+    partly = (share > 0) & (share < 1)
+    if partly.any():
+        # Reported, not filtered: a minimum-coverage rule would change which parcels count, a
+        # choice for the method's author (no such rule exists in the author's workflow).
+        ctx.warn(
+            "parcels_partly_defined",
+            f"{int(partly.sum())} of {maps.n_parcels} parcels have a defined value on only part "
+            f"of their voxels (lowest share {100 * float(share[partly].min()):.1f} %); their "
+            "mean uses the defined voxels.",
+            port="fdisconnection_map",
+        )
     if not values["lesion_overlap"].any():
         raise QcFailed(
             "lesion_outside_parcellation",
@@ -157,9 +169,11 @@ def run(ctx: StepContext) -> None:
     if bundle_doc.get("synthetic"):
         record["synthetic"] = True
     try:
-        profile = build_profile(maps, values, float(ctx.params["alpha"]), record)
+        profile, diagnostics = build_profile(maps, values, float(ctx.params["alpha"]), record)
     except (BundleLayoutError, ValueError) as exc:
         raise _bundle_error(exc) from exc
+    for code, message in diagnostics.warnings():
+        ctx.warn(code, message, port="profile")
     validate_profile(profile, ctx)
 
     ctx.output_path("profile").write_text(

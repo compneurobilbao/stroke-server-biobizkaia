@@ -926,10 +926,26 @@ jobs:
           pip install -r "$STEP/requirements-step.txt" pytest==8.3.3
           pip install --no-deps -e steps/sdk
           echo "COGNET_STROKE_SRC=$RUNNER_TEMP/external/COGNET-STROKE" >> "$GITHUB_ENV"
+          echo "COGNET_STROKE_PREVIOUS_SRC=$RUNNER_TEMP/previous/COGNET-STROKE" >> "$GITHUB_ENV"
 
-      - name: The author's code at the pinned commit; manifest valid; tests (equivalence with compute_cdr, NaN cases, bundle builder)
+      - name: The author's code at the pinned commit (content digest checked; a wrong digest must fail)
         run: |
           steps/fetch-upstream.sh "$STEP" "$COGNET_STROKE_SRC"
+          cp -r "$STEP" "$RUNNER_TEMP/tampered"
+          sed -i 's/^UPSTREAM_SHA256=.*/UPSTREAM_SHA256=0000000000000000000000000000000000000000000000000000000000000000/' "$RUNNER_TEMP/tampered/upstream.env"
+          if steps/fetch-upstream.sh "$RUNNER_TEMP/tampered" "$RUNNER_TEMP/tampered-fetch"; then
+            echo "a wrong UPSTREAM_SHA256 was accepted" >&2; exit 1
+          fi
+
+      - name: Step 1.0.0's own cdr.py, read-only, for the equivalence tests (COGNET-STROKE at 56672166, SHA-256 checked)
+        run: |
+          mkdir -p "$COGNET_STROKE_PREVIOUS_SRC"
+          curl -fsSL "https://codeload.github.com/compneurobilbao/COGNET-STROKE/tar.gz/566721668922ff3383cc955e5ec67b8cc223416d" \
+            | tar -xz -C "$COGNET_STROKE_PREVIOUS_SRC" --strip-components=1 --wildcards '*/runtime/src/cognet_runtime/cdr.py'
+          echo "3261537c7eb8445d847e118634b3c3491ff509e0f0592e999d2c7183df27ecd8  $COGNET_STROKE_PREVIOUS_SRC/runtime/src/cognet_runtime/cdr.py" | sha256sum -c -
+
+      - name: Manifest valid; tests (equivalence with compute_cdr and with 1.0.0's code, NaN and degenerate cases, bundle builder)
+        run: |
           python contracts/validate.py --kind step "$STEP/step.yaml"
           python -m pytest "$STEP" -q -rs -p no:cacheprovider
 
