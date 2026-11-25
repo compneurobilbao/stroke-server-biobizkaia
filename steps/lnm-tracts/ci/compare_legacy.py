@@ -1,6 +1,6 @@
 """Compare the step's tables with the output of the former lnm_tracts.sh.
 
-    python step/ci/compare_legacy.py LEGACY_CSV RESULTS_DIR
+    python steps/lnm-tracts/ci/compare_legacy.py LEGACY_CSV RESULTS_DIR
 
 LEGACY_CSV is data/lnm_tracts.csv written by the script (columns BIDS, Tract, Disc, with Disc
 the surviving fraction truncated to three decimals by ``bc``). RESULTS_DIR holds

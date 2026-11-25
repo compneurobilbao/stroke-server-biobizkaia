@@ -1,12 +1,14 @@
 """Tests of the tract-wise disconnection step.
 
-The container paths (Docker, Apptainer, the legacy script) are exercised by
-.github/workflows/step.yml. Here the step runs in-process through the SDK. Tests that need
+The container paths (Docker, Apptainer, the legacy script of the lnm repository, the
+equivalence with the previously published image) are exercised by the lnm-tracts job of
+.github/workflows/steps.yml. Here the step runs in-process through the SDK. Tests that need
 the MRtrix3 commands are skipped when ``tckedit`` is not on PATH.
 """
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import shutil
 import sys
@@ -18,9 +20,15 @@ import pytest
 
 STEP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(STEP_DIR / "src"))
-sys.path.insert(0, str(STEP_DIR / "tests"))
 
-import make_reference  # noqa: E402
+# loaded under a unique name: other steps also have a tests/make_reference.py
+_spec = importlib.util.spec_from_file_location(
+    "lnm_tracts_make_reference", STEP_DIR / "tests" / "make_reference.py"
+)
+make_reference = importlib.util.module_from_spec(_spec)
+sys.modules[_spec.name] = make_reference
+_spec.loader.exec_module(make_reference)
+
 from lnm_tracts_step import run as step_run  # noqa: E402
 from lnm_tracts_step import step as step_module  # noqa: E402
 

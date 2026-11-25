@@ -1,6 +1,6 @@
 """Dice of a step output mask against the fixture ground truth (both on the 2 mm grid).
 
-    python step/tests/report_dice.py OUT_DIR TRUTH_MASK
+    python steps/ct-lesion-to-mni152/tests/report_dice.py OUT_DIR TRUTH_MASK
 Prints one JSON line; used by CI to report the real value.
 """
 

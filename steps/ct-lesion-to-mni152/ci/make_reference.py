@@ -2,7 +2,7 @@
 
 Source image: the public High Resolution CT Template (Muschelli 2020, built from CQ500 scans,
 CC BY-NC-SA 4.0), downloaded by CI at a pinned commit with SHA-256 checks
-(step/ci/fetch_reference_data.sh). Nothing from it is committed.
+(steps/ct-lesion-to-mni152/ci/fetch_reference_data.sh). Nothing from it is committed.
 
 Steps (fixed seed, deterministic):
  1. Warp the template (with skull) into the MNI152 1 mm grid with the displacement field
@@ -10,12 +10,12 @@ Steps (fixed seed, deterministic):
     MNI-space template is printed as a sanity check.
  2. Insert a hypodense ellipsoidal lesion (defined in MNI space, inside the warped brain).
  3. Simulate a "native" CT: random affine (rotation up to 8 deg, scale +-5 %, shift +-10 mm) plus
-    a smooth sinusoidal deformation (generator code of the stroke-server fixtures at the pinned
-    commit), sampled on a 1 mm native grid, with Gaussian noise.
+    a smooth sinusoidal deformation (generator code of this repository's fixtures/), sampled
+    on a 1 mm native grid, with Gaussian noise.
  4. Ground truth: the MNI lesion on the 2 mm working grid, and the native lesion mask, both
     exact for the simulation.
 
-    python step/ci/make_reference.py DATA_DIR FIXTURES_ROOT OUT_DIR
+    python steps/ct-lesion-to-mni152/ci/make_reference.py DATA_DIR FIXTURES_ROOT OUT_DIR
 Output: ct.nii.gz, lesion_mask_native.nii.gz, lesion_mask_mni.nii.gz, source_info.json
 """
 

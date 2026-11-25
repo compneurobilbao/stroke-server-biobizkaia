@@ -1,6 +1,6 @@
 """Check that a provenance record names the atlas bundle that was mounted.
 
-    python step/ci/check_provenance_bundle.py PROVENANCE_JSON BUNDLE_YAML
+    python steps/lnm-tracts/ci/check_provenance_bundle.py PROVENANCE_JSON BUNDLE_YAML
 """
 
 from __future__ import annotations

@@ -6,7 +6,7 @@ from fixed seeds; nothing is committed. The expected per-tract values are comput
 plain numpy, independently of MRtrix: a streamline is disconnected when one of its vertices
 rounds to a lesion voxel (the rule of ``tckedit -exclude`` with a mask image).
 
-    python step/tests/make_reference.py CONTRACTS_DIR [DEST_DIR]
+    python steps/lnm-tracts/tests/make_reference.py CONTRACTS_DIR [DEST_DIR]
 
 Written under DEST_DIR (default: tests/reference next to this file):
 

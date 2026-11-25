@@ -1,6 +1,6 @@
 """Compare the step's tables with the numpy oracle of tests/make_reference.py.
 
-    python step/ci/compare_oracle.py RESULTS_DIR EXPECTED_DIR
+    python steps/lnm-tracts/ci/compare_oracle.py RESULTS_DIR EXPECTED_DIR
 
 Both directories hold <case>.tsv. Fractions must agree to 1e-6, counts exactly.
 """

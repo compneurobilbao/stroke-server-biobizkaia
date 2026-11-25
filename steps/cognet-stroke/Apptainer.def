@@ -1,0 +1,24 @@
+# Apptainer recipe for the step, built from the Docker image so both runtimes run the same bits:
+#   apptainer build --build-arg IMAGE=cognet-stroke-step:dev step.sif steps/cognet-stroke/Apptainer.def
+# Production: apptainer build step.sif docker://<repository>@sha256:<digest>
+Bootstrap: docker-daemon
+From: {{ IMAGE }}
+
+%post
+    mkdir -p /in /out /ref /tmp
+    chmod 0755 /in /out /ref
+    chmod 1777 /tmp
+    chmod -R a+rX /opt/step /opt/upstream
+
+%runscript
+    exec /usr/local/bin/run "$@"
+
+%test
+    test -x /usr/local/bin/run
+    test -r /opt/step/step.yaml
+    test -r /opt/upstream/COGNET-STROKE/src/cdr.py
+    /usr/local/bin/run --help > /dev/null
+
+%labels
+    org.opencontainers.image.title cognet-stroke
+    contract.version 1.2

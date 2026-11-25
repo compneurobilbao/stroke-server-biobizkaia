@@ -2,7 +2,7 @@
 # Run the step image on every synthetic lesion of the reference dataset, all at once (the
 # containers share one read-only atlas mount, which checks that cases do not interfere), and
 # collect the tables as OUT/<case>.tsv. Contract section 6 flags, as the Docker executor uses.
-#   step/ci/run_cases.sh IMAGE REFERENCE_DIR OUT
+#   steps/lnm-tracts/ci/run_cases.sh IMAGE REFERENCE_DIR OUT
 set -euo pipefail
 image="${1:?usage: run_cases.sh IMAGE REFERENCE_DIR OUT}"
 ref="$(cd "${2:?}" && pwd)"

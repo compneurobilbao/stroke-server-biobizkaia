@@ -1,8 +1,13 @@
 """Unit tests of the wrapper logic that need neither FSL nor elastix.
 
-The full registration is exercised by the reference test in CI (container).
+The full registration is exercised by the reference test in CI (job ct-lesion-to-mni152 of
+.github/workflows/steps.yml, container), which also compares the image with the previously
+published one. The author's package is read from ``$CT_LESION_TO_MNI152_SRC`` (a checkout of the
+commit in upstream.env); the test that needs it is skipped when it is absent, unless
+``CT_LESION_TO_MNI152_REQUIRE_UPSTREAM=1``.
 """
 
+import os
 import subprocess
 import sys
 import types
@@ -14,6 +19,10 @@ import pytest
 
 STEP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(STEP_DIR / "src"))
+UPSTREAM = Path(os.environ.get("CT_LESION_TO_MNI152_SRC", "/nonexistent"))
+HAVE_UPSTREAM = (UPSTREAM / "src" / "ct_lesion_to_mni152").is_dir()
+if not HAVE_UPSTREAM and os.environ.get("CT_LESION_TO_MNI152_REQUIRE_UPSTREAM") == "1":
+    raise RuntimeError(f"the CTLesion2MNI152 checkout is required but not found at {UPSTREAM}")
 
 from ct_lesion_step import step  # noqa: E402
 from stroke_step_sdk import InputRejected, InternalFailure, QcFailed  # noqa: E402
@@ -114,8 +123,9 @@ def test_wrapper_checks_fsl_exit_codes_without_changing_the_package(tmp_path, mo
     assert mod.call is subprocess.call
 
 
+@pytest.mark.skipif(not HAVE_UPSTREAM, reason="CTLesion2MNI152 checkout not available")
 def test_package_keeps_its_original_subprocess_call():
-    src = (STEP_DIR.parent / "src" / "ct_lesion_to_mni152" / "registration_workflow.py").read_text()
+    src = (UPSTREAM / "src" / "ct_lesion_to_mni152" / "registration_workflow.py").read_text()
     assert "from subprocess import call\n" in src.replace("\r\n", "\n")
 
 

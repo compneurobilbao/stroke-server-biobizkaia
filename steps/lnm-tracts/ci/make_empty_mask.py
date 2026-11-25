@@ -1,6 +1,6 @@
 """Write an all-zero lesion mask on the 2 mm working grid (input for the mask_empty check).
 
-    python step/ci/make_empty_mask.py CONTRACTS_DIR OUT.nii.gz
+    python steps/lnm-tracts/ci/make_empty_mask.py CONTRACTS_DIR OUT.nii.gz
 """
 
 from __future__ import annotations

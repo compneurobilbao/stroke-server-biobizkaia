@@ -1,5 +1,5 @@
 # Apptainer recipe for the step, built from the Docker image so both runtimes run the same bits:
-#   apptainer build --build-arg IMAGE=ct-lesion-to-mni152-step:dev step.sif step/Apptainer.def
+#   apptainer build --build-arg IMAGE=ct-lesion-to-mni152-step:dev step.sif steps/ct-lesion-to-mni152/Apptainer.def
 # Production: apptainer build step.sif docker://<repository>@sha256:<digest>
 Bootstrap: docker-daemon
 From: {{ IMAGE }}

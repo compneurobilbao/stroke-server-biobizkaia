@@ -2,7 +2,7 @@
 contract_version: "1.0"
 kind: Step
 name: ct-lesion-to-mni152
-version: 1.0.0
+version: 1.0.1
 title: CT lesion mask to MNI152
 description: >-
   Registers a non-contrast head CT to the MNI152 template (skull-based affine with FSL
@@ -12,11 +12,14 @@ description: >-
   pipeline working grid (a 2 mm voxel is set when at least mask_threshold of its volume is
   covered by the 1 mm mask). Also writes the registered CT on the 1 mm grid and a
   registration overlay figure for visual QC. The CT template, skull template and ventricle
-  templates are small, method-specific files shipped inside the image.
+  templates are small, method-specific files shipped inside the image. Version 1.0.1 is built
+  from the platform repository (steps/ct-lesion-to-mni152) and installs the CTLesion2MNI152
+  package unmodified from the commit in upstream.env; the code and the results are those of
+  1.0.0. The image repository below is the one the image is published to.
 provides: normalisation
 image:
-  repository: docker.io/compneurobilbaolab/ct-lesion-to-mni152-step
-source_url: https://github.com/compneurobilbao/CTLesion2MNI152
+  repository: docker.io/compneurobilbaolab/step-ct-lesion-to-mni152
+source_url: https://github.com/compneurobilbao/stroke-server-biobizkaia
 licence:
   spdx: MIT
   third_party:
@@ -109,7 +112,7 @@ reference_test:
   description: >-
     A real head CT template with a known transform. CI downloads the public High Resolution CT
     Template (Muschelli 2020, derived from CQ500 scans; CC BY-NC-SA 4.0, de-identified research
-    data) at a pinned commit with SHA-256 checks, and step/ci/make_reference.py builds the case
+    data) at a pinned commit with SHA-256 checks, and ci/make_reference.py builds the case
     with a fixed seed: the template (with skull) warped to the 1 mm MNI152 grid, a hypodense
     ellipsoidal lesion defined in MNI space, then a random affine (rotation up to 8 degrees, scale
     +-5 %, shift +-10 mm) plus a smooth deformation to a 1 mm "native" grid, with noise. The

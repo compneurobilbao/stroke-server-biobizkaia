@@ -1,0 +1,24 @@
+# Pinned dependencies of the step image, installed instead of steps/sdk/requirements-image.txt
+# (the SDK goes in with --no-deps). numpy, nibabel and matplotlib are at the versions of the
+# author's uv.lock, so compute_cdr runs with the numpy of the author's environment. Only what
+# compute_cdr, the profile and the figure need: none of the analysis environment (neuromaps,
+# brainsmash, nimare, nilearn, pandas, scikit-learn, statsmodels, seaborn).
+numpy==1.26.4
+nibabel==5.2.1
+packaging==24.1
+matplotlib==3.9.2
+contourpy==1.3.0
+cycler==0.12.1
+fonttools==4.54.1
+kiwisolver==1.4.7
+pillow==10.4.0
+pyparsing==3.1.4
+python-dateutil==2.9.0.post0
+six==1.16.0
+# SDK and wrapper
+PyYAML==6.0.2
+jsonschema==4.23.0
+attrs==24.2.0
+jsonschema-specifications==2024.10.1
+referencing==0.35.1
+rpds-py==0.20.1
