@@ -968,6 +968,7 @@ jobs:
           '
           docker run --rm --entrypoint cat "$IMAGE" /opt/step/step.yaml | cmp - "$STEP/step.yaml"
           docker run --rm --entrypoint cat "$IMAGE" /opt/upstream/COGNET-STROKE/src/cdr.py | cmp - "$COGNET_STROKE_SRC/src/cdr.py"
+          docker run --rm --entrypoint cat "$IMAGE" /opt/upstream/COGNET-STROKE/LICENSE | cmp - "$COGNET_STROKE_SRC/LICENSE"
           docker run --rm --entrypoint cat "$IMAGE" /opt/upstream/COGNET-STROKE/UPSTREAM_COMMIT | cmp - "$COGNET_STROKE_SRC/UPSTREAM_COMMIT"
           docker run --rm --entrypoint python "$IMAGE" -c "import importlib.util, sys; bad = [m for m in ('neuromaps', 'brainsmash', 'nimare', 'nilearn', 'pandas', 'sklearn', 'statsmodels', 'seaborn') if importlib.util.find_spec(m)]; sys.exit('analysis packages in the step image: %s' % bad if bad else 0)"
           size=$(docker image inspect "$IMAGE" --format '{{.Size}}')

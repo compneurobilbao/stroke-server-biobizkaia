@@ -175,7 +175,7 @@ def test_wrappers_live_here_and_pin_the_authors_commits():
         ("cognet-profile", "cognet-stroke"): (
             "steps/cognet-stroke/Dockerfile",
             "compneurobilbao/COGNET-STROKE",
-            "f98dbc84eae9ffaca03dc373f8a57d0b2b5e344e",
+            "64678b11ccc3ceb28d68add68c36336fa5bd2124",
         ),
     }
     for (slot, impl_id), (dockerfile, repository, commit) in expected.items():

@@ -187,21 +187,22 @@ implementations:
       step: {name: cognet-stroke, version: 1.1.0}
       kind: real
       licence_review:
-        status: pending  # an open question for the project owner, see notes
-        code: LicenseRef-COGNET-STROKE-unspecified
+        status: reviewed
+        code: MIT
         weights: >-
           No model weights. The concept maps and null maps are a reference bundle (type
           concept-maps, derived from Neurosynth data, ODbL-1.0), installed locally and never in the
           image.
         image_redistribution: allowed
         notes: >-
-          OPEN QUESTION for the project owner: the published image contains src/cdr.py of the
-          COGNET-STROKE repository (compute_cdr and compute_overlap, copied unmodified), and that
-          repository has no licence file at the pinned commit, so the terms under which its code
-          may be redistributed in a public image are not stated. The 1.0.0 image, built from that
-          repository, had the same situation. The wrapper itself is MIT. To settle before the
-          release of 1.1.0: a licence file in COGNET-STROKE (the author's decision), or keep the
-          image unpublished (build: local with image_redistribution: forbidden).
+          The image contains src/cdr.py of the COGNET-STROKE repository (compute_cdr and
+          compute_overlap, copied unmodified) and its LICENSE. The repository had no licence file
+          up to f98dbc8; its owner added the MIT licence in 64678b11 ("Add MIT License to the
+          project", only the LICENSE file added on top of f98dbc8, src/cdr.py unchanged), which the
+          wrapper pins. The consent of the co-author is taken as confirmed by the repository owner
+          adding the licence. The wrapper itself is MIT. The 1.0.0 image predates the licence.
+        reviewed: "2026-11-25"
+        reviewed_by: project owner (licence added by the repository owner)
       validation:
         status: reference-tested
         notes: >-
@@ -212,7 +213,7 @@ implementations:
       source:
         repository: this
         dockerfile: steps/cognet-stroke/Dockerfile
-        upstream: {repository: compneurobilbao/COGNET-STROKE, commit: f98dbc84eae9ffaca03dc373f8a57d0b2b5e344e}
+        upstream: {repository: compneurobilbao/COGNET-STROKE, commit: 64678b11ccc3ceb28d68add68c36336fa5bd2124}
     # The same step image, pinned in pipeline.yaml to the COGNET-STROKE concept maps bundle
     # (cognet-concept-maps 1.0.0, installed on the deployment). The entry above stays for CI,
     # which registers synthetic concept maps.

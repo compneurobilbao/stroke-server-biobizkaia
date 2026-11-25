@@ -26,11 +26,11 @@ image:
   repository: docker.io/compneurobilbaolab/step-cognet-stroke
 source_url: https://github.com/compneurobilbao/stroke-server-biobizkaia
 licence:
-  # The wrapper is platform code (MIT). The COGNET-STROKE repository has no licence file at the
-  # pinned commit; its SPDX id below is a placeholder for the author to confirm.
+  # The wrapper is platform code (MIT). COGNET-STROKE is MIT since the pinned commit (its
+  # LICENSE is copied into the image next to src/cdr.py).
   spdx: MIT
   third_party:
-    - {name: COGNET-STROKE (src/cdr.py), version: f98dbc84eae9ffaca03dc373f8a57d0b2b5e344e, spdx: LicenseRef-COGNET-STROKE-unspecified}
+    - {name: COGNET-STROKE (src/cdr.py), version: 64678b11ccc3ceb28d68add68c36336fa5bd2124, spdx: MIT}
     - {name: numpy, version: 1.26.4, spdx: BSD-3-Clause}
     - {name: nibabel, version: 5.2.1, spdx: MIT}
     - {name: matplotlib, version: 3.9.2, spdx: LicenseRef-Matplotlib}

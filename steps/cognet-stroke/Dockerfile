@@ -3,8 +3,8 @@
 # The repository root is the build context because the image bundles the SDK and the contract
 # schemas of this repository.
 #
-# The wrapper consumes the author's repository unmodified at the commit pinned in upstream.env:
-# only src/cdr.py (compute_cdr and compute_overlap, numpy only) is needed at run time, copied
+# The wrapper consumes the author's repository (MIT) unmodified at the commit pinned in
+# upstream.env; its LICENSE is copied next to the code. Only src/cdr.py (compute_cdr and compute_overlap, numpy only) is needed at run time, copied
 # byte for byte to /opt/upstream/COGNET-STROKE/src/cdr.py and imported from there. The
 # analysis environment of that repository (concept-map and null-map generation) is not part of
 # the image; concept maps and null maps are the concept-maps bundle mounted at /ref/concept_maps.
@@ -18,7 +18,7 @@ COPY steps/upstream-digest.sh /tmp/upstream-digest.sh
 WORKDIR /src
 RUN . /tmp/upstream.env \
     && curl -fsSL "https://codeload.github.com/${UPSTREAM_REPOSITORY}/tar.gz/${UPSTREAM_COMMIT}" \
-    | tar -xz --strip-components=1 --wildcards '*/src/cdr.py' '*/pyproject.toml' \
+    | tar -xz --strip-components=1 --wildcards '*/src/cdr.py' '*/pyproject.toml' '*/LICENSE' \
     && test -f src/cdr.py \
     && test "$(sh /tmp/upstream-digest.sh . $UPSTREAM_PATHS)" = "$UPSTREAM_SHA256" \
     && printf '%s\n' "${UPSTREAM_COMMIT}" > UPSTREAM_COMMIT
@@ -50,7 +50,7 @@ COPY contracts/artefact-types.yaml contracts/validate.py /opt/step/contracts/
 
 # The author's code (unmodified) and the commit it was taken from
 COPY --from=upstream /src/src/cdr.py /opt/upstream/COGNET-STROKE/src/cdr.py
-COPY --from=upstream /src/pyproject.toml /src/UPSTREAM_COMMIT /opt/upstream/COGNET-STROKE/
+COPY --from=upstream /src/pyproject.toml /src/LICENSE /src/UPSTREAM_COMMIT /opt/upstream/COGNET-STROKE/
 
 # The step: manifest at the contractual location, code, fixed entry point
 COPY steps/cognet-stroke/src /opt/step/src

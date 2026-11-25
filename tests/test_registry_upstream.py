@@ -93,7 +93,7 @@ def test_fetch_targets_are_the_authors_repositories(docs):
     assert registry_tool.fetch_targets(docs[1]) == {
         "compneurobilbao/CTLesion2MNI152": "07702382b588f430b52005b61e71a9b48f5fcd15",
         "compneurobilbao/lnm": "123f3298b23dafa02a67b6f096790cfe3b775fb2",
-        "compneurobilbao/COGNET-STROKE": "f98dbc84eae9ffaca03dc373f8a57d0b2b5e344e",
+        "compneurobilbao/COGNET-STROKE": "64678b11ccc3ceb28d68add68c36336fa5bd2124",
     }
 
 

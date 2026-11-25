@@ -7,7 +7,7 @@ permutation p-value per concept and per domain. Manifest: [`step.yaml`](step.yam
 ## Where the code lives
 
 This wrapper is platform code and lives here, not in the author's repository. The
-[COGNET-STROKE](https://github.com/compneurobilbao/COGNET-STROKE) repository is consumed
+[COGNET-STROKE](https://github.com/compneurobilbao/COGNET-STROKE) repository (MIT) is consumed
 **unmodified** at the commit pinned in [`upstream.env`](upstream.env) (the registry entry repeats
 it as `source.upstream`; `pipelines/stroke-lnm/registry.py check` keeps the two equal): the
 [`Dockerfile`](Dockerfile) copies its `src/cdr.py` byte for byte to
@@ -17,14 +17,14 @@ of the author's analysis environment (concept-map generation, brainsmash, neurom
 pandas) is in the image: only numpy and nibabel (versions of the author's lock file), matplotlib
 for the figure, and the SDK.
 
-## Licence (open question)
+## Licence
 
-The wrapper is MIT. The image also contains the author's `src/cdr.py`, and the COGNET-STROKE
-repository has **no licence file** at the pinned commit, so the terms for redistributing that code
-in a public image are not stated (the published 1.0.0 image had the same situation). This is an
-open question for the project owner, recorded as `licence_review.status: pending` of the registry
-entry; it is to be settled before 1.1.0 is released (a licence file in the author's repository,
-or a `build: local` image that is never published). This pull request changes no licensing.
+The wrapper is MIT. The image also contains the author's `src/cdr.py` and the repository's
+`LICENSE`: COGNET-STROKE is MIT since commit `64678b11` ("Add MIT License to the project"), which
+adds only the licence file on top of `f98dbc8` (`src/cdr.py` unchanged) and is the commit the
+wrapper pins. The consent of the co-author is taken as confirmed by the repository owner adding
+the licence. Recorded in the registry entry's `licence_review` (`code: MIT`, reviewed). The
+published 1.0.0 image predates the licence.
 
 ## What it computes
 
