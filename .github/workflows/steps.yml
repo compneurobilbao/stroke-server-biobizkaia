@@ -8,12 +8,14 @@ on:
     paths:
       - "steps/**"
       - "contracts/**"
+      - "pipelines/stroke-lnm/ci/**"
       - ".github/workflows/steps.yml"
   push:
     branches: [develop, main]
     paths:
       - "steps/**"
       - "contracts/**"
+      - "pipelines/stroke-lnm/ci/**"
       - ".github/workflows/steps.yml"
 
 permissions:
@@ -50,6 +52,7 @@ jobs:
           python contracts/validate.py --kind step steps/template/step.yaml
           python contracts/validate.py --kind step steps/lesion-qc/step.yaml
           python contracts/validate.py --kind step steps/flnm-fast/step.yaml
+          python contracts/validate.py --kind step steps/lnm-tracts/step.yaml steps/ct-lesion-to-mni152/step.yaml steps/cognet-stroke/step.yaml
       - name: Research report step dependencies (WeasyPrint system libraries, pinned packages)
         run: |
           sudo apt-get update -q
@@ -630,5 +633,393 @@ jobs:
         if: always()
         with:
           name: research-report-step-outputs
+          path: artifacts/
+          if-no-files-found: warn
+
+  # ---- Wrappers of the authors' repositories (card STEPS-01). Each consumes the author's
+  # repository unmodified at the commit of its upstream.env (steps/fetch-upstream.sh fetches the
+  # same archive the Dockerfile downloads) and is compared with the image previously published
+  # from the author's repository (PREVIOUS_IMAGE, by digest).
+
+  lnm-tracts-container:
+    name: lnm-tracts step under Docker and Apptainer, equivalence with 1.0.0
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      IMAGE: lnm-tracts-step:ci
+      LEGACY_IMAGE: lnm-tracts-legacy:ci
+      # step-lnm-tracts 1.0.0, built from compneurobilbao/lnm step/ at 123f3298 (release run 45356289386)
+      PREVIOUS_IMAGE: docker.io/compneurobilbaolab/step-lnm-tracts@sha256:f80735a43d1ee90ea134ae2f3ff5fb1e304815e8861b97a4fed4a845b7f928ab
+      STEP: steps/lnm-tracts
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-python@v5.3.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: steps/sdk/requirements-image.txt
+      - name: Install SDK (host side, for the tests, the reference-test runner and the validator)
+        run: |
+          pip install -r steps/sdk/requirements-image.txt pytest==8.3.3
+          pip install --no-deps -e steps/sdk
+
+      - name: Manifest is valid; generate the synthetic toy atlas and lesions
+        run: |
+          python contracts/validate.py --kind step "$STEP/step.yaml"
+          python "$STEP/tests/make_reference.py" contracts "$STEP/tests/reference" > /dev/null
+          python contracts/validate.py "$STEP/tests/reference/bundle/bundle.yaml"
+          mkdir -p artifacts
+          cp "$STEP/tests/reference/expected/tract_disconnection.tsv" artifacts/expected-main.tsv
+
+      - name: Build the step image and the legacy image (the author's unmodified src/lnm_tracts.sh)
+        run: |
+          docker build -f "$STEP/Dockerfile" -t "$IMAGE" .
+          docker build -f "$STEP/Dockerfile" --target legacy -t "$LEGACY_IMAGE" .
+
+      - name: Image checks
+        run: |
+          docker run --rm --entrypoint /bin/sh "$IMAGE" -c '
+            set -eu
+            test -x /usr/local/bin/run
+            test -r /opt/step/step.yaml
+            for d in /in /out /ref /tmp; do test -d "$d"; test -z "$(ls -A "$d")"; done
+            test -z "$(find /opt/step /opt/mrtrix3 /usr/local/bin/run -not -perm -o=r)"
+            tckedit -version
+          '
+          docker run --rm --entrypoint cat "$IMAGE" /opt/step/step.yaml | cmp - "$STEP/step.yaml"
+          # the legacy image carries the author's script at the pinned commit, byte for byte
+          steps/fetch-upstream.sh "$STEP" "$RUNNER_TEMP/upstream"
+          docker run --rm --entrypoint cat "$LEGACY_IMAGE" /opt/legacy/lnm_tracts.sh | cmp - "$RUNNER_TEMP/upstream/src/lnm_tracts.sh"
+
+      - name: Tests, including the MRtrix3 ones (tckedit and tckstats taken from the image)
+        run: |
+          cid=$(docker create "$IMAGE")
+          docker cp "$cid:/opt/mrtrix3/bin" "$RUNNER_TEMP/mrtrix-bin"
+          docker rm "$cid"
+          PATH="$RUNNER_TEMP/mrtrix-bin:$PATH" python -m pytest "$STEP" -q -rs -p no:cacheprovider
+
+      - name: Reference test under Docker (contract section 6 flags)
+        run: |
+          stroke-step-reftest --step-dir "$STEP" --mode docker --image "$IMAGE" \
+            --bundle tract_atlas="$STEP/tests/reference/bundle" \
+            --workdir "$RUNNER_TEMP/docker-run" --save-provenance artifacts/provenance-main.json
+          python contracts/validate.py "$STEP/step.yaml" artifacts/provenance-main.json
+          python "$STEP/ci/check_provenance_bundle.py" artifacts/provenance-main.json "$STEP/tests/reference/bundle/bundle.yaml"
+          cp "$RUNNER_TEMP/docker-run/out/tract_disconnection.tsv" artifacts/tract_disconnection-main.tsv
+
+      - name: Every lesion, all containers at once on one read-only atlas mount; tables equal the numpy oracle
+        run: |
+          "$STEP/ci/run_cases.sh" "$IMAGE" "$STEP/tests/reference" "$RUNNER_TEMP/cases"
+          python "$STEP/ci/compare_oracle.py" "$RUNNER_TEMP/cases" "$STEP/tests/reference/cases/expected"
+
+      - name: The author's lnm_tracts.sh on the same input; results equal 1 - Disc
+        run: |
+          docker run --rm -v "$PWD/$STEP/tests/reference/legacy_project:/work" "$LEGACY_IMAGE" \
+            bash /opt/legacy/lnm_tracts.sh /work
+          cp "$STEP/tests/reference/legacy_project/data/lnm_tracts.csv" artifacts/legacy-lnm_tracts.csv
+          python "$STEP/ci/compare_legacy.py" artifacts/legacy-lnm_tracts.csv "$RUNNER_TEMP/cases" | tee artifacts/legacy-comparison.txt
+
+      - name: Equivalence with 1.0.0 (the previously published image) on every lesion
+        run: |
+          docker pull -q "$PREVIOUS_IMAGE"
+          "$STEP/ci/run_cases.sh" "$PREVIOUS_IMAGE" "$STEP/tests/reference" "$RUNNER_TEMP/cases-previous"
+          n=0
+          for f in "$RUNNER_TEMP"/cases/*.tsv; do
+            cmp "$f" "$RUNNER_TEMP/cases-previous/$(basename "$f")"
+            n=$((n + 1))
+          done
+          test "$n" -ge 4
+          echo "lnm-tracts 1.0.1 and 1.0.0: $n tables byte-identical" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: An empty lesion mask is rejected with mask_empty (exit 10)
+        run: |
+          work="$RUNNER_TEMP/empty"
+          mkdir -p "$work/in"
+          python "$STEP/ci/make_empty_mask.py" contracts "$work/in/lesion_mask.nii.gz"
+          echo '{}' > "$work/in/params.json"
+          set +e
+          steps/run-step.sh "$IMAGE" "$work/in" "$work/out" tract_atlas="$STEP/tests/reference/bundle"
+          code=$?
+          set -e
+          test "$code" -eq 10
+          grep -q '"code": *"mask_empty"' "$work/out/error.json"
+          python contracts/validate.py "$STEP/step.yaml" "$work/out/provenance.json" "$work/out/error.json"
+
+      - name: Install Apptainer (official release package)
+        run: |
+          deb="apptainer_${APPTAINER_VERSION}_amd64.deb"
+          curl -sSfL -o "$RUNNER_TEMP/$deb" "https://github.com/apptainer/apptainer/releases/download/v${APPTAINER_VERSION}/${deb}"
+          echo "${APPTAINER_DEB_SHA256}  $RUNNER_TEMP/$deb" | sha256sum -c -
+          sudo apt-get update -q
+          sudo apt-get install -y -q "$RUNNER_TEMP/$deb"
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: Reference test under Apptainer (--containall --cleanenv --no-home); same table as Docker
+        run: |
+          sudo apptainer build --build-arg IMAGE="$IMAGE" "$RUNNER_TEMP/step.sif" "$STEP/Apptainer.def"
+          sudo chown "$(id -u):$(id -g)" "$RUNNER_TEMP/step.sif"
+          stroke-step-reftest --step-dir "$STEP" --mode apptainer --sif "$RUNNER_TEMP/step.sif" \
+            --bundle tract_atlas="$STEP/tests/reference/bundle" \
+            --workdir "$RUNNER_TEMP/apptainer-run" --save-provenance artifacts/provenance-apptainer.json
+          python contracts/validate.py "$STEP/step.yaml" artifacts/provenance-apptainer.json
+          cmp "$RUNNER_TEMP/docker-run/out/tract_disconnection.tsv" "$RUNNER_TEMP/apptainer-run/out/tract_disconnection.tsv"
+
+      - uses: actions/upload-artifact@v4.6.0
+        if: always()
+        with:
+          name: lnm-tracts-step-outputs
+          path: artifacts/
+          if-no-files-found: warn
+
+  ct-lesion-to-mni152-container:
+    name: ct-lesion-to-mni152 step under Docker and Apptainer, equivalence with 1.0.0
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    env:
+      IMAGE: ct-lesion-to-mni152-step:ci
+      # step-ct-lesion-to-mni152 1.0.0, built from compneurobilbao/CTLesion2MNI152 step/ at 07702382 (release run 45356289386)
+      PREVIOUS_IMAGE: docker.io/compneurobilbaolab/step-ct-lesion-to-mni152@sha256:a8242fcf9056ead332a298bb1aa3759f1c31985e3cb24b1c8bd65a9f4d44c057
+      STEP: steps/ct-lesion-to-mni152
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-python@v5.3.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: steps/sdk/requirements-image.txt
+      - name: Install SDK, scipy and pytest (host side)
+        run: |
+          pip install -r steps/sdk/requirements-image.txt scipy==1.14.1 pytest==8.3.3
+          pip install --no-deps -e steps/sdk
+
+      - name: The author's package at the pinned commit; manifest valid; wrapper unit tests
+        env:
+          CT_LESION_TO_MNI152_SRC: ${{ runner.temp }}/external/CTLesion2MNI152
+          CT_LESION_TO_MNI152_REQUIRE_UPSTREAM: "1"
+        run: |
+          steps/fetch-upstream.sh "$STEP" "$CT_LESION_TO_MNI152_SRC"
+          python contracts/validate.py --kind step "$STEP/step.yaml"
+          python -m pytest "$STEP" -q -rs -p no:cacheprovider
+
+      - name: Cache the public CT template files (pinned, SHA-256 verified on every run)
+        uses: actions/cache@v4.2.0
+        with:
+          path: ${{ runner.temp }}/refdata
+          key: ct-template-${{ hashFiles('steps/ct-lesion-to-mni152/ci/fetch_reference_data.sh') }}
+
+      - name: Reference case (public head CT template, known transform, MNI lesion; CC BY-NC-SA 4.0 data, test use only)
+        run: |
+          bash pipelines/stroke-lnm/ci/ct_reference.sh "$RUNNER_TEMP/external" "$RUNNER_TEMP/refdata" "$STEP/tests/reference"
+          mkdir -p artifacts && cp "$STEP/tests/reference/source_info.json" artifacts/reference-source-info.json
+
+      - name: Build the step image (the author's package installed unmodified from the pinned commit)
+        run: docker build -f "$STEP/Dockerfile" -t "$IMAGE" .
+
+      - name: Image checks
+        run: |
+          docker run --rm --entrypoint /bin/sh "$IMAGE" -c '
+            set -eu
+            test -x /usr/local/bin/run
+            test -r /opt/step/step.yaml
+            for d in /in /out /ref /tmp; do test -d "$d"; test -z "$(ls -A "$d")"; done
+            test -z "$(find /opt/step /usr/local/bin/run -not -perm -o=r)"
+          '
+          docker run --rm --entrypoint cat "$IMAGE" /opt/step/step.yaml | cmp - "$STEP/step.yaml"
+          . "$STEP/upstream.env"
+          test "$(docker run --rm --entrypoint cat "$IMAGE" /opt/upstream/CTLesion2MNI152/UPSTREAM_COMMIT)" = "$UPSTREAM_COMMIT"
+          # the installed workflow module is the author's file of that commit
+          docker run --rm --entrypoint python "$IMAGE" -c \
+            'import inspect, ct_lesion_to_mni152.registration_workflow as m; print(inspect.getsource(m), end="")' \
+            | cmp - "$RUNNER_TEMP/external/CTLesion2MNI152/src/ct_lesion_to_mni152/registration_workflow.py"
+
+      - name: Reference test (contract section 6 flags)
+        run: |
+          stroke-step-reftest --step-dir "$STEP" --mode docker --image "$IMAGE" \
+            --workdir "$RUNNER_TEMP/docker-run" --save-provenance artifacts/provenance-case-01.json
+          python contracts/validate.py "$STEP/step.yaml" artifacts/provenance-case-01.json
+          python "$STEP/tests/report_dice.py" "$RUNNER_TEMP/docker-run/out" "$STEP/tests/reference/lesion_mask_mni.nii.gz" | tee artifacts/dice-case-01.json
+          {
+            echo "### Dice against the fixture ground truth (the reference test gates on the frozen floor in step.yaml)"
+            echo '```json'; cat artifacts/dice-case-01.json; echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Equivalence with 1.0.0 (the previously published image), without and with ventricle removal
+        run: |
+          docker pull -q "$PREVIOUS_IMAGE"
+          for name in plain age-65-69; do
+            if [ "$name" = plain ]; then band=null; else band='"65-69"'; fi
+            work="$RUNNER_TEMP/equiv-$name"
+            mkdir -p "$work/in"
+            cp "$STEP/tests/reference/ct.nii.gz" "$work/in/ct.nii.gz"
+            cp "$STEP/tests/reference/lesion_mask_native.nii.gz" "$work/in/lesion_mask.nii.gz"
+            echo "{\"age_band\": $band, \"mask_threshold\": 0.5}" > "$work/in/params.json"
+            steps/run-step.sh "$IMAGE" "$work/in" "$work/new"
+            steps/run-step.sh "$PREVIOUS_IMAGE" "$work/in" "$work/previous"
+            python contracts/validate.py "$STEP/step.yaml" "$work/new/provenance.json"
+            python "$STEP/ci/compare_previous.py" "$work/new" "$work/previous" | tee "artifacts/equivalence-$name.json"
+          done
+          echo "ct-lesion-to-mni152 1.0.1 and 1.0.0: same lesion masks and registered CT, with and without ventricle removal" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Committed-size fixture (2.5 x 2.5 x 3 mm) is rejected with skull_not_found (exit 10)
+        run: |
+          work="$RUNNER_TEMP/lowres"
+          mkdir -p "$work/in"
+          cp fixtures/data/cases/case-01/ct.nii.gz "$work/in/ct.nii.gz"
+          cp fixtures/data/cases/case-01/lesion_mask_native.nii.gz "$work/in/lesion_mask.nii.gz"
+          echo '{"age_band": null, "mask_threshold": 0.5}' > "$work/in/params.json"
+          set +e
+          steps/run-step.sh "$IMAGE" "$work/in" "$work/out"
+          code=$?
+          set -e
+          test "$code" -eq 10
+          grep -q '"code": *"skull_not_found"' "$work/out/error.json"
+          python contracts/validate.py "$STEP/step.yaml" "$work/out/provenance.json" "$work/out/error.json"
+
+      - name: Install Apptainer (official release package)
+        run: |
+          deb="apptainer_${APPTAINER_VERSION}_amd64.deb"
+          curl -sSfL -o "$RUNNER_TEMP/$deb" "https://github.com/apptainer/apptainer/releases/download/v${APPTAINER_VERSION}/${deb}"
+          echo "${APPTAINER_DEB_SHA256}  $RUNNER_TEMP/$deb" | sha256sum -c -
+          sudo apt-get update -q
+          sudo apt-get install -y -q "$RUNNER_TEMP/$deb"
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: Reference test under Apptainer (--containall --cleanenv --no-home)
+        run: |
+          sudo apptainer build --build-arg IMAGE="$IMAGE" "$RUNNER_TEMP/step.sif" "$STEP/Apptainer.def"
+          sudo chown "$(id -u):$(id -g)" "$RUNNER_TEMP/step.sif"
+          stroke-step-reftest --step-dir "$STEP" --mode apptainer --sif "$RUNNER_TEMP/step.sif" \
+            --workdir "$RUNNER_TEMP/apptainer-run" --save-provenance artifacts/provenance-apptainer.json
+          python contracts/validate.py "$STEP/step.yaml" artifacts/provenance-apptainer.json
+          if cmp "$RUNNER_TEMP/docker-run/out/lesion_mask_mni.nii.gz" "$RUNNER_TEMP/apptainer-run/out/lesion_mask_mni.nii.gz"; then
+            echo "lesion masks identical between Docker and Apptainer"
+          else
+            echo "NOTE: lesion masks differ between Docker and Apptainer"
+          fi
+
+      - uses: actions/upload-artifact@v4.6.0
+        if: always()
+        with:
+          name: ct-lesion-to-mni152-step-outputs
+          path: artifacts/
+          if-no-files-found: warn
+
+  cognet-stroke-container:
+    name: cognet-stroke step under Docker and Apptainer, equivalence with 1.0.0
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      IMAGE: cognet-stroke-step:ci
+      # step-cognet-stroke 1.0.0, built from compneurobilbao/COGNET-STROKE step/ at 56672166 (release run 45356289386)
+      PREVIOUS_IMAGE: docker.io/compneurobilbaolab/step-cognet-stroke@sha256:12bb50346f3d88dc3e6043e144c6735bcf647a34663a99464dc8397ecd5aa0a1
+      STEP: steps/cognet-stroke
+      COGNET_STROKE_REQUIRE_UPSTREAM: "1"
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-python@v5.3.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: steps/cognet-stroke/requirements-step.txt
+      - name: Install the image's pinned dependencies, the SDK and pytest (host side)
+        run: |
+          pip install -r "$STEP/requirements-step.txt" pytest==8.3.3
+          pip install --no-deps -e steps/sdk
+          echo "COGNET_STROKE_SRC=$RUNNER_TEMP/external/COGNET-STROKE" >> "$GITHUB_ENV"
+
+      - name: The author's code at the pinned commit; manifest valid; tests (equivalence with compute_cdr, NaN cases, bundle builder)
+        run: |
+          steps/fetch-upstream.sh "$STEP" "$COGNET_STROKE_SRC"
+          python contracts/validate.py --kind step "$STEP/step.yaml"
+          python -m pytest "$STEP" -q -rs -p no:cacheprovider
+
+      - name: Generate the synthetic reference dataset and bundle
+        run: |
+          python "$STEP/tests/make_reference.py" "$STEP/tests/reference" contracts
+          python contracts/validate.py "$STEP/tests/reference/bundle/bundle.yaml"
+
+      - name: Build the step image
+        run: docker build -f "$STEP/Dockerfile" -t "$IMAGE" .
+
+      - name: Image checks (mount points, permissions, slim dependency set, the author's file unchanged)
+        run: |
+          docker run --rm --entrypoint /bin/sh "$IMAGE" -c '
+            set -eu
+            test -x /usr/local/bin/run
+            test -r /opt/step/step.yaml
+            for d in /in /out /ref /tmp; do test -d "$d"; test -z "$(ls -A "$d")"; done
+            test -z "$(find /opt/step /opt/upstream /usr/local/bin/run -not -perm -o=r)"
+          '
+          docker run --rm --entrypoint cat "$IMAGE" /opt/step/step.yaml | cmp - "$STEP/step.yaml"
+          docker run --rm --entrypoint cat "$IMAGE" /opt/upstream/COGNET-STROKE/src/cdr.py | cmp - "$COGNET_STROKE_SRC/src/cdr.py"
+          docker run --rm --entrypoint cat "$IMAGE" /opt/upstream/COGNET-STROKE/UPSTREAM_COMMIT | cmp - "$COGNET_STROKE_SRC/UPSTREAM_COMMIT"
+          docker run --rm --entrypoint python "$IMAGE" -c "import importlib.util, sys; bad = [m for m in ('neuromaps', 'brainsmash', 'nimare', 'nilearn', 'pandas', 'sklearn', 'statsmodels', 'seaborn') if importlib.util.find_spec(m)]; sys.exit('analysis packages in the step image: %s' % bad if bad else 0)"
+          size=$(docker image inspect "$IMAGE" --format '{{.Size}}')
+          echo "cognet-stroke image size: $((size / 1000000)) MB" | tee -a "$GITHUB_STEP_SUMMARY"
+          test "$size" -lt 600000000
+
+      - name: Reference test under Docker (contract section 6 flags), bundle mounted at /ref/concept_maps
+        run: |
+          mkdir -p artifacts
+          stroke-step-reftest --step-dir "$STEP" --mode docker --image "$IMAGE" \
+            --bundle concept_maps="$STEP/tests/reference/bundle" \
+            --workdir "$RUNNER_TEMP/docker-run" --save-provenance artifacts/provenance-docker.json
+          python contracts/validate.py "$STEP/step.yaml" "$STEP/tests/reference/bundle/bundle.yaml" artifacts/provenance-docker.json
+          cp "$RUNNER_TEMP/docker-run/out/profile.json" artifacts/profile-docker.json
+          cp "$RUNNER_TEMP/docker-run/out/profile_figure.png" artifacts/profile_figure-docker.png
+
+      - name: Equivalence with 1.0.0 (the previously published image) on the reference case
+        run: |
+          docker pull -q "$PREVIOUS_IMAGE"
+          work="$RUNNER_TEMP/previous"
+          mkdir -p "$work/in"
+          cp "$STEP/tests/reference/lesion_mask.nii.gz" "$STEP/tests/reference/fdisconnection_map.nii.gz" "$work/in/"
+          echo '{"alpha": 0.05}' > "$work/in/params.json"
+          steps/run-step.sh "$PREVIOUS_IMAGE" "$work/in" "$work/out" concept_maps="$STEP/tests/reference/bundle"
+          python "$STEP/ci/compare_previous.py" artifacts/profile-docker.json "$work/out/profile.json" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: NaN parcels are excluded and reported; infinite values and an all-NaN map are rejected
+        run: |
+          python "$STEP/ci/make_case.py" "$STEP/tests/reference" "$RUNNER_TEMP/nan/in" nan-parcels
+          steps/run-step.sh "$IMAGE" "$RUNNER_TEMP/nan/in" "$RUNNER_TEMP/nan/out" concept_maps="$STEP/tests/reference/bundle"
+          python contracts/validate.py "$STEP/step.yaml" "$RUNNER_TEMP/nan/out/provenance.json"
+          python "$STEP/ci/check_excluded.py" "$RUNNER_TEMP/nan/out"
+          cp "$RUNNER_TEMP/nan/out/profile.json" artifacts/profile-nan-parcels.json
+          for mode in inf all-nan; do
+            python "$STEP/ci/make_case.py" "$STEP/tests/reference" "$RUNNER_TEMP/$mode/in" "$mode"
+            set +e
+            steps/run-step.sh "$IMAGE" "$RUNNER_TEMP/$mode/in" "$RUNNER_TEMP/$mode/out" concept_maps="$STEP/tests/reference/bundle"
+            code=$?
+            set -e
+            test "$code" -eq 10
+            python contracts/validate.py "$STEP/step.yaml" "$RUNNER_TEMP/$mode/out/provenance.json" "$RUNNER_TEMP/$mode/out/error.json"
+            cat "$RUNNER_TEMP/$mode/out/error.json"
+          done
+          grep -q '"code": *"disconnection_not_finite"' "$RUNNER_TEMP/inf/out/error.json"
+          grep -q '"code": *"disconnection_map_undefined"' "$RUNNER_TEMP/all-nan/out/error.json"
+
+      - name: Install Apptainer (official release package)
+        run: |
+          deb="apptainer_${APPTAINER_VERSION}_amd64.deb"
+          curl -sSfL -o "$RUNNER_TEMP/$deb" "https://github.com/apptainer/apptainer/releases/download/v${APPTAINER_VERSION}/${deb}"
+          echo "${APPTAINER_DEB_SHA256}  $RUNNER_TEMP/$deb" | sha256sum -c -
+          sudo apt-get update -q
+          sudo apt-get install -y -q "$RUNNER_TEMP/$deb"
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: Reference test under Apptainer (--containall --cleanenv --no-home); same profile as Docker
+        run: |
+          sudo apptainer build --build-arg IMAGE="$IMAGE" "$RUNNER_TEMP/step.sif" "$STEP/Apptainer.def"
+          sudo chown "$(id -u):$(id -g)" "$RUNNER_TEMP/step.sif"
+          stroke-step-reftest --step-dir "$STEP" --mode apptainer --sif "$RUNNER_TEMP/step.sif" \
+            --bundle concept_maps="$STEP/tests/reference/bundle" \
+            --workdir "$RUNNER_TEMP/apptainer-run" --save-provenance artifacts/provenance-apptainer.json
+          python contracts/validate.py "$STEP/step.yaml" artifacts/provenance-apptainer.json
+          cmp "$RUNNER_TEMP/docker-run/out/profile.json" "$RUNNER_TEMP/apptainer-run/out/profile.json"
+
+      - uses: actions/upload-artifact@v4.6.0
+        if: always()
+        with:
+          name: cognet-stroke-step-outputs
           path: artifacts/
           if-no-files-found: warn
