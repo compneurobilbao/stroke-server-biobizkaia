@@ -58,7 +58,7 @@ The step is refused, with an exception that names every problem, when a required
 ## Limits and open points
 
 - The cheap check does not detect a same-size content change; that needs a full verification (scheduled or forced with `full=True`).
-- Bundle layouts per bundle type are defined by the consuming steps. The `tract-atlas` type has the layout the structural-disconnection step reads (`labels.txt` plus one `<tract>.tck` per tract at the bundle root); the synthetic fixture `toy-tract-atlas` uses it. The `normative-fc` type is described [below](#the-normative-fc-bundle). The lab's deployment profile pins `hcp1065-tracts` 1.0.0 for `tract-atlas` (entry `lnm-tracts-hcp1065`) and `cognet-concept-maps` 1.0.0 for `concept-maps` (entry `cognet-stroke-concept-maps`) since `stroke-lnm` 0.7.0; CI keeps the unpinned entries and its synthetic bundles.
+- Bundle layouts per bundle type are defined by the consuming steps. The `tract-atlas` type has the layout the structural-disconnection step reads (`labels.txt` plus one `<tract>.tck` per tract at the bundle root); the synthetic fixture `toy-tract-atlas` uses it. The `normative-fc`, `tract-atlas` and `concept-maps` types are described below. The lab's deployment profile pins `hcp1065-tracts` 1.0.0 for `tract-atlas` (entry `lnm-tracts-hcp1065`) and `cognet-concept-maps` 1.0.0 for `concept-maps` (entry `cognet-stroke-concept-maps`) since `stroke-lnm` 0.7.0; CI keeps the unpinned entries and its synthetic bundles.
 - Installers and release tarballs must skip bundles whose `licence.redistributable` is `false`.
 
 ## The `normative-fc` bundle
@@ -78,3 +78,38 @@ Required files: the array, the table and one parcellation. The table needs `subj
 
 Preparing a real bundle: copy the three items above into an empty directory, write `bundle.yaml` as in [Preparing a bundle](#preparing-a-bundle) (`type: normative-fc`, `licence.redistributable: false`, `metadata.parcellation` set to the parcellation path, participant counts if wanted), then `register` it. The bundle is large (a normative FC array is several gigabytes): keep it on local storage, mount the bundle root read-only, and copy it to the HPC filesystem with a full `verify` afterwards.
 
+## The `tract-atlas` bundle
+
+Bundle type read by the tract-wise disconnection step `lnm-tracts` ([`steps/lnm-tracts`](../steps/lnm-tracts/README.md), mounted at `/ref/tract_atlas`): a tract atlas as streamline files in MNI152NLin6Asym millimetre coordinates.
+
+```
+bundle.yaml          # id, version, type: tract-atlas, licence, files
+labels.txt           # one tract name per line ([A-Za-z0-9_.+-], at most 64 characters, unique); row order is the table order
+<tract name>.tck     # one MRtrix .tck file per name, at the bundle root, at least one streamline each
+```
+
+This is the layout of the former `yeh_tracts` directory of the lnm repository, so the HCP1065 atlas needs no conversion. The lab's deployment pins `hcp1065-tracts` 1.0.0 (entry `lnm-tracts-hcp1065`); CI uses the synthetic `toy-tract-atlas` fixture (`fixtures/data/bundles`) and the step's own toy atlas (`steps/lnm-tracts/tests/make_reference.py`).
+
+## The `concept-maps` bundle
+
+Bundle type read by the COGNET-STROKE step `cognet-stroke` ([`steps/cognet-stroke`](../steps/cognet-stroke/README.md), mounted at `/ref/concept_maps`): the concept masks and their null masks over the parcels of a parcellation.
+
+```
+bundle.yaml              # id, version, type: concept-maps, licence, files; metadata (n_parcels, n_nulls, parcellation, methods)
+parcellation.nii.gz      # integer labels (an integer-valued float array is accepted) on the 2 mm MNI152NLin6Asym grid, 0 = background
+concepts.tsv             # columns concept and domain (snake_case); row order is the profile order
+concepts/<concept>.npz   # mask: (n_parcels,) in {1, -1} (1 inside the concept); nulls: (n_nulls, n_parcels) in {1, -1}
+```
+
+The parcels are the sorted non-zero labels of `parcellation.nii.gz`, and every vector follows that order; the step reads the parcel count from the parcellation and fixes none, so a bundle built on another parcellation needs no step change. All concepts have the same number of null masks.
+
+**Building it from the author's workflow.** `steps/cognet-stroke/bundle/build_bundle.py` turns the outputs of the COGNET-STROKE workflow (`src/generate_cdr_report/cdr_report_workflow.py`) into this layout without computing anything statistical itself: the parcellation is the author's (default `firsT_2566.nii.gz` of the checkout, 2566 parcels, copied byte for byte); a concept's `mask` is its FDR-corrected z map (`<concept>_z_desc-association_level-voxel_corr-FDR_method-indep.nii.gz`) reduced to parcels with neuromaps' `Parcellater` and thresholded at z > 2, as the workflow does; `nulls` is the workflow's null cache `<concept>_nulls_thr_<parcellation name>.npy` (brainsmash surrogates with the workflow's parameters, thresholded the same way); `concepts.tsv` defaults to the author's 22 concepts with the provisional domain grouping of `cognet-concept-maps` 1.0.0 (`steps/cognet-stroke/bundle/concepts.tsv`; the workflow defines no domains). Run it in the author's analysis environment (for neuromaps), on the host that holds the workflow outputs:
+
+```bash
+python steps/cognet-stroke/bundle/build_bundle.py --upstream /path/to/COGNET-STROKE \
+    --maps-dir /path/to/concept_data_dir/corrected_fdr --version 1.1.0 --out /path/to/cognet-concept-maps-1.1.0
+python contracts/validate.py /path/to/cognet-concept-maps-1.1.0/bundle.yaml
+python scripts/bundles/registry.py register /path/to/cognet-concept-maps-1.1.0
+```
+
+A bundle regenerated with another parcellation or other null parameters in the same layout is a minor version (`versioning.md` section 5), so the step's requirement (`>=1.0.0, <2.0.0`) accepts it; the pipeline entry `cognet-stroke-concept-maps` pins `cognet-concept-maps` 1.0.0 until a pipeline version pins the new one. The concept maps derive from Neurosynth data (ODbL-1.0); the builder defaults to `licence.redistributable: false`, so the bundle stays on the host until the owner decides otherwise. No concept-map data is committed or used in CI: CI uses the synthetic `synthetic-concept-maps` bundle written by `steps/cognet-stroke/tests/make_reference.py`.
