@@ -50,11 +50,9 @@ for transform in identity shift; do
 done
 
 expect_failure() {
-  local name="$1" transform="$2" code_expected="$3"
-  set +e
-  run_one "$name" "$ref/cases/main.nii.gz" "$transform"
-  local code=$?
-  set -e
+  local name="$1" transform="$2" code_expected="$3" code=0
+  # run_one restores errexit before it returns, so its status is taken with ||
+  run_one "$name" "$ref/cases/main.nii.gz" "$transform" || code=$?
   echo "case $name: exit $code"
   cat "$out/$name/out/error.json"; echo
   test "$code" -eq 1

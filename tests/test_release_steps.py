@@ -339,9 +339,9 @@ def test_summary_marks_dry_runs():
 
 # Step versions that are in the registry but not released yet (placeholder digest, `published:
 # false`); the set is empty again after `registry.py pin` has written their digests.
-# STEPS-01: the wrappers now built from this repository (research-report 0.4.0 was pinned from
-# release run 45404842617).
-UNRELEASED = {"cognet-stroke@1.1.0", "ct-lesion-to-mni152@1.0.1", "lnm-tracts@1.0.1"}
+# STEPS-02: lnm-tracts 1.1.0 (lesion resampled into the tract-atlas space). The STEPS-01 wrappers
+# were pinned from release run 45628376765.
+UNRELEASED = {"lnm-tracts@1.1.0"}
 
 
 def test_committed_registry_has_real_digests_except_unreleased_steps():
