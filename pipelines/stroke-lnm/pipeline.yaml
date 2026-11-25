@@ -100,7 +100,7 @@ slots:
       allowed:
         - id: ct-lesion-to-mni152
           step: {name: ct-lesion-to-mni152, version: 1.0.1}
-          image: docker.io/compneurobilbaolab/step-ct-lesion-to-mni152@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          image: docker.io/compneurobilbaolab/step-ct-lesion-to-mni152@sha256:717b4ab02c9d8fab0f1ccf4de16d3a764b17960b9525b9fc418e2485ceb86b1d
           parameter_bindings:
             age_band: case.age_band
 
@@ -157,13 +157,13 @@ slots:
       allowed:
         - id: lnm-tracts
           step: {name: lnm-tracts, version: 1.0.1}
-          image: docker.io/compneurobilbaolab/step-lnm-tracts@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          image: docker.io/compneurobilbaolab/step-lnm-tracts@sha256:760cccded0601c745a555073ac6d711343b40678b4688e6e5ca1ded25d0a4a5d
         # Same image, pinned to the HCP1065 tract atlas bundle: what the deployment profile
         # enables. The entry above takes whichever tract atlas is registered (CI registers a
         # synthetic one).
         - id: lnm-tracts-hcp1065
           step: {name: lnm-tracts, version: 1.0.1}
-          image: docker.io/compneurobilbaolab/step-lnm-tracts@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          image: docker.io/compneurobilbaolab/step-lnm-tracts@sha256:760cccded0601c745a555073ac6d711343b40678b4688e6e5ca1ded25d0a4a5d
           bundles:
             tract_atlas: {id: hcp1065-tracts, version: 1.0.0}
 
@@ -183,12 +183,12 @@ slots:
       allowed:
         - id: cognet-stroke
           step: {name: cognet-stroke, version: 1.1.0}
-          image: docker.io/compneurobilbaolab/step-cognet-stroke@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          image: docker.io/compneurobilbaolab/step-cognet-stroke@sha256:c6cf1186311ea65237d8235a95e9a02c314acba44e03f23844b472592cc88d42
         # Same image, pinned to the COGNET-STROKE concept maps bundle: what the deployment
         # profile enables (the entry above is for CI, which registers synthetic concept maps).
         - id: cognet-stroke-concept-maps
           step: {name: cognet-stroke, version: 1.1.0}
-          image: docker.io/compneurobilbaolab/step-cognet-stroke@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          image: docker.io/compneurobilbaolab/step-cognet-stroke@sha256:c6cf1186311ea65237d8235a95e9a02c314acba44e03f23844b472592cc88d42
           bundles:
             concept_maps: {id: cognet-concept-maps, version: 1.0.0}
 

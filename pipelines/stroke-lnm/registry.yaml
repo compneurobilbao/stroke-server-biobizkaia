@@ -15,7 +15,7 @@
 # is ever pulled while a digest is a placeholder.
 registry_version: 1
 pipeline: {id: stroke-lnm, version: 0.9.0}
-published: false
+published: true
 
 # kind: real     a merged step that runs on real data
 #       stub     synthetic output, only enabled in the ci profile (and demo deployments)
@@ -81,7 +81,7 @@ implementations:
         status: reference-tested
         notes: >-
           The step's reference test runs in CI on synthetic or public data. No signed validation record exists, so it is not validated. Known limitation: the step's regression floor on its reference case is Dice 0.40.
-      image: docker.io/compneurobilbaolab/step-ct-lesion-to-mni152@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      image: docker.io/compneurobilbaolab/step-ct-lesion-to-mni152@sha256:717b4ab02c9d8fab0f1ccf4de16d3a764b17960b9525b9fc418e2485ceb86b1d
       # Wrapper of this repository; the author's package is installed unmodified from the
       # upstream commit (steps/ct-lesion-to-mni152/upstream.env, kept equal by `check`).
       source:
@@ -166,7 +166,7 @@ implementations:
         status: reference-tested
         notes: >-
           The step's reference test runs in CI on synthetic or public data. No signed validation record exists, so it is not validated.
-      image: docker.io/compneurobilbaolab/step-lnm-tracts@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      image: docker.io/compneurobilbaolab/step-lnm-tracts@sha256:760cccded0601c745a555073ac6d711343b40678b4688e6e5ca1ded25d0a4a5d
       # A port in this repository of the author's src/lnm_tracts.sh: the released image contains
       # no code of the lnm repository. `upstream` names the commit whose unmodified script CI runs
       # for the comparison only (Dockerfile target `legacy`, never released;
@@ -207,7 +207,7 @@ implementations:
         status: reference-tested
         notes: >-
           The step's reference test runs in CI on synthetic or public data. No signed validation record exists, so it is not validated.
-      image: docker.io/compneurobilbaolab/step-cognet-stroke@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      image: docker.io/compneurobilbaolab/step-cognet-stroke@sha256:c6cf1186311ea65237d8235a95e9a02c314acba44e03f23844b472592cc88d42
       # Wrapper of this repository; it calls compute_cdr and compute_overlap of the author's
       # src/cdr.py, copied unmodified from the upstream commit (steps/cognet-stroke/upstream.env).
       source:
