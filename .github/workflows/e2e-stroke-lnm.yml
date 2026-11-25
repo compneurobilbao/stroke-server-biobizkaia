@@ -69,8 +69,9 @@ jobs:
           python contracts/validate.py --kind pipeline pipelines/stroke-lnm/pipeline.yaml
           python contracts/validate.py --kind step steps/stubs/fdisconnection-stub/step.yaml
           python contracts/validate.py --kind step steps/flnm-fast/step.yaml
+          python contracts/validate.py --kind step steps/lnm-tracts/step.yaml steps/cognet-stroke/step.yaml steps/ct-lesion-to-mni152/step.yaml
 
-      - name: Fetch the external steps at the pinned commits
+      - name: Fetch the external steps and the authors' repositories at the pinned commits
         run: python pipelines/stroke-lnm/registry.py fetch --dest "$WORK/external"
 
       - name: Build the steps, push them to the throwaway registry, record digests
@@ -90,6 +91,9 @@ jobs:
           cmp "$WORK/step-manifests/research-report-0.4.0/step.yaml" steps/report/step.yaml
           cmp "$WORK/step-manifests/fdisconnection-stub-0.1.0/step.yaml" steps/stubs/fdisconnection-stub/step.yaml
           cmp "$WORK/step-manifests/flnm-fast-3.0.0/step.yaml" steps/flnm-fast/step.yaml
+          cmp "$WORK/step-manifests/lnm-tracts-1.0.1/step.yaml" steps/lnm-tracts/step.yaml
+          cmp "$WORK/step-manifests/cognet-stroke-1.1.0/step.yaml" steps/cognet-stroke/step.yaml
+          cmp "$WORK/step-manifests/ct-lesion-to-mni152-1.0.1/step.yaml" steps/ct-lesion-to-mni152/step.yaml
 
       - name: Reference data bundles (synthetic fixtures, the flnm-fast synthetic normative bundle and the COGNET-STROKE synthetic concept maps)
         run: |
@@ -100,15 +104,15 @@ jobs:
           python steps/flnm-fast/tests/make_reference.py "$WORK/flnm-ref"
           cp -r "$WORK/flnm-ref/bundle" "$WORK/bundles/synthetic-normative-fc"
           cp -r fixtures/data/bundles/toy-tract-atlas/1.0.0 "$WORK/bundles/toy-tract-atlas"
-          # generator of the pinned COGNET-STROKE step (fixed seed, nothing committed here)
-          python "$WORK/external/COGNET-STROKE/step/tests/make_reference.py" "$WORK/cognet-ref" contracts
+          # generator of the cognet-stroke step (fixed seed, nothing committed)
+          python steps/cognet-stroke/tests/make_reference.py "$WORK/cognet-ref" contracts
           cp -r "$WORK/cognet-ref/bundle" "$WORK/bundles/synthetic-concept-maps"
 
       - name: Cache the public CT template files (pinned by commit, SHA-256 verified on every run)
         uses: actions/cache@v4.2.0
         with:
           path: ${{ env.WORK }}/ct-template
-          key: ct-template-${{ hashFiles('e2e-work/external/CTLesion2MNI152/step/ci/fetch_reference_data.sh') }}
+          key: ct-template-${{ hashFiles('steps/ct-lesion-to-mni152/ci/fetch_reference_data.sh') }}
 
       - name: CT reference case (public head CT template, known transform, MNI lesion; CC BY-NC-SA 4.0 data, test use only)
         run: |
@@ -143,7 +147,7 @@ jobs:
           {
             echo "### stroke-lnm end-to-end"
             echo
-            echo "External steps are built from the commits pinned in pipelines/stroke-lnm/registry.yaml:"
+            echo "External steps and the authors' repositories consumed by the wrappers, at the commits pinned in pipelines/stroke-lnm/registry.yaml:"
             grep -n "commit:" pipelines/stroke-lnm/registry.yaml | sed 's/^/    /'
             echo
             echo "Image digests of this run (throwaway registry):"

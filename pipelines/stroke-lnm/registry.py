@@ -17,6 +17,10 @@
         after their file, and `profiles.<p>.presets` enables only presets that exist (with the
         default among the enabled ones). The optional `title` of an entry and the `in_development`
         list (display only: stages the UI shows greyed and never selectable) are validated too.
+        A wrapper of this repository that consumes an author's repository unmodified (card
+        STEPS-01) names it in `source.upstream: {repository, commit}`, which must equal the
+        step's `upstream.env` (`UPSTREAM_REPOSITORY`, `UPSTREAM_COMMIT`); a step directory with
+        an `upstream.env` needs the field.
 
     registry.py materialize --digests FILE --out DIR [--dir DIR]
         Write DIR/stroke-lnm/pipeline.yaml and DIR/stroke-lnm/registry.yaml with the image
@@ -37,7 +41,9 @@
         The result is checked; on any error the files are left unchanged.
 
     registry.py fetch --dest DIR
-        Fetch the external step sources at the commits pinned in registry.yaml (CI).
+        Fetch the external step sources at the commits pinned in registry.yaml, and the
+        repositories that wrappers of this repository consume (`source.upstream`), into
+        DIR/<repository name> (CI, release).
 
     registry.py build --external DIR --prefix HOST/PATH --digests-out FILE --manifests-out DIR
         Build every non-planned step image from this repository or from the fetched
@@ -315,6 +321,76 @@ def external_errors(
     return errors
 
 
+UPSTREAM_REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+COMMIT = re.compile(r"^[0-9a-f]{40}$")
+UPSTREAM_ENV = "upstream.env"
+
+
+def read_upstream_env(path: Path) -> dict[str, str]:
+    """``KEY=VALUE`` lines of a step's upstream.env (comments and blank lines ignored; one pair
+    of surrounding double quotes is removed, as the shell does)."""
+    values: dict[str, str] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        key, sep, value = line.partition("=")
+        if sep:
+            value = value.strip()
+            if len(value) >= 2 and value[0] == value[-1] == '"':
+                value = value[1:-1]
+            values[key.strip()] = value
+    return values
+
+
+def upstream_errors(name: str, impl_id: str, entry: dict, *, root: Path = REPO_ROOT) -> list[str]:
+    """`source.upstream` (card STEPS-01): a wrapper of this repository that consumes an
+    author's repository unmodified at a pinned commit. The step directory's upstream.env is
+    what its Dockerfile and CI read; the registry repeats it and the two must agree."""
+    where = f"slot {name}, {impl_id}"
+    source = entry.get("source") or {}
+    upstream = source.get("upstream")
+    errors: list[str] = []
+    env_path = None
+    if source.get("repository") == "this" and source.get("dockerfile"):
+        env_path = root / Path(source["dockerfile"]).parent / UPSTREAM_ENV
+    if upstream is None:
+        if env_path is not None and env_path.is_file():
+            errors.append(
+                f"{where}: {env_path.relative_to(root).as_posix()} exists, so the entry needs "
+                "source.upstream {repository, commit}"
+            )
+        return errors
+    if not isinstance(upstream, dict) or set(upstream) != {"repository", "commit"}:
+        return [f"{where}: source.upstream must be {{repository, commit}}"]
+    if source.get("repository") != "this":
+        errors.append(f"{where}: source.upstream is for wrappers of this repository (repository: this)")
+    if not UPSTREAM_REPOSITORY.match(str(upstream["repository"])):
+        errors.append(f"{where}: source.upstream.repository must be <owner>/<name>")
+    if not COMMIT.match(str(upstream["commit"])):
+        errors.append(f"{where}: source.upstream.commit must be a 40-hex commit")
+    if env_path is not None and not env_path.parent.is_dir():
+        return errors  # the step directory is not under this root (a partial test tree)
+    if env_path is None or not env_path.is_file():
+        errors.append(f"{where}: source.upstream needs {UPSTREAM_ENV} next to the step's Dockerfile")
+        return errors
+    env = read_upstream_env(env_path)
+    rel = env_path.relative_to(root).as_posix()
+    if not re.fullmatch(r"[0-9a-f]{64}", env.get("UPSTREAM_SHA256", "")):
+        errors.append(f"{where}: {rel} needs UPSTREAM_SHA256 (64 hex, steps/upstream-digest.sh)")
+    if not env.get("UPSTREAM_PATHS", "").split():
+        errors.append(f"{where}: {rel} needs UPSTREAM_PATHS (the files the wrapper uses)")
+    if (env.get("UPSTREAM_REPOSITORY"), env.get("UPSTREAM_COMMIT")) != (
+        upstream["repository"],
+        upstream["commit"],
+    ):
+        errors.append(
+            f"{where}: source.upstream differs from {env_path.relative_to(root).as_posix()} "
+            f"({env.get('UPSTREAM_REPOSITORY')} {env.get('UPSTREAM_COMMIT')})"
+        )
+    return errors
+
+
 def published_errors(registry: dict) -> list[str]:
     """With ``published: true`` the ``deployment`` profile must reference real digests: a
     deployment pulls by digest and never a placeholder (docs/deployment.md, "Publishing
@@ -481,6 +557,7 @@ def check(
             kinds[(name, impl_id)] = entry["kind"]
             levels[(name, impl_id)] = validation_level(entry)
             errors += external_errors(name, impl_id, entry, root=root, external=external)
+            errors += upstream_errors(name, impl_id, entry, root=root)
             if impl_id in allowed:
                 for field in ("step", "image"):
                     if allowed[impl_id][field] != entry[field]:
@@ -652,21 +729,36 @@ def _run(*cmd: str, capture: bool = False) -> str:
     return done.stdout.strip() if capture else ""
 
 
-def fetch(registry: dict, dest: Path) -> None:
+def fetch_targets(registry: dict) -> dict[str, str]:
+    """``{repository: commit}`` to fetch: the sources of external steps and the upstream
+    repositories of this repository's wrappers (``source.upstream``). Two entries that name
+    one repository at different commits are an error (one directory per repository)."""
+    out: dict[str, str] = {}
     for source in sources(registry).values():
-        if source["repository"] == "this":
-            continue
-        target = _external_dir(dest, source["repository"])
+        pins = []
+        if source["repository"] != "this":
+            pins.append((source["repository"], source["commit"]))
+        if source.get("upstream"):
+            pins.append((source["upstream"]["repository"], source["upstream"]["commit"]))
+        for repository, commit in pins:
+            if out.setdefault(repository, commit) != commit:
+                raise SystemExit(f"{repository}: pinned at two commits ({out[repository]}, {commit})")
+    return out
+
+
+def fetch(registry: dict, dest: Path) -> None:
+    for repository, commit in fetch_targets(registry).items():
+        target = _external_dir(dest, repository)
         if target.exists():
             continue
         target.mkdir(parents=True)
-        url = f"https://github.com/{source['repository']}.git"
+        url = f"https://github.com/{repository}.git"
         _run("git", "-C", str(target), "init", "-q")
-        _run("git", "-C", str(target), "fetch", "-q", "--depth", "1", url, source["commit"])
+        _run("git", "-C", str(target), "fetch", "-q", "--depth", "1", url, commit)
         _run("git", "-C", str(target), "checkout", "-q", "FETCH_HEAD")
         head = _run("git", "-C", str(target), "rev-parse", "HEAD", capture=True)
-        if head != source["commit"]:
-            raise SystemExit(f"{source['repository']}: fetched {head}, pinned {source['commit']}")
+        if head != commit:
+            raise SystemExit(f"{repository}: fetched {head}, pinned {commit}")
 
 
 def build(registry: dict, external: Path, prefix: str, manifests_out: Path) -> dict[str, str]:

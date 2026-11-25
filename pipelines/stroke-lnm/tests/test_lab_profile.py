@@ -43,7 +43,7 @@ from orchestrator.planning import (  # noqa: E402
 
 PRESETS = ["full", "mni-mask-analysis", "ct-normalisation", "lesion-qc-report"]
 CT, MNI = "ct-and-native-mask", "mni-mask"
-VERSION = "0.8.0"
+VERSION = "0.9.0"
 MINIMUM_SLOTS = {
     "lesion-intake",
     "functional-disconnection",
@@ -52,20 +52,21 @@ MINIMUM_SLOTS = {
     "report",
 }
 
-# Digests of the Docker Hub release runs 45356289386 (all steps) and 45359587628 (flnm-fast
-# 3.0.0; flnm-fast 2.0.0 of the first run is superseded).
+# Digests of the Docker Hub release runs 45356289386 (all steps), 45359587628 (flnm-fast
+# 3.0.0; flnm-fast 2.0.0 of the first run is superseded) and 45404842617 (research-report 0.4.0).
 PUBLISHED = {
-    "cognet-stroke@1.0.0": "docker.io/compneurobilbaolab/step-cognet-stroke@sha256:12bb50346f3d88dc3e6043e144c6735bcf647a34663a99464dc8397ecd5aa0a1",
-    "ct-lesion-to-mni152@1.0.0": "docker.io/compneurobilbaolab/step-ct-lesion-to-mni152@sha256:a8242fcf9056ead332a298bb1aa3759f1c31985e3cb24b1c8bd65a9f4d44c057",
     "fdisconnection-stub@0.1.0": "docker.io/compneurobilbaolab/step-fdisconnection-stub@sha256:8da4c433c7c9f6cf0dc9f59536d40f310fc8f09ff0d0c2dd28715a5e70c55745",
     "flnm-fast@3.0.0": "docker.io/compneurobilbaolab/step-flnm-fast@sha256:368df2c450b30f02d43d30bdf8ec9750bcf43f6b208731dde64d30bbf3c5efb0",
     "lesion-qc@1.0.0": "docker.io/compneurobilbaolab/step-lesion-qc@sha256:c23607186e6c771164ca6f0b8dcdd0509ec895344602cb60d9c4b0d841dcaf32",
-    "lnm-tracts@1.0.0": "docker.io/compneurobilbaolab/step-lnm-tracts@sha256:f80735a43d1ee90ea134ae2f3ff5fb1e304815e8861b97a4fed4a845b7f928ab",
+    "research-report@0.4.0": "docker.io/compneurobilbaolab/step-research-report@sha256:1f700ac224d4bd2e58a0c77201573bbe8d4ad7d6607cd6c271ae6be1796ff537",
 }
 # Step versions added by a later change than the release runs above: placeholder digest (and
 # `published: false`) until released and pinned with `registry.py pin`; any real digest after.
-# research-report 0.4.0: COGNET-02 (parcels excluded from the cognitive profile are stated).
-PENDING_RELEASE = {"research-report@0.4.0"}
+# STEPS-01: the wrappers built from this repository (cognet-stroke 1.1.0 with the author's
+# compute_cdr; lnm-tracts 1.0.1 and ct-lesion-to-mni152 1.0.1, same code as 1.0.0). The 1.0.0
+# images (cognet-stroke 12bb5034..., ct-lesion-to-mni152 a8242fcf..., lnm-tracts f80735a4...)
+# stay on Docker Hub; CI compares the new images with them.
+PENDING_RELEASE = {"cognet-stroke@1.1.0", "ct-lesion-to-mni152@1.0.1", "lnm-tracts@1.0.1"}
 
 
 @pytest.fixture(scope="module")

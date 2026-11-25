@@ -1,0 +1,135 @@
+# Step manifest of the COGNET-STROKE wrapper. Validate with contracts/validate.py --kind step.
+contract_version: "1.2"
+kind: Step
+name: cognet-stroke
+version: 1.1.0
+title: COGNET-STROKE cognitive disconnection profile
+description: >-
+  Meta-analytic functional decoding of a lesion's functional disconnection. The lesion mask and
+  the voxel-wise functional disconnection map (working grid) are reduced to the parcels of the
+  concept-map bundle's parcellation. For every concept, the Concept to Disconnection
+  Representation (CDR: mean disconnection inside the concept divided by the mean outside) of
+  the positive and of the negative part of the map, and the overlap of the lesion with the
+  concept, are tested against the precomputed null concept maps of the bundle (permutation
+  p-value, Bonferroni over concepts). Concepts are grouped in domains by the bundle. The CDR
+  and the overlap are computed by compute_cdr and compute_overlap of the COGNET-STROKE
+  repository (src/cdr.py), consumed unmodified at the commit pinned in upstream.env; parcels
+  without a defined value in the disconnection map (NaN, as functional disconnection writes
+  them for parcels whose statistic is undefined) are left out of the means by that code and
+  reported as excluded_parcels in the profile. Writes the profile as JSON (schema
+  cognet-profile.schema.json in the contracts) and a figure. Version 1.1.0 replaces the
+  step's own CDR implementation by the author's code (identical results on maps without NaN),
+  accepts NaN in the disconnection map, and rejects a map without a defined value in any
+  parcel.
+provides: cognet-profile
+image:
+  repository: docker.io/compneurobilbaolab/step-cognet-stroke
+source_url: https://github.com/compneurobilbao/stroke-server-biobizkaia
+licence:
+  # The wrapper is platform code (MIT). COGNET-STROKE is MIT since the pinned commit (its
+  # LICENSE is copied into the image next to src/cdr.py).
+  spdx: MIT
+  third_party:
+    - {name: COGNET-STROKE (src/cdr.py), version: 64678b11ccc3ceb28d68add68c36336fa5bd2124, spdx: MIT}
+    - {name: numpy, version: 1.26.4, spdx: BSD-3-Clause}
+    - {name: nibabel, version: 5.2.1, spdx: MIT}
+    - {name: matplotlib, version: 3.9.2, spdx: LicenseRef-Matplotlib}
+
+inputs:
+  - name: lesion_mask
+    type: lesion_mask_mni
+    description: Binary lesion mask on the 2 mm MNI152NLin6Asym working grid.
+  - name: fdisconnection_map
+    type: fdisconnection_map
+    description: >-
+      Voxel-wise functional disconnection map on the working grid. The positive part and the
+      magnitude of the negative part are analysed separately. NaN voxels have no defined value
+      and are left out of their parcel's mean; a parcel with no defined voxel is excluded from
+      the disconnection scores. Infinite values are rejected.
+
+outputs:
+  - name: profile
+    type: cognet_profile
+    description: >-
+      JSON profile, a score and a p-value per concept and per domain for three measures, plus
+      excluded_parcels when parcels had no defined value in the disconnection map.
+  - name: profile_figure
+    type: qc_figure
+    description: Disconnection map with the lesion outline and the positive-disconnection score per concept.
+
+parameters:
+  type: object
+  additionalProperties: false
+  properties:
+    alpha:
+      description: Significance level applied to the Bonferroni-corrected p-values.
+      type: number
+      exclusiveMinimum: 0
+      exclusiveMaximum: 1
+      default: 0.05
+
+bundles:
+  - name: concept_maps
+    type: concept-maps
+    version: ">=1.0.0, <2.0.0"
+    description: >-
+      Parcellation on the working grid (its labels define the parcels; no parcel count is
+      fixed by the step), the concept table (concept, domain), and per concept the concept
+      mask and its null masks over parcels. Layout: docs/reference-data.md, "The concept-maps
+      bundle"; built from the author's workflow outputs by steps/cognet-stroke/bundle/build_bundle.py.
+
+resources:
+  cpus: 1
+  memory_mb: 2048
+  wall_time_minutes: 30
+  scratch_mb: 256
+
+errors:
+  - code: input_missing
+    category: input_rejected
+    description: A required input was not provided.
+  - code: input_format_invalid
+    category: input_rejected
+    description: An input file does not satisfy its artefact type (format, grid, binary values).
+  - code: invalid_parameters
+    category: input_rejected
+    description: The parameters do not satisfy the step's parameter schema.
+  - code: mask_empty
+    category: input_rejected
+    description: The lesion mask has no voxels set.
+  - code: disconnection_not_finite
+    category: input_rejected
+    description: The disconnection map contains infinite values (NaN is accepted since 1.1.0).
+  - code: disconnection_map_undefined
+    category: input_rejected
+    description: The disconnection map has no defined (non-NaN) value in any parcel of the bundle's parcellation.
+  - code: disconnection_map_empty
+    category: qc_failed
+    description: The disconnection map is zero wherever it is defined.
+  - code: lesion_outside_parcellation
+    category: qc_failed
+    description: The lesion does not overlap any parcel of the bundle's parcellation.
+
+reference_test:
+  description: >-
+    Fully synthetic, generated by tests/make_reference.py from a fixed seed (nothing is
+    committed): a block parcellation, six ball-shaped concepts with 1000 null masks each as a
+    concept-maps bundle, a ball lesion and a smooth disconnection map on the 2 mm grid. The
+    expected profile is computed by a naive implementation that shares no code with the step
+    or the author's code. The same generator is the reference of 1.0.0, so 1.1.0 passes the
+    previous reference case with the same scores and p-values.
+  inputs:
+    lesion_mask: tests/reference/lesion_mask.nii.gz
+    fdisconnection_map: tests/reference/fdisconnection_map.nii.gz
+  bundles:
+    concept_maps: {id: synthetic-concept-maps, version: 1.0.0}
+  parameters:
+    alpha: 0.05
+  expected:
+    profile:
+      compare: json
+      file: tests/reference/expected/cognet_profile.json
+      rtol: 0.000001
+      atol: 0.000000001
+    profile_figure:
+      compare: exists

@@ -7,7 +7,9 @@ This directory holds the SDK every step is built on and the template to copy.
 |---|---|
 | `sdk/` | `compneuro-step-sdk` (Python package `stroke_step_sdk`): the step side of the contract, with unit tests in `sdk/tests/` |
 | `template/` | A trivial working step (lesion volume on an MNI mask): manifest, code, `Dockerfile`, `Apptainer.def`, tests |
-| `<step name>/` | One directory per step of this repository (added by later cards) |
+| `<step name>/` | One directory per step of this repository, including the wrappers of the lab's tools in the authors' repositories (`lnm-tracts`, `ct-lesion-to-mni152`, `cognet-stroke`) |
+| `fetch-upstream.sh` | Fetches the author's repository of a wrapper at the commit of its `upstream.env` (CI, local tests) |
+| `run-step.sh` | Runs a step image once with the contract section 6 flags (CI helper) |
 
 ## Create a new step from the template
 
@@ -48,7 +50,17 @@ What stays your job: no network, no writes outside `/out` and `/tmp`, determinis
 - The build context is the repository root, because the image bundles `steps/sdk` and the `contracts/` schemas (found by the SDK through `STEP_CONTRACTS_DIR`).
 - The SIF for production is built from the registry image by digest (`apptainer build step.sif docker://<repo>@sha256:...`); `Apptainer.def` documents the local variant used in CI.
 - The CI images are built into throwaway registries and never published. Releases go through `.github/workflows/release-steps.yml` (`pipelines/stroke-lnm/release.py`): each step of `registry.yaml` is built from its pinned source, its reference test runs against the image, and only then is it pushed to `docker.io/compneurobilbaolab/step-<name>:<step version>` (immutable tags, never `build: local` entries); `registry.py pin` writes the published digests into the registry and the pipeline. A new step enters the release through its registry entry and a line in `PREPARE` of `release.py` (how its reference case is generated), unless its manifest declares `reference_test.generator`. See `docs/deployment.md`, "Publishing step images".
-- Licence note for published images: the platform is non-commercial research software. The `ct-lesion-to-mni152` image (built from its own repository at the pinned commit) contains FSL, whose licence is non-commercial for the general public; the project owner accepts publishing it on that basis (`licence_review` of its registry entry). Its README and manifest are in that repository.
+- Licence note for published images: the platform is non-commercial research software. The `ct-lesion-to-mni152` image contains FSL, whose licence is non-commercial for the general public; the project owner accepts publishing it on that basis (`licence_review` of its registry entry). Details in [`ct-lesion-to-mni152/README.md`](ct-lesion-to-mni152/README.md).
+
+## Wrapping a tool of an author's repository
+
+The lab's scientific tools live in their authors' repositories ([lnm](https://github.com/compneurobilbao/lnm), [CTLesion2MNI152](https://github.com/compneurobilbao/CTLesion2MNI152), [COGNET-STROKE](https://github.com/compneurobilbao/COGNET-STROKE)). **Their wrappers live here, never there**: the authors' repositories are left untouched (no `step/` folder, no CI workflow, no pull requests from the platform), and a wrapper consumes the author's code unmodified at a pinned commit, the way [`flnm-fast`](flnm-fast/) consumes a third-party image by digest. The pattern (card STEPS-01; examples [`cognet-stroke`](cognet-stroke/), [`lnm-tracts`](lnm-tracts/), [`ct-lesion-to-mni152`](ct-lesion-to-mni152/)):
+
+1. `steps/<name>/upstream.env` names the repository and the commit (`UPSTREAM_REPOSITORY=<owner>/<name>`, `UPSTREAM_COMMIT=<40 hex>`), the files the wrapper takes from it (`UPSTREAM_PATHS`) and the SHA-256 of their content (`UPSTREAM_SHA256`, computed by `steps/upstream-digest.sh`; the Dockerfile and `steps/fetch-upstream.sh` fail on a mismatch). The registry entry's source is `{repository: this, dockerfile: steps/<name>/Dockerfile, upstream: {repository, commit}}` with the same values; `registry.py check` requires them to agree, and requires `source.upstream` for every step directory that has an `upstream.env`.
+2. The `Dockerfile` downloads the archive of that commit (`codeload.github.com/<repository>/tar.gz/<commit>`) in a build stage, takes only what the step needs (a module, the package, a script for a CI comparison) and copies or installs it unchanged; the rest of the image is built like any other step of this repository (SDK and contracts from here). The image records the commit (`/opt/upstream/<name>/UPSTREAM_COMMIT`). A step that ports the author's algorithm instead (`lnm-tracts`) ships no upstream code; its `upstream` then only names the version CI compares against.
+3. The wrapper adapts and never re-implements: it calls the author's functions and handles around them what the contract needs (input checks, undefined values, degenerate cases, provenance). If the author's code misbehaves on a case the wrapper must handle, the wrapper works around it and documents it; the fix is the author's.
+4. Tests and CI fetch the same commit with `steps/fetch-upstream.sh steps/<name> DEST`, check that the image carries the author's code byte for byte, and compare the wrapper's results with direct calls of the author's code. A wrapper that replaces an image built from the author's repository is compared with that published image on the same inputs.
+5. Moving to another commit of the author's repository is a new step version (`upstream.env` and the registry entry change together), with the equivalence evidence in the pull request.
 
 ## Wrapping an external tool
 

@@ -1,0 +1,9 @@
+#!/usr/local/bin/python3
+"""/usr/local/bin/run: the fixed command of the step contract (section 2.1)."""
+
+import sys
+
+from ct_lesion_step import run
+from stroke_step_sdk import main
+
+sys.exit(main(run))

@@ -6,7 +6,7 @@
 contract_version: "1.2"
 kind: Preset
 id: full
-version: 1.6.0
+version: 1.7.0
 title: Full lesion network analysis
 description: >-
   Lesion intake and QC, normalisation of a CT lesion to MNI152 when needed, tract-wise
@@ -14,7 +14,7 @@ description: >-
   cognitive profile are added when an implementation is enabled in the deployment.
 pipeline:
   id: stroke-lnm
-  versions: ">=0.2.0, <0.9.0"
+  versions: ">=0.2.0, <0.10.0"
 input_sets: [ct-and-native-mask, mni-mask]
 targets:
   required: [tract-disconnection, report]

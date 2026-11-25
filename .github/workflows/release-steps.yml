@@ -112,14 +112,14 @@ jobs:
           python pipelines/stroke-lnm/registry.py check
           python pipelines/stroke-lnm/release.py plan --steps "$STEPS"
 
-      - name: Fetch the external steps at the pinned commits
+      - name: Fetch the external steps and the authors' repositories at the pinned commits
         run: python pipelines/stroke-lnm/registry.py fetch --dest "$WORK/external"
 
       - name: Cache the public CT template files (pinned by commit, SHA-256 verified on every run)
         uses: actions/cache@v4.2.0
         with:
           path: ${{ env.WORK }}/refdata
-          key: ct-template-${{ hashFiles('release-work/external/CTLesion2MNI152/step/ci/fetch_reference_data.sh') }}
+          key: ct-template-${{ hashFiles('steps/ct-lesion-to-mni152/ci/fetch_reference_data.sh') }}
 
       - name: Log in to Docker Hub
         if: env.DRY_RUN == 'false'
