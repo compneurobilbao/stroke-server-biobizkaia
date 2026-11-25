@@ -14,8 +14,10 @@
 # those digests at run time (`registry.py materialize`) without touching this file. Nothing
 # is ever pulled while a digest is a placeholder.
 registry_version: 1
-pipeline: {id: stroke-lnm, version: 0.9.0}
-published: true
+pipeline: {id: stroke-lnm, version: 0.10.0}
+# false while lnm-tracts 1.1.0 waits for its release: release-steps publishes it, then
+# `registry.py pin` writes its digest and sets this back to true.
+published: false
 
 # kind: real     a merged step that runs on real data
 #       stub     synthetic output, only enabled in the ci profile (and demo deployments)
@@ -158,15 +160,21 @@ implementations:
       image: docker.io/compneurobilbaolab/step-fdisconnection-stub@sha256:8da4c433c7c9f6cf0dc9f59536d40f310fc8f09ff0d0c2dd28715a5e70c55745
       source: {repository: this, dockerfile: steps/stubs/fdisconnection-stub/Dockerfile}
   tract-disconnection:
+    # lnm-tracts 1.1.0 (cards STEPS-02, TRACTS-01): when the tract atlas declares a space other
+    # than the lesion's (bundle metadata `space`), the lesion is resampled into it (nearest
+    # neighbour) with the optional space-transform bundle before tract disconnection; an atlas
+    # without `space` is used as in 1.0.x.
     lnm-tracts: &lnm_tracts
       title: lnm-tracts · registered tract atlas
-      step: {name: lnm-tracts, version: 1.0.1}
+      step: {name: lnm-tracts, version: 1.1.0}
       kind: real
       validation:
         status: reference-tested
         notes: >-
-          The step's reference test runs in CI on synthetic or public data. No signed validation record exists, so it is not validated.
-      image: docker.io/compneurobilbaolab/step-lnm-tracts@sha256:760cccded0601c745a555073ac6d711343b40678b4688e6e5ca1ded25d0a4a5d
+          The step's reference test runs in CI on synthetic or public data, including the
+          atlas-space resampling with synthetic identity and shift transforms. No signed
+          validation record exists, so it is not validated.
+      image: docker.io/compneurobilbaolab/step-lnm-tracts@sha256:0000000000000000000000000000000000000000000000000000000000000000
       # A port in this repository of the author's src/lnm_tracts.sh: the released image contains
       # no code of the lnm repository. `upstream` names the commit whose unmodified script CI runs
       # for the comparison only (Dockerfile target `legacy`, never released;
@@ -176,8 +184,10 @@ implementations:
         dockerfile: steps/lnm-tracts/Dockerfile
         upstream: {repository: compneurobilbao/lnm, commit: 123f3298b23dafa02a67b6f096790cfe3b775fb2}
     # The same step image, pinned in pipeline.yaml to the HCP1065 tract atlas bundle
-    # (hcp1065-tracts 1.0.0, which must be installed on the deployment, docs/reference-data.md).
-    # The entry above stays for CI, which registers a synthetic tract atlas.
+    # (hcp1065-tracts 1.1.0, in MNI152NLin2009aAsym) and to the space-transform bundle
+    # xfm-nlin6asym-to-nlin2009aasym 1.0.0; both must be installed on the deployment
+    # (docs/reference-data.md). The entry above stays for CI, which registers a synthetic tract
+    # atlas in MNI152NLin6Asym (no transform).
     lnm-tracts-hcp1065:
       <<: *lnm_tracts
       title: lnm-tracts · HCP1065 tract atlas
@@ -267,8 +277,9 @@ profiles:
   # stays enabled only in the ci profile: the slot is left unmounted here (CT-mode runs are
   # refused and the UI lists it as in development). Stubs and planned entries are never enabled
   # here. The functional disconnection entries need their normative-fc bundle (HCP Aging, HCP
-  # Young Adult), the tract and COGNET entries their reference bundle (hcp1065-tracts,
-  # cognet-concept-maps), installed locally (docs/reference-data.md).
+  # Young Adult), the tract and COGNET entries their reference bundles (hcp1065-tracts with
+  # xfm-nlin6asym-to-nlin2009aasym, cognet-concept-maps), installed locally
+  # (docs/reference-data.md).
   deployment:
     enabled:
       lesion-intake: [lesion-qc]

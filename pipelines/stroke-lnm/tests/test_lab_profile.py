@@ -43,7 +43,7 @@ from orchestrator.planning import (  # noqa: E402
 
 PRESETS = ["full", "mni-mask-analysis", "ct-normalisation", "lesion-qc-report"]
 CT, MNI = "ct-and-native-mask", "mni-mask"
-VERSION = "0.9.0"
+VERSION = "0.10.0"
 MINIMUM_SLOTS = {
     "lesion-intake",
     "functional-disconnection",
@@ -53,8 +53,12 @@ MINIMUM_SLOTS = {
 }
 
 # Digests of the Docker Hub release runs 45356289386 (all steps), 45359587628 (flnm-fast
-# 3.0.0; flnm-fast 2.0.0 of the first run is superseded) and 45404842617 (research-report 0.4.0).
+# 3.0.0; flnm-fast 2.0.0 of the first run is superseded), 45404842617 (research-report 0.4.0)
+# and 45628376765 (cognet-stroke 1.1.0, ct-lesion-to-mni152 1.0.1; lnm-tracts 1.0.1 of that run
+# is superseded by 1.1.0).
 PUBLISHED = {
+    "cognet-stroke@1.1.0": "docker.io/compneurobilbaolab/step-cognet-stroke@sha256:c6cf1186311ea65237d8235a95e9a02c314acba44e03f23844b472592cc88d42",
+    "ct-lesion-to-mni152@1.0.1": "docker.io/compneurobilbaolab/step-ct-lesion-to-mni152@sha256:717b4ab02c9d8fab0f1ccf4de16d3a764b17960b9525b9fc418e2485ceb86b1d",
     "fdisconnection-stub@0.1.0": "docker.io/compneurobilbaolab/step-fdisconnection-stub@sha256:8da4c433c7c9f6cf0dc9f59536d40f310fc8f09ff0d0c2dd28715a5e70c55745",
     "flnm-fast@3.0.0": "docker.io/compneurobilbaolab/step-flnm-fast@sha256:368df2c450b30f02d43d30bdf8ec9750bcf43f6b208731dde64d30bbf3c5efb0",
     "lesion-qc@1.0.0": "docker.io/compneurobilbaolab/step-lesion-qc@sha256:c23607186e6c771164ca6f0b8dcdd0509ec895344602cb60d9c4b0d841dcaf32",
@@ -62,11 +66,9 @@ PUBLISHED = {
 }
 # Step versions added by a later change than the release runs above: placeholder digest (and
 # `published: false`) until released and pinned with `registry.py pin`; any real digest after.
-# STEPS-01: the wrappers built from this repository (cognet-stroke 1.1.0 with the author's
-# compute_cdr; lnm-tracts 1.0.1 and ct-lesion-to-mni152 1.0.1, same code as 1.0.0). The 1.0.0
-# images (cognet-stroke 12bb5034..., ct-lesion-to-mni152 a8242fcf..., lnm-tracts f80735a4...)
-# stay on Docker Hub; CI compares the new images with them.
-PENDING_RELEASE = {"cognet-stroke@1.1.0", "ct-lesion-to-mni152@1.0.1", "lnm-tracts@1.0.1"}
+# STEPS-02: lnm-tracts 1.1.0 (lesion resampled into the space of the tract atlas). The 1.0.1
+# image (760cccde...) stays on Docker Hub; CI compares the new image with it.
+PENDING_RELEASE = {"lnm-tracts@1.1.0"}
 
 
 @pytest.fixture(scope="module")
@@ -194,7 +196,12 @@ def test_deployment_entries_pin_the_lab_bundles_and_ci_entries_stay_unpinned(doc
     pipeline_doc, registry = documents
     tracts = _allowed(pipeline_doc, "tract-disconnection")
     cognet = _allowed(pipeline_doc, "cognet-profile")
-    assert tracts["lnm-tracts-hcp1065"]["bundles"] == {"tract_atlas": {"id": "hcp1065-tracts", "version": "1.0.0"}}
+    # The HCP1065 atlas is in MNI152NLin2009aAsym (hcp1065-tracts 1.1.0 declares it), so the entry
+    # also pins the transform from the lesion space (MNI152NLin6Asym) into that space.
+    assert tracts["lnm-tracts-hcp1065"]["bundles"] == {
+        "tract_atlas": {"id": "hcp1065-tracts", "version": "1.1.0"},
+        "space_transform": {"id": "xfm-nlin6asym-to-nlin2009aasym", "version": "1.0.0"},
+    }
     assert cognet["cognet-stroke-concept-maps"]["bundles"] == {
         "concept_maps": {"id": "cognet-concept-maps", "version": "1.0.0"}
     }

@@ -91,7 +91,7 @@ jobs:
           cmp "$WORK/step-manifests/research-report-0.4.0/step.yaml" steps/report/step.yaml
           cmp "$WORK/step-manifests/fdisconnection-stub-0.1.0/step.yaml" steps/stubs/fdisconnection-stub/step.yaml
           cmp "$WORK/step-manifests/flnm-fast-3.0.0/step.yaml" steps/flnm-fast/step.yaml
-          cmp "$WORK/step-manifests/lnm-tracts-1.0.1/step.yaml" steps/lnm-tracts/step.yaml
+          cmp "$WORK/step-manifests/lnm-tracts-1.1.0/step.yaml" steps/lnm-tracts/step.yaml
           cmp "$WORK/step-manifests/cognet-stroke-1.1.0/step.yaml" steps/cognet-stroke/step.yaml
           cmp "$WORK/step-manifests/ct-lesion-to-mni152-1.0.1/step.yaml" steps/ct-lesion-to-mni152/step.yaml
 

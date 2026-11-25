@@ -58,7 +58,7 @@ The step is refused, with an exception that names every problem, when a required
 ## Limits and open points
 
 - The cheap check does not detect a same-size content change; that needs a full verification (scheduled or forced with `full=True`).
-- Bundle layouts per bundle type are defined by the consuming steps. The `tract-atlas` type has the layout the structural-disconnection step reads (`labels.txt` plus one `<tract>.tck` per tract at the bundle root); the synthetic fixture `toy-tract-atlas` uses it. The `normative-fc`, `tract-atlas` and `concept-maps` types are described below. The lab's deployment profile pins `hcp1065-tracts` 1.0.0 for `tract-atlas` (entry `lnm-tracts-hcp1065`) and `cognet-concept-maps` 1.0.0 for `concept-maps` (entry `cognet-stroke-concept-maps`) since `stroke-lnm` 0.7.0; CI keeps the unpinned entries and its synthetic bundles.
+- Bundle layouts per bundle type are defined by the consuming steps. The `tract-atlas` type has the layout the structural-disconnection step reads (`labels.txt` plus one `<tract>.tck` per tract at the bundle root); the synthetic fixture `toy-tract-atlas` uses it. The `normative-fc`, `tract-atlas` and `concept-maps` types are described below. The lab's deployment profile pins `hcp1065-tracts` for `tract-atlas` (entry `lnm-tracts-hcp1065`; 1.0.0 since `stroke-lnm` 0.7.0, 1.1.0 with `xfm-nlin6asym-to-nlin2009aasym` 1.0.0 for `space-transform` since 0.10.0) and `cognet-concept-maps` 1.0.0 for `concept-maps` (entry `cognet-stroke-concept-maps`) since 0.7.0; CI keeps the unpinned entries and its synthetic bundles.
 - Installers and release tarballs must skip bundles whose `licence.redistributable` is `false`.
 
 ## The `normative-fc` bundle
@@ -80,15 +80,36 @@ Preparing a real bundle: copy the three items above into an empty directory, wri
 
 ## The `tract-atlas` bundle
 
-Bundle type read by the tract-wise disconnection step `lnm-tracts` ([`steps/lnm-tracts`](../steps/lnm-tracts/README.md), mounted at `/ref/tract_atlas`): a tract atlas as streamline files in MNI152NLin6Asym millimetre coordinates.
+Bundle type read by the tract-wise disconnection step `lnm-tracts` ([`steps/lnm-tracts`](../steps/lnm-tracts/README.md), mounted at `/ref/tract_atlas`): a tract atlas as streamline files in the millimetre coordinates of the space named by `metadata.space` (MNI152NLin6Asym, the lesion space, when absent).
 
 ```
-bundle.yaml          # id, version, type: tract-atlas, licence, files
+bundle.yaml          # id, version, type: tract-atlas, licence, files; metadata.space (optional)
 labels.txt           # one tract name per line ([A-Za-z0-9_.+-], at most 64 characters, unique); row order is the table order
 <tract name>.tck     # one MRtrix .tck file per name, at the bundle root, at least one streamline each
 ```
 
-This is the layout of the former `yeh_tracts` directory of the lnm repository, so the HCP1065 atlas needs no conversion. The lab's deployment pins `hcp1065-tracts` 1.0.0 (entry `lnm-tracts-hcp1065`); CI uses the synthetic `toy-tract-atlas` fixture (`fixtures/data/bundles`) and the step's own toy atlas (`steps/lnm-tracts/tests/make_reference.py`).
+This is the layout of the former `yeh_tracts` directory of the lnm repository, so the HCP1065 atlas needs no conversion of its files. CI uses the synthetic `toy-tract-atlas` fixture (`fixtures/data/bundles`) and the step's own toy atlases (`steps/lnm-tracts/tests/make_reference.py`, one of them declaring a synthetic space).
+
+**Atlas space.** Since `lnm-tracts` 1.1.0 an atlas whose `metadata.space` is not `MNI152NLin6Asym` is used only together with a `space-transform` bundle for the pair MNI152NLin6Asym to that space (below): the lesion is resampled into the atlas space by nearest neighbour before the streamlines are tested. Without `metadata.space` the step behaves as 1.0.x. The HCP1065 atlas is in ICBM 2009a nonlinear asymmetric (`MNI152NLin2009aAsym`), which `hcp1065-tracts` 1.0.0 did not declare, so 1.0.x tested its streamlines against a lesion in another template space. The lab's deployment therefore pins `hcp1065-tracts` 1.1.0 since `stroke-lnm` 0.10.0: the same `labels.txt` and `.tck` files as 1.0.0 (same `content_digest`) with `metadata.space: MNI152NLin2009aAsym` and the new version in `bundle.yaml`. Bundle versions are immutable, so 1.1.0 is a new directory: copy the files of 1.0.0, edit `version` and `metadata` in the copy of `bundle.yaml`, then `register` it (1.0.0 stays registered for the runs that used it).
+
+## The `space-transform` bundle
+
+Bundle type read by `lnm-tracts` 1.1.0 and later (mounted at `/ref/space_transform`, optional requirement `space_transform`): a spatial transform between two template spaces as a coordinate map.
+
+```
+bundle.yaml              # id, version, type: space-transform, licence, files; metadata.from_space, metadata.to_space
+coordinate_map.nii.gz    # float32, shape (X, Y, Z, 3), on a grid of to_space: voxel (i, j, k) holds the RAS mm position in from_space of its centre
+```
+
+The map is the image-resampling direction (ANTs and TemplateFlow `mode-image`): an image of `from_space` is brought to `to_space` by looking it up at the stored positions, which needs only nibabel and numpy in the step. Other files (`LICENSE`, `README.md`, `verification.json`) are allowed and listed in `files`.
+
+**`xfm-nlin6asym-to-nlin2009aasym` 1.0.0** (MNI152NLin6Asym to MNI152NLin2009aAsym, for the HCP1065 atlas) is built by [`scripts/bundles/space_transform/build.sh WORK_DIR`](../scripts/bundles/space_transform/build.sh) on a host with ANTs (`antsApplyTransforms` on PATH, or `ANTS_IMAGE` naming a Docker image that contains it) and a Python with nibabel, numpy and PyYAML. It downloads every source from TemplateFlow at a pinned URL and SHA-256 (the transform `tpl-MNI152NLin2009cAsym_from-MNI152NLin6Asym_mode-image_xfm.h5`, the 2009a 1 mm T1w template and brain mask that define the target grid, the NLin6Asym 1 mm T1w template and the template `LICENSE`), composes the transform into a displacement field on the 2009a grid with `antsApplyTransforms`, and converts it from ITK (LPS) to a RAS coordinate map (`make_bundle.py`). The build fails unless the map reproduces the ANTs resampling of the NLin6Asym template (correlation at least 0.9999 in the brain) and improves its correlation with the 2009a template; the measurements and displacement statistics are kept in `verification.json`. About 100 MB; nothing is committed, and the bundle is registered like any other. `tests/test_space_transform_bundle.py` checks the conversion on synthetic inputs.
+
+Open points of this bundle (recorded, not resolved):
+
+- **Source transform.** TemplateFlow publishes a transform from MNI152NLin6Asym to MNI152NLin2009cAsym, not to 2009a. The MNI page of the ICBM 2009 templates describes 2009a and 2009c as the same anatomy with a different sampling and N3 version, so the 2009c transform is applied on the 2009a grid. The build does not measure the 2009a/2009c equivalence itself.
+- **Licence of the transform.** The bundle carries the MNI ICBM 2009 template licence (permissive; the copyright notice must accompany every copy) copied from the TemplateFlow `tpl-MNI152NLin2009cAsym` archive, whose description refers to that file. TemplateFlow states no separate licence, author or method for the transform file itself; `licence.redistributable: true` follows the archive's licence and should be confirmed before the bundle is redistributed outside the lab.
+- **Not built yet.** Version 1.0.0 has not been built or registered on a deployment; `verification.json` of the first build is the first measurement of the conversion on the real templates.
 
 ## The `concept-maps` bundle
 
