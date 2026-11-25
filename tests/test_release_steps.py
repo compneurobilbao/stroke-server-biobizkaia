@@ -322,7 +322,7 @@ def test_run_release_collects_digests_and_stops_at_the_first_failure(
     monkeypatch.setattr(release, "release_one", fake_one)
     with pytest.raises(release.ReleaseFailed) as info:
         release.run_release(None, ctx)
-    assert seen == ["lesion-qc@1.0.0", "ct-lesion-to-mni152@1.0.0"]
+    assert seen == ["lesion-qc@1.0.0", "ct-lesion-to-mni152@1.0.1"]
     assert list(info.value.digests) == ["lesion-qc@1.0.0"]
     assert info.value.report[-1]["status"] == "failed"
 
@@ -339,7 +339,9 @@ def test_summary_marks_dry_runs():
 
 # Step versions that are in the registry but not released yet (placeholder digest, `published:
 # false`); the set is empty again after `registry.py pin` has written their digests.
-UNRELEASED = {"research-report@0.4.0"}
+# STEPS-01: the wrappers now built from this repository (research-report 0.4.0 was pinned from
+# release run 45404842617).
+UNRELEASED = {"cognet-stroke@1.1.0", "ct-lesion-to-mni152@1.0.1", "lnm-tracts@1.0.1"}
 
 
 def test_committed_registry_has_real_digests_except_unreleased_steps():

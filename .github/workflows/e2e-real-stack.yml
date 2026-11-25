@@ -93,7 +93,7 @@ jobs:
           python pipelines/stroke-lnm/registry.py check
           python contracts/validate.py --kind pipeline pipelines/stroke-lnm/pipeline.yaml
 
-      - name: Fetch the external steps at the pinned commits
+      - name: Fetch the external steps and the authors' repositories at the pinned commits
         run: python pipelines/stroke-lnm/registry.py fetch --dest "$WORK/external"
 
       - name: Build the steps, push them to the throwaway registry, record digests
@@ -114,14 +114,14 @@ jobs:
           mkdir -p "$WORK/bundles" "$WORK/cognet-ref"
           cp -r fixtures/data/bundles/toy-normative-connectome/1.0.0 "$WORK/bundles/toy-normative-connectome"
           cp -r fixtures/data/bundles/toy-tract-atlas/1.0.0 "$WORK/bundles/toy-tract-atlas"
-          python "$WORK/external/COGNET-STROKE/step/tests/make_reference.py" "$WORK/cognet-ref" contracts
+          python steps/cognet-stroke/tests/make_reference.py "$WORK/cognet-ref" contracts
           cp -r "$WORK/cognet-ref/bundle" "$WORK/bundles/synthetic-concept-maps"
 
       - name: Cache the public CT template files (pinned by commit, SHA-256 verified on every run)
         uses: actions/cache@v4.2.0
         with:
           path: ${{ env.WORK }}/ct-template
-          key: ct-template-${{ hashFiles('e2e-work/external/CTLesion2MNI152/step/ci/fetch_reference_data.sh') }}
+          key: ct-template-${{ hashFiles('steps/ct-lesion-to-mni152/ci/fetch_reference_data.sh') }}
 
       - name: CT reference case (public head CT template, known transform, MNI lesion; CC BY-NC-SA 4.0 data, test use only)
         run: |

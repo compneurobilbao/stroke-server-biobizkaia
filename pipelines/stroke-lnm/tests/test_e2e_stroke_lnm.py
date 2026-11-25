@@ -87,7 +87,7 @@ def test_committed_pipeline_is_valid_and_lists_every_slot():
     definition = load_pipeline(HERE / "pipeline.yaml")
     assert [s["name"] for s in definition.slots] == SLOTS
     assert definition.match_input_set(["lesion_mni"]) == "mni-mask"
-    assert definition.version == "0.8.0"
+    assert definition.version == "0.9.0"
 
 
 def test_report_does_not_need_tract_disconnection():
@@ -156,14 +156,38 @@ def test_deployment_profile_enables_real_entries_only():
     assert ("normalisation", "ct-lesion-to-mni152") in ci_enabled
 
 
-def test_ct_step_is_pinned_to_a_commit_of_the_step_repository():
+def test_wrappers_live_here_and_pin_the_authors_commits():
+    """STEPS-01: the wrappers are in this repository; the authors' repositories are consumed
+    unmodified at the commits of source.upstream (equal to the steps' upstream.env)."""
     _pipeline, registry = registry_tool.load(HERE)
-    entry = registry["implementations"]["normalisation"]["ct-lesion-to-mni152"]
-    assert entry["source"] == {
-        "repository": "compneurobilbao/CTLesion2MNI152",
-        "commit": "07702382b588f430b52005b61e71a9b48f5fcd15",
-        "dockerfile": "step/Dockerfile",
+    impls = registry["implementations"]
+    expected = {
+        ("normalisation", "ct-lesion-to-mni152"): (
+            "steps/ct-lesion-to-mni152/Dockerfile",
+            "compneurobilbao/CTLesion2MNI152",
+            "07702382b588f430b52005b61e71a9b48f5fcd15",
+        ),
+        ("tract-disconnection", "lnm-tracts"): (
+            "steps/lnm-tracts/Dockerfile",
+            "compneurobilbao/lnm",
+            "123f3298b23dafa02a67b6f096790cfe3b775fb2",
+        ),
+        ("cognet-profile", "cognet-stroke"): (
+            "steps/cognet-stroke/Dockerfile",
+            "compneurobilbao/COGNET-STROKE",
+            "f98dbc84eae9ffaca03dc373f8a57d0b2b5e344e",
+        ),
     }
+    for (slot, impl_id), (dockerfile, repository, commit) in expected.items():
+        assert impls[slot][impl_id]["source"] == {
+            "repository": "this",
+            "dockerfile": dockerfile,
+            "upstream": {"repository": repository, "commit": commit},
+        }
+    # no step is built from an author's repository any more
+    for slot in impls.values():
+        for entry in slot.values():
+            assert entry["source"]["repository"] == "this"
 
 
 def test_tract_atlas_fixture_has_the_layout_of_the_lnm_step():
@@ -223,7 +247,7 @@ class Stack:
         self.orch = build_orchestrator(
             self.Session, self.store_root, settings=_Settings(), env=env
         )
-        self.pipeline = self.orch.pipelines.get("stroke-lnm", "0.8.0")
+        self.pipeline = self.orch.pipelines.get("stroke-lnm", "0.9.0")
         assert self.pipeline is not None
         # the presets of the materialized tree (registry.py materialize copies them unchanged)
         self.presets = DirectoryPresetRegistry(PIPELINES_DIR, self.orch.pipelines, self.orch.steps)
@@ -667,7 +691,7 @@ def _runs_of(stack, case_id) -> int:
 
 @needs_e2e
 def test_the_presets_are_attached_to_the_materialized_pipeline(stack):
-    attached = stack.presets.presets("stroke-lnm", "0.8.0")
+    attached = stack.presets.presets("stroke-lnm", "0.9.0")
     assert [p.id for p in attached] == sorted(PRESET_IDS)
     for preset in attached:
         raw = (Path(PIPELINES_DIR) / "stroke-lnm" / "presets" / f"{preset.id}.yaml").read_bytes()
@@ -694,7 +718,7 @@ def test_ct_normalisation_preset_runs_intake_and_normalisation_only(stack, tmp_p
         "mode": "preset",
         "preset": {
             "id": "ct-normalisation",
-            "version": "1.6.0",
+            "version": "1.7.0",
             "sha256": hashlib.sha256(preset_file.read_bytes()).hexdigest(),
         },
         "targets": {"required": ["lesion-intake.lesion_qc", "normalisation.lesion_mask_mni"]},
@@ -725,7 +749,7 @@ def test_ct_normalisation_preset_runs_intake_and_normalisation_only(stack, tmp_p
         assert (run.plan_mode, run.preset_id, run.preset_version) == (
             "preset",
             "ct-normalisation",
-            "1.6.0",
+            "1.7.0",
         )
         rows = {
             r.slot: r for r in db.scalars(select(RunSlot).where(RunSlot.pipeline_run_id == run_id))
@@ -779,7 +803,7 @@ def _finished_preset_run(stack, case_id, preset_id, tmp_path):
     preset_file = Path(PIPELINES_DIR) / "stroke-lnm" / "presets" / f"{preset_id}.yaml"
     sha256 = hashlib.sha256(preset_file.read_bytes()).hexdigest()
     assert record["contract_version"] == "1.2"
-    assert record["plan"]["preset"] == {"id": preset_id, "version": "1.6.0", "sha256": sha256}
+    assert record["plan"]["preset"] == {"id": preset_id, "version": "1.7.0", "sha256": sha256}
     # the report reads the run record as it is (it declares contract 1.2) and states the plan
     assert report["generator"] == {"step": "research-report", "version": "0.4.0"}
     assert report["report_version"] == "1.2"

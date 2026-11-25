@@ -70,10 +70,14 @@ NOT_FOUND = (
 # {contracts} the contracts directory, {refdata} download cache of public reference data).
 # Each command mirrors the one that the step's own CI runs. A step whose manifest declares a
 # `reference_test.generator` needs no entry (the SDK runs it). Reference bundles of a step are
-# read from {step}/tests/reference/bundle, which every generator below writes.
+# read from {step}/tests/reference/bundle, which every generator below writes. Since STEPS-01
+# every step is built from this repository ({step} is steps/<name>); {external} holds only the
+# authors' repositories that wrappers consume (`source.upstream`, fetched by `registry.py fetch`),
+# which the CT reference case reads for an optional sanity check of its generator.
 PREPARE: dict[str, list[list[str]]] = {
     "lesion-qc": [["python", "{step}/tests/make_reference.py"]],
     "research-report": [["python", "{step}/tests/make_reference.py"]],
+    # steps/cognet-stroke: the synthetic concept-maps bundle and the expected profile
     "cognet-stroke": [
         [
             "python",
@@ -82,6 +86,7 @@ PREPARE: dict[str, list[list[str]]] = {
             "{contracts}",
         ]
     ],
+    # steps/lnm-tracts: the toy tract atlas and the lesions with their numpy oracle
     "lnm-tracts": [
         [
             "python",
@@ -90,6 +95,7 @@ PREPARE: dict[str, list[list[str]]] = {
             "{step}/tests/reference",
         ]
     ],
+    # steps/ct-lesion-to-mni152: public CT template, known transform (ci/ scripts of the step)
     "ct-lesion-to-mni152": [
         [
             "bash",

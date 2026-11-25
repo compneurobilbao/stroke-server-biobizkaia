@@ -8,7 +8,7 @@
 contract_version: "1.0"
 kind: Pipeline
 id: stroke-lnm
-version: 0.8.0
+version: 0.9.0
 title: Lesion network mapping v0
 description: >-
   Lesion intake and QC, normalisation of CT lesions to MNI152 (skipped when an MNI mask is
@@ -39,6 +39,12 @@ description: >-
   disconnection map with NaN voxels (parcels without a value, as flnm-fast writes them) and
   states in the cognitive-profile section how many parcels a COGNET profile left out
   (`excluded_parcels`). Wiring, ports and parameters are unchanged.
+  Version 0.9.0: the step wrappers live in this repository (steps/<name>) and consume the
+  authors' repositories unmodified at pinned commits. normalisation pins ct-lesion-to-mni152
+  1.0.1 and tract-disconnection lnm-tracts 1.0.1 (same code and results as 1.0.0, rebuilt from
+  this repository); cognet-profile pins cognet-stroke 1.1.0, which computes the CDR with the
+  author's compute_cdr, accepts NaN in the functional disconnection map and reports the parcels
+  it excluded (excluded_parcels). Wiring, ports and parameters are unchanged.
 
 inputs:
   - name: ct
@@ -87,13 +93,14 @@ slots:
       - {port: ct_mni, type: ct_mni, optional: true}
       - {port: qc_figure, type: qc_figure, optional: true}
     implementations:
-      # The CT step of the CTLesion2MNI152 repository (registry.yaml pins the commit).
+      # The wrapper of the CTLesion2MNI152 package (steps/ct-lesion-to-mni152; registry.yaml
+      # pins the author's commit).
       # When a deployment leaves this slot unmounted, CT-mode runs are refused.
       default: ct-lesion-to-mni152
       allowed:
         - id: ct-lesion-to-mni152
-          step: {name: ct-lesion-to-mni152, version: 1.0.0}
-          image: docker.io/compneurobilbaolab/step-ct-lesion-to-mni152@sha256:a8242fcf9056ead332a298bb1aa3759f1c31985e3cb24b1c8bd65a9f4d44c057
+          step: {name: ct-lesion-to-mni152, version: 1.0.1}
+          image: docker.io/compneurobilbaolab/step-ct-lesion-to-mni152@sha256:0000000000000000000000000000000000000000000000000000000000000000
           parameter_bindings:
             age_band: case.age_band
 
@@ -149,14 +156,14 @@ slots:
       default: lnm-tracts
       allowed:
         - id: lnm-tracts
-          step: {name: lnm-tracts, version: 1.0.0}
-          image: docker.io/compneurobilbaolab/step-lnm-tracts@sha256:f80735a43d1ee90ea134ae2f3ff5fb1e304815e8861b97a4fed4a845b7f928ab
+          step: {name: lnm-tracts, version: 1.0.1}
+          image: docker.io/compneurobilbaolab/step-lnm-tracts@sha256:0000000000000000000000000000000000000000000000000000000000000000
         # Same image, pinned to the HCP1065 tract atlas bundle: what the deployment profile
         # enables. The entry above takes whichever tract atlas is registered (CI registers a
         # synthetic one).
         - id: lnm-tracts-hcp1065
-          step: {name: lnm-tracts, version: 1.0.0}
-          image: docker.io/compneurobilbaolab/step-lnm-tracts@sha256:f80735a43d1ee90ea134ae2f3ff5fb1e304815e8861b97a4fed4a845b7f928ab
+          step: {name: lnm-tracts, version: 1.0.1}
+          image: docker.io/compneurobilbaolab/step-lnm-tracts@sha256:0000000000000000000000000000000000000000000000000000000000000000
           bundles:
             tract_atlas: {id: hcp1065-tracts, version: 1.0.0}
 
@@ -175,13 +182,13 @@ slots:
       default: cognet-stroke
       allowed:
         - id: cognet-stroke
-          step: {name: cognet-stroke, version: 1.0.0}
-          image: docker.io/compneurobilbaolab/step-cognet-stroke@sha256:12bb50346f3d88dc3e6043e144c6735bcf647a34663a99464dc8397ecd5aa0a1
+          step: {name: cognet-stroke, version: 1.1.0}
+          image: docker.io/compneurobilbaolab/step-cognet-stroke@sha256:0000000000000000000000000000000000000000000000000000000000000000
         # Same image, pinned to the COGNET-STROKE concept maps bundle: what the deployment
         # profile enables (the entry above is for CI, which registers synthetic concept maps).
         - id: cognet-stroke-concept-maps
-          step: {name: cognet-stroke, version: 1.0.0}
-          image: docker.io/compneurobilbaolab/step-cognet-stroke@sha256:12bb50346f3d88dc3e6043e144c6735bcf647a34663a99464dc8397ecd5aa0a1
+          step: {name: cognet-stroke, version: 1.1.0}
+          image: docker.io/compneurobilbaolab/step-cognet-stroke@sha256:0000000000000000000000000000000000000000000000000000000000000000
           bundles:
             concept_maps: {id: cognet-concept-maps, version: 1.0.0}
 

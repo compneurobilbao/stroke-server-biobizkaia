@@ -14,8 +14,8 @@
 # those digests at run time (`registry.py materialize`) without touching this file. Nothing
 # is ever pulled while a digest is a placeholder.
 registry_version: 1
-pipeline: {id: stroke-lnm, version: 0.8.0}
-published: true
+pipeline: {id: stroke-lnm, version: 0.9.0}
+published: false
 
 # kind: real     a merged step that runs on real data
 #       stub     synthetic output, only enabled in the ci profile (and demo deployments)
@@ -62,7 +62,7 @@ implementations:
       source: {repository: this, dockerfile: steps/lesion-qc/Dockerfile}
   normalisation:
     ct-lesion-to-mni152:
-      step: {name: ct-lesion-to-mni152, version: 1.0.0}
+      step: {name: ct-lesion-to-mni152, version: 1.0.1}
       kind: real
       licence_review:
         status: reviewed
@@ -81,11 +81,13 @@ implementations:
         status: reference-tested
         notes: >-
           The step's reference test runs in CI on synthetic or public data. No signed validation record exists, so it is not validated. Known limitation: the step's regression floor on its reference case is Dice 0.40.
-      image: docker.io/compneurobilbaolab/step-ct-lesion-to-mni152@sha256:a8242fcf9056ead332a298bb1aa3759f1c31985e3cb24b1c8bd65a9f4d44c057
+      image: docker.io/compneurobilbaolab/step-ct-lesion-to-mni152@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      # Wrapper of this repository; the author's package is installed unmodified from the
+      # upstream commit (steps/ct-lesion-to-mni152/upstream.env, kept equal by `check`).
       source:
-        repository: compneurobilbao/CTLesion2MNI152
-        commit: 07702382b588f430b52005b61e71a9b48f5fcd15
-        dockerfile: step/Dockerfile
+        repository: this
+        dockerfile: steps/ct-lesion-to-mni152/Dockerfile
+        upstream: {repository: compneurobilbao/CTLesion2MNI152, commit: 07702382b588f430b52005b61e71a9b48f5fcd15}
   functional-disconnection:
     # The same step image three times (pipeline.yaml pins a different normative-fc bundle in
     # each entry, which is the whole difference): the HCP Aging cohort, the HCP Young Adult
@@ -158,17 +160,19 @@ implementations:
   tract-disconnection:
     lnm-tracts: &lnm_tracts
       title: lnm-tracts · registered tract atlas
-      step: {name: lnm-tracts, version: 1.0.0}
+      step: {name: lnm-tracts, version: 1.0.1}
       kind: real
       validation:
         status: reference-tested
         notes: >-
           The step's reference test runs in CI on synthetic or public data. No signed validation record exists, so it is not validated.
-      image: docker.io/compneurobilbaolab/step-lnm-tracts@sha256:f80735a43d1ee90ea134ae2f3ff5fb1e304815e8861b97a4fed4a845b7f928ab
+      image: docker.io/compneurobilbaolab/step-lnm-tracts@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      # Wrapper of this repository (a port of the author's src/lnm_tracts.sh, which CI runs
+      # unmodified from the upstream commit for comparison; steps/lnm-tracts/upstream.env).
       source:
-        repository: compneurobilbao/lnm
-        commit: 123f3298b23dafa02a67b6f096790cfe3b775fb2
-        dockerfile: step/Dockerfile
+        repository: this
+        dockerfile: steps/lnm-tracts/Dockerfile
+        upstream: {repository: compneurobilbao/lnm, commit: 123f3298b23dafa02a67b6f096790cfe3b775fb2}
     # The same step image, pinned in pipeline.yaml to the HCP1065 tract atlas bundle
     # (hcp1065-tracts 1.0.0, which must be installed on the deployment, docs/reference-data.md).
     # The entry above stays for CI, which registers a synthetic tract atlas.
@@ -178,17 +182,19 @@ implementations:
   cognet-profile:
     cognet-stroke: &cognet_stroke
       title: COGNET-STROKE · registered concept maps
-      step: {name: cognet-stroke, version: 1.0.0}
+      step: {name: cognet-stroke, version: 1.1.0}
       kind: real
       validation:
         status: reference-tested
         notes: >-
           The step's reference test runs in CI on synthetic or public data. No signed validation record exists, so it is not validated.
-      image: docker.io/compneurobilbaolab/step-cognet-stroke@sha256:12bb50346f3d88dc3e6043e144c6735bcf647a34663a99464dc8397ecd5aa0a1
+      image: docker.io/compneurobilbaolab/step-cognet-stroke@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      # Wrapper of this repository; it calls compute_cdr and compute_overlap of the author's
+      # src/cdr.py, copied unmodified from the upstream commit (steps/cognet-stroke/upstream.env).
       source:
-        repository: compneurobilbao/COGNET-STROKE
-        commit: 566721668922ff3383cc955e5ec67b8cc223416d
-        dockerfile: step/Dockerfile
+        repository: this
+        dockerfile: steps/cognet-stroke/Dockerfile
+        upstream: {repository: compneurobilbao/COGNET-STROKE, commit: f98dbc84eae9ffaca03dc373f8a57d0b2b5e344e}
     # The same step image, pinned in pipeline.yaml to the COGNET-STROKE concept maps bundle
     # (cognet-concept-maps 1.0.0, installed on the deployment). The entry above stays for CI,
     # which registers synthetic concept maps.
