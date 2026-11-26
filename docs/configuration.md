@@ -19,6 +19,7 @@ The `.env` file must not be committed. It may contain passwords, local paths or 
 | `DATABASE_URL` | URL used by the API and the worker to connect to PostgreSQL. | `postgresql+psycopg://neuroimagen:neuroimagen@postgres:5432/neuroimagen` |
 | `CELERY_BROKER_URL` | Redis broker used by Celery to enqueue tasks. | `redis://redis:6379/0` |
 | `CELERY_RESULT_BACKEND` | Redis backend used by Celery for technical results. | `redis://redis:6379/1` |
+| `REDIS_PASSWORD` | Optional Redis password. When set, Compose starts Redis with `requirepass` and the API and workers add it to the two Redis URLs above (unless a URL already has credentials). Empty = Redis without a password. | empty |
 | `STORAGE_ROOT` | Internal path where studies, results and logs are stored. | `/app/data/studies` |
 | `ALLOWED_EXTENSIONS` | Extensions accepted when uploading studies. | `.nii,.nii.gz,.dcm,.zip,.tar,.tar.gz,.gz,.json,.txt` |
 | `MAX_UPLOAD_SIZE_MB` | Maximum allowed file size, in MB. | `1024` |
@@ -26,6 +27,7 @@ The `.env` file must not be committed. It may contain passwords, local paths or 
 | `PROCESSOR_VERSION` | Technical version of the configured processor. | `0.1.0` |
 | `PROCESSOR_BACKEND` | Active backend: `dummy` or `compneuro`. | `dummy` |
 | `PROCESSOR_COMMAND` | Command template used by the `dummy` backend. | Development dummy |
+| `PROCESSOR_ENV_PASSTHROUGH` | Comma-separated extra environment variable names passed to the legacy processor. It otherwise gets only an allowlist: `PATH`, `HOME`, locale and thread variables, and the FSL, ANTs, FreeSurfer, Convert3D and MNI tool variables (`processor_adapter/adapter.py`); worker secrets such as `DATABASE_URL` or `SMTP_PASSWORD` never reach it. | empty |
 | `WORKER_DOCKERFILE` | Dockerfile used to build the worker. | `backend/Dockerfile` |
 | `WORKER_REPLICAS` | Replicas of the `worker` service used by `make up`/`make rebuild`. Can be set in `.env` or passed to the command. | `1` |
 | `COMPNEURO_CONTAINER_IMAGE` | Base image documented for compneuro traceability. | `compneurobilbaolab/compneuro-anatproc:1.1` |
@@ -45,8 +47,12 @@ The `.env` file must not be committed. It may contain passwords, local paths or 
 | `TECHNICAL_REPORT_FILENAME` | Name of the PDF inside `output/reports/`. | `technical_report.pdf` |
 | `BIDS_VALIDATE` | Reserved for future formal BIDS validation. | `false` |
 | `CORS_ORIGINS` | Origins allowed for browser calls. | `http://localhost,http://localhost:5173` |
-| `AUTH_SECRET_KEY` | HMAC key used to sign JWT tokens. Must be changed outside development. | `change-me-in-production` |
+| `AUTH_SECRET_KEY` | HMAC key used to sign JWT tokens. At least 32 characters; the API refuses the placeholder and shorter keys in every environment. Generate one with `openssl rand -hex 32`. | `change-me-in-production` (refused) |
+| `ALLOW_INSECURE_DEV_KEY` | `1` lets the API start with the placeholder or a short `AUTH_SECRET_KEY`. Local development and tests only. | empty |
 | `AUTH_ACCESS_TOKEN_EXPIRE_MINUTES` | Lifetime of the local access token. | `480` |
+| `LOGIN_MAX_FAILED_ATTEMPTS` | Failed logins allowed per e-mail address within the window before further attempts get `429 too_many_login_attempts`. `0` disables the throttle. | `5` |
+| `LOGIN_FAILURE_WINDOW_MINUTES` | Window of the login throttle. | `15` |
+| `FORWARDED_ALLOW_IPS` | Addresses or networks from which the API trusts `X-Forwarded-For` (uvicorn `--forwarded-allow-ips`). Empty = the Compose network the API container is attached to. Never `*`. | empty |
 | `SHARE_LINK_EXPIRE_HOURS` | Default expiry of temporary PDF download links. | `72` |
 | `RETENTION_ENABLED` | Allows real deletion by retention. The dry run does not require it to be enabled. | `false` |
 | `RETENTION_DAYS` | Minimum days of retention used by the retention CLI. | `90` |
@@ -116,7 +122,9 @@ make create-admin EMAIL=admin@example.org
 
 The command asks for the password on the console and runs `python -m app.cli.create_admin` inside the `api` container.
 
-Local authentication uses a JWT signed with `AUTH_SECRET_KEY`. In development there is a default value, but in any shared environment you must set your own key and not commit it. The API refuses to start outside `development` if the key is still the default value or is too short.
+Local authentication uses a JWT signed with `AUTH_SECRET_KEY`. Set your own key of at least 32 characters (`openssl rand -hex 32`) and do not commit it. The API refuses to start with the shipped placeholder or a shorter key whatever `ENVIRONMENT` says; for local development only, `ALLOW_INSECURE_DEV_KEY=1` accepts it (the test suite sets it).
+
+Failed logins are throttled per e-mail address: after `LOGIN_MAX_FAILED_ATTEMPTS` failures within `LOGIN_FAILURE_WINDOW_MINUTES`, the API answers `429` with a `Retry-After` header until the oldest of them leaves the window, even for the right password; a successful login resets the count. The count is taken from the `login_failed` audit events, so it is shared by all API processes and survives restarts; refused attempts are audited as `login_throttled` and do not extend the lock. Unknown addresses are counted the same way and cost the same password hashing as known ones, so neither the status nor the response time tells whether an account exists. The reverse proxy adds a per-address rate limit on `/api/auth/login`.
 
 Share links use opaque random tokens and store only their hash in the database. `SHARE_LINK_EXPIRE_HOURS` defines the default expiry when the user creates a link from the GUI or the API.
 

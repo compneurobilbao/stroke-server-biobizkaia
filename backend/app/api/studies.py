@@ -71,7 +71,7 @@ from app.services.security import (
     validate_nifti_gz_filename,
     validate_upload,
 )
-from app.services.storage import LocalStudyStorage
+from app.services.storage import LocalStudyStorage, UploadTooLargeError
 from worker.tasks import process_study
 
 router = APIRouter()
@@ -138,12 +138,13 @@ def upload_study(
     )
     storage = LocalStudyStorage(settings.storage_root)
 
-    stored_path, file_size, checksum = storage.save_upload(
-        study_id, file, safe_filename
-    )
-    if file_size > settings.max_upload_size_bytes:
+    try:
+        stored_path, file_size, checksum = storage.save_upload(
+            study_id, file, safe_filename, max_bytes=settings.max_upload_size_bytes
+        )
+    except UploadTooLargeError:
         storage.remove_study(study_id)
-        raise api_error(ErrorCode.UPLOAD_TOO_LARGE)
+        raise api_error(ErrorCode.UPLOAD_TOO_LARGE) from None
     try:
         _lock_owner_quota(db, current_user, file_size)
     except Exception:

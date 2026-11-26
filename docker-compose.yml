@@ -15,19 +15,28 @@ services:
 
   redis:
     image: redis:7-alpine
-    command: ["redis-server", "--appendonly", "yes"]
+    # Optional password: set REDIS_PASSWORD in .env (empty = no password, as before). The
+    # services below add it to the Redis URLs themselves (backend/app/core/config.py).
+    # The image's entrypoint still starts redis-server as the unprivileged redis user.
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    command:
+      - sh
+      - -c
+      - 'set -- redis-server --appendonly yes; if [ -n "$$REDIS_PASSWORD" ]; then set -- "$$@" --requirepass "$$REDIS_PASSWORD"; fi; exec docker-entrypoint.sh "$$@"'
     volumes:
       - redis-data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", 'if [ -n "$$REDIS_PASSWORD" ]; then export REDISCLI_AUTH="$$REDIS_PASSWORD"; fi; redis-cli ping | grep -q PONG']
       interval: 10s
       timeout: 5s
       retries: 5
 
   mailpit:
     image: axllent/mailpit:v1.21
+    # Web UI on the host's loopback only (reach it remotely through an SSH tunnel).
     ports:
-      - "8025:8025"
+      - "127.0.0.1:8025:8025"
 
   api:
     build:
@@ -38,6 +47,7 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://neuroimagen:neuroimagen@postgres:5432/neuroimagen}
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       STORAGE_ROOT: ${STORAGE_ROOT:-/app/data/studies}
       ALLOWED_EXTENSIONS: ${ALLOWED_EXTENSIONS:-.nii,.nii.gz,.dcm,.zip,.tar,.tar.gz,.gz,.json,.txt}
       MAX_UPLOAD_SIZE_MB: ${MAX_UPLOAD_SIZE_MB:-1024}
@@ -60,7 +70,14 @@ services:
       BIDS_VALIDATE: ${BIDS_VALIDATE:-false}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost,http://localhost:5173}
       AUTH_SECRET_KEY: ${AUTH_SECRET_KEY:-change-me-in-production}
+      # The API refuses the placeholder key above (or any key under 32 characters) unless
+      # this is 1: local development only.
+      ALLOW_INSECURE_DEV_KEY: ${ALLOW_INSECURE_DEV_KEY:-}
       AUTH_ACCESS_TOKEN_EXPIRE_MINUTES: ${AUTH_ACCESS_TOKEN_EXPIRE_MINUTES:-480}
+      LOGIN_MAX_FAILED_ATTEMPTS: ${LOGIN_MAX_FAILED_ATTEMPTS:-5}
+      LOGIN_FAILURE_WINDOW_MINUTES: ${LOGIN_FAILURE_WINDOW_MINUTES:-15}
+      # Networks trusted for X-Forwarded-For; empty = the Compose network the API is on.
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-}
       SHARE_LINK_EXPIRE_HOURS: ${SHARE_LINK_EXPIRE_HOURS:-72}
       APP_PUBLIC_BASE_URL: ${APP_PUBLIC_BASE_URL:-http://localhost}
       NOTIFICATIONS_EMAIL_ENABLED: ${NOTIFICATIONS_EMAIL_ENABLED:-true}
@@ -100,7 +117,12 @@ services:
       # the seeding CLI also reads registry.yaml from here.
       - ./pipelines:/app/pipelines:ro
       - ./steps:/app/steps:ro
-    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    # Behind the reverse proxy: client addresses (audit trail) come from X-Forwarded-For,
+    # trusted only from the Compose network (backend/app/cli/forwarded_allow_ips.py).
+    command:
+      - sh
+      - -c
+      - 'alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips "$${FORWARDED_ALLOW_IPS:-$$(python -m app.cli.forwarded_allow_ips)}"'
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
       interval: 20s
@@ -118,12 +140,15 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://neuroimagen:neuroimagen@postgres:5432/neuroimagen}
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       STORAGE_ROOT: ${STORAGE_ROOT:-/app/data/studies}
       ALLOWED_EXTENSIONS: ${ALLOWED_EXTENSIONS:-.nii,.nii.gz,.dcm,.zip,.tar,.tar.gz,.gz,.json,.txt}
       MAX_UPLOAD_SIZE_MB: ${MAX_UPLOAD_SIZE_MB:-1024}
       PROCESSOR_NAME: ${PROCESSOR_NAME:-dummy-development-processor}
       PROCESSOR_VERSION: ${PROCESSOR_VERSION:-0.1.0}
       PROCESSOR_BACKEND: ${PROCESSOR_BACKEND:-dummy}
+      # Extra variable names passed to the legacy processor besides its allowlist.
+      PROCESSOR_ENV_PASSTHROUGH: ${PROCESSOR_ENV_PASSTHROUGH:-}
       PROCESSOR_COMMAND: ${PROCESSOR_COMMAND:-python /app/external_processor/dummy_processor.py --input {input_dir} --output {output_dir} --study-id {study_id}}
       COMPNEURO_CONTAINER_IMAGE: ${COMPNEURO_CONTAINER_IMAGE:-compneurobilbaolab/compneuro-anatproc:1.1}
       COMPNEURO_PROJECT_MOUNT: ${COMPNEURO_PROJECT_MOUNT:-/project}
@@ -194,6 +219,7 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://neuroimagen:neuroimagen@postgres:5432/neuroimagen}
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       STORAGE_ROOT: ${STORAGE_ROOT:-/app/data/studies}
       PIPELINES_DIR: ${PIPELINES_DIR:-/app/pipelines}
       STEP_MANIFESTS_DIR: ${STEP_MANIFESTS_DIR:-/app/steps}

@@ -21,12 +21,15 @@ from app.schemas.auth import (
 )
 from app.services.audit import record_event
 from app.services.auth import (
+    LOGIN_FAILED_EVENT,
+    LOGIN_THROTTLED_EVENT,
+    check_login_password,
     client_ip,
     create_access_token,
     get_current_user,
     get_user_by_email,
-    normalize_email,
-    verify_password,
+    login_failure_details,
+    login_retry_after_seconds,
 )
 from app.api.helpers import _user_read
 
@@ -41,15 +44,25 @@ def login(
     settings: Settings = Depends(get_settings),
 ) -> TokenResponse:
     user = get_user_by_email(db, payload.email)
-    if (
-        not user
-        or not user.is_active
-        or not verify_password(payload.password, user.hashed_password)
-    ):
+    retry_after = login_retry_after_seconds(db, payload.email, user, settings)
+    if retry_after is not None:
+        # Checked before the password, so a correct guess during the lock is refused too.
         record_event(
             db,
-            "login_failed",
-            details={"email": normalize_email(payload.email)},
+            LOGIN_THROTTLED_EVENT,
+            details=login_failure_details(payload.email),
+            ip_address=client_ip(request),
+        )
+        db.commit()
+        raise api_error(
+            ErrorCode.TOO_MANY_LOGIN_ATTEMPTS,
+            headers={"Retry-After": str(retry_after)},
+        )
+    if not check_login_password(payload.password, user):
+        record_event(
+            db,
+            LOGIN_FAILED_EVENT,
+            details=login_failure_details(payload.email),
             ip_address=client_ip(request),
         )
         db.commit()

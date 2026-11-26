@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import { proxySecurityHeaders } from './e2e/securityHeaders';
 
 /**
  * End-to-end tests of the case wizard and run page (cards F0-31 and F0-31a).
@@ -7,7 +8,9 @@ import { defineConfig, devices } from '@playwright/test';
  *
  * - `mocked` (always defined): the tests under `e2e/mocked/` intercept `/api` in the browser
  *   (`e2e/mocked/mockApi.ts`), so only the built frontend is served (`npm run build` first; the
- *   web server below serves `dist/`). Fast, no backend.
+ *   web server below serves `dist/`). Fast, no backend. The server sends the security headers of
+ *   `infra/reverse-proxy/nginx.conf` (Content-Security-Policy included) and the specs fail on any
+ *   CSP violation (`e2e/mocked/fixtures.ts`).
  * - `real-stack` (only when `E2E_REAL_STACK=1`): the tests under `e2e/real/` drive the Docker
  *   Compose stack (reverse proxy, API, workers, `pipelines` profile with the docker executor).
  *   They need `PLAYWRIGHT_BASE_URL` (for example `http://localhost`), `E2E_USER_EMAIL` and
@@ -55,6 +58,8 @@ export default defineConfig({
     ? undefined
     : {
         command: 'npm run preview -- --port 4173 --strictPort',
+        // Read by vite.config.ts (preview.headers).
+        env: { PREVIEW_SECURITY_HEADERS: JSON.stringify(proxySecurityHeaders()) },
         url: baseURL,
         reuseExistingServer: !process.env.CI,
         timeout: 60_000,

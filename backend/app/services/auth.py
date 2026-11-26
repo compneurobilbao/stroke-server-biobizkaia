@@ -6,21 +6,25 @@ import hmac
 import json
 import secrets
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 from uuid import UUID
 
 from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
 from app.core.errors import ErrorCode, api_error
 from app.db.session import get_db
+from app.models.audit_event import AuditEvent
 from app.models.user import User, UserRole
 
 PASSWORD_ITERATIONS = 390_000
 PASSWORD_ALGORITHM = "pbkdf2_sha256"
 TOKEN_ALGORITHM = "HS256"
+LOGIN_FAILED_EVENT = "login_failed"
+LOGIN_THROTTLED_EVENT = "login_throttled"
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -58,6 +62,65 @@ def verify_password(password: str, hashed_password: str | None) -> bool:
         return False
     actual = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
     return hmac.compare_digest(actual, expected)
+
+
+@lru_cache(maxsize=1)
+def _dummy_password_hash() -> str:
+    """A hash of a random password, computed once per process."""
+    return hash_password(secrets.token_urlsafe(32))
+
+
+def check_login_password(password: str, user: User | None) -> bool:
+    """True only for an existing, active user whose password matches.
+
+    Exactly one PBKDF2 derivation runs on every path, with the user's own hash or with a
+    dummy one when the address is unknown, the account is inactive or has no password, so
+    the response time does not reveal whether an account exists.
+    """
+    hashed = user.hashed_password if user is not None else None
+    matches = verify_password(password, hashed or _dummy_password_hash())
+    return bool(matches and hashed and user is not None and user.is_active)
+
+
+def login_failure_details(email: str) -> dict:
+    """``details`` of a ``login_failed`` audit event; also the key of the throttle."""
+    return {"email": normalize_email(email)}
+
+
+def login_retry_after_seconds(
+    db: Session, email: str, user: User | None, settings: Settings
+) -> int | None:
+    """Seconds until the next login attempt for ``email`` is allowed, or ``None``.
+
+    The count is kept in the audit trail, so it is shared by every API process and
+    survives restarts: the ``login_failed`` events of the address within the last
+    ``LOGIN_FAILURE_WINDOW_MINUTES``, ignoring those before the user's last successful
+    login. Unknown addresses are counted the same way, so a 429 says nothing about whether
+    an account exists. Refused attempts are recorded as ``login_throttled`` and do not
+    count, so the lock lifts when the oldest counted failure leaves the window.
+    """
+    limit = settings.login_max_failed_attempts
+    if limit <= 0:
+        return None
+    window = timedelta(minutes=max(settings.login_failure_window_minutes, 1))
+    now = datetime.utcnow()
+    since = now - window
+    if user is not None and user.last_login_at and user.last_login_at > since:
+        since = user.last_login_at
+    details = json.dumps(login_failure_details(email), ensure_ascii=False)
+    count, oldest = db.execute(
+        select(func.count(AuditEvent.id), func.min(AuditEvent.timestamp)).where(
+            AuditEvent.event_type == LOGIN_FAILED_EVENT,
+            AuditEvent.timestamp > since,
+            AuditEvent.details == details,
+        )
+    ).one()
+    if count < limit:
+        return None
+    # With more failures than the limit (concurrent attempts) the lock lasts until enough
+    # of them have aged out; waiting for the oldest one is a lower bound, which is fine.
+    remaining = (oldest + window - now).total_seconds()
+    return max(int(remaining) + 1, 1)
 
 
 def create_access_token(user: User, settings: Settings) -> str:

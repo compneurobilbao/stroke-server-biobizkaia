@@ -18,6 +18,11 @@
 - Protection of study and download endpoints.
 - Audit of login, upload and download with the acting user where applicable.
 - Logs visible in the GUI with truncation.
+- Reverse proxy security headers: `Content-Security-Policy` (same-origin scripts and styles, no framing), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` (share-link tokens are never sent as referrer). The mocked Playwright job runs the built frontend under the same CSP and fails on any violation.
+- Uploads over `MAX_UPLOAD_SIZE_MB` are stopped while they are written (legacy and v1 uploads), nothing over the limit is kept.
+- The API trusts `X-Forwarded-For` only from the Compose network, so audited client addresses cannot be spoofed by clients.
+- Legacy processors receive an allowlisted environment, never the worker's secrets.
+- Optional Redis password (`REDIS_PASSWORD`); direct API, frontend and Mailpit ports are published on the host's loopback only.
 - Cancellation of queued or running jobs, retry of failed ones and controlled deletion with minimal audit.
 - Role-protected admin dashboard.
 - Temporary revocable links to share only technical PDFs, with a hashed opaque token and download auditing.
@@ -52,8 +57,9 @@ Minimum controls:
 - Use robust hashing.
 - Do not return login errors that differentiate whether the email exists.
 - Use JWT with expiry.
-- Change `AUTH_SECRET_KEY` outside development.
-- The API does not start outside `development` if `AUTH_SECRET_KEY` keeps the default value or is too short.
+- Set a custom `AUTH_SECRET_KEY` of at least 32 characters.
+- The API does not start, in any environment, if `AUTH_SECRET_KEY` keeps the placeholder value or is too short, unless `ALLOW_INSECURE_DEV_KEY=1` (local development and tests only).
+- Login is rate limited per client address by the reverse proxy and throttled per account by the API (`LOGIN_MAX_FAILED_ATTEMPTS`, `LOGIN_FAILURE_WINDOW_MINUTES`); unknown addresses cost the same password hashing as known ones.
 - The GUI stores the access token in `localStorage` for a simple prototype implementation. Before exposing the system in a shared environment, evaluate an `HttpOnly/Secure/SameSite` cookie, a shorter TTL and token revocation.
 
 Expected permissions:
