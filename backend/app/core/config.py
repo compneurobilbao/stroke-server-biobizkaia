@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Mapping
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import quote, urlsplit, urlunsplit
 
-from pydantic import Field
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+log = logging.getLogger(__name__)
 
 # Who may start a run in free mode (docs/design/run-plans.md 3.5). Roles are those of
 # ``users.role``; presets and the full plan are open to everyone allowed to create runs.
@@ -45,6 +48,25 @@ def run_plan_policy(profile: str, env: Mapping[str, str] | None = None) -> str:
     return value or DEFAULT_RUN_PLAN_POLICY
 
 
+# Placeholder signing key shipped in the examples and the Compose defaults. The API refuses
+# it, and any key shorter than MIN_AUTH_SECRET_KEY_LENGTH, unless ALLOW_INSECURE_DEV_KEY is
+# set (local development and tests only). ENVIRONMENT plays no part in the check.
+DEFAULT_AUTH_SECRET_KEY = "change-me-in-production"
+MIN_AUTH_SECRET_KEY_LENGTH = 32
+
+
+def with_redis_password(url: str, password: str) -> str:
+    """``url`` with ``password`` added, for a ``redis://`` or ``rediss://`` URL without
+    credentials; any other URL (or an empty password) is returned unchanged."""
+    if not password:
+        return url
+    parts = urlsplit(url)
+    if parts.scheme not in ("redis", "rediss") or "@" in parts.netloc:
+        return url
+    netloc = f":{quote(password, safe='')}@{parts.netloc}"
+    return urlunsplit(parts._replace(netloc=netloc))
+
+
 def free_mode_allowed(policy: str, role: str) -> bool:
     """True if a user with ``role`` may use free mode under ``policy``."""
     return role in RUN_PLAN_POLICIES[policy]
@@ -59,6 +81,9 @@ class Settings(BaseSettings):
     )
     celery_broker_url: str = "redis://redis:6379/0"
     celery_result_backend: str = "redis://redis:6379/1"
+    # Optional Redis password (requirepass). When set, it is added to the two Redis URLs
+    # above unless they already carry credentials. Empty = Redis without a password.
+    redis_password: str = ""
     storage_root: Path = Path("/app/data/studies")
     allowed_extensions: str = ".nii,.nii.gz,.dcm,.zip,.tar,.tar.gz,.gz,.json,.txt"
     max_upload_size_mb: int = 1024
@@ -86,8 +111,19 @@ class Settings(BaseSettings):
     technical_report_filename: str = "technical_report.pdf"
     bids_validate: bool = False
     cors_origins: str = "http://localhost,http://localhost:5173"
-    auth_secret_key: str = "change-me-in-production"
+    auth_secret_key: str = DEFAULT_AUTH_SECRET_KEY
+    # Explicit opt-in that lets the API start with the placeholder or a short signing key.
+    # Local development and the test suite only; never on a shared instance.
+    allow_insecure_dev_key: bool = False
     auth_access_token_expire_minutes: int = 480
+    # Sign-in throttle (services/auth.py). Failed logins are counted per e-mail address
+    # and client address (login_max_failed_attempts) and per e-mail address over all
+    # client addresses (login_max_failed_attempts_per_account, a much higher ceiling), within
+    # the window; over either limit further attempts get 429 until the oldest counted
+    # failure leaves the window. A successful login resets both. 0 disables a limit.
+    login_max_failed_attempts: int = 5
+    login_max_failed_attempts_per_account: int = 50
+    login_failure_window_minutes: int = 15
     share_link_expire_hours: int = 72
     retention_enabled: bool = False
     retention_days: int = 90
@@ -107,6 +143,30 @@ class Settings(BaseSettings):
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
 
+    @field_validator(
+        "allow_insecure_dev_key",
+        "login_max_failed_attempts",
+        "login_max_failed_attempts_per_account",
+        "login_failure_window_minutes",
+        mode="before",
+    )
+    @classmethod
+    def _empty_means_default(cls, value: object, info) -> object:
+        # Compose forwards unset variables as empty strings (``${VAR:-}``).
+        if isinstance(value, str) and not value.strip():
+            return cls.model_fields[info.field_name].default
+        return value
+
+    @model_validator(mode="after")
+    def _apply_redis_password(self) -> "Settings":
+        self.celery_broker_url = with_redis_password(
+            self.celery_broker_url, self.redis_password
+        )
+        self.celery_result_backend = with_redis_password(
+            self.celery_result_backend, self.redis_password
+        )
+        return self
+
     @property
     def allowed_extension_list(self) -> list[str]:
         return [
@@ -124,15 +184,29 @@ class Settings(BaseSettings):
         return [item.strip() for item in self.cors_origins.split(",") if item.strip()]
 
     def validate_api_auth_settings(self) -> None:
-        if self.environment == "development":
+        """Refuse a weak token signing key, whatever ``ENVIRONMENT`` says.
+
+        Weak means the shipped placeholder or fewer than ``MIN_AUTH_SECRET_KEY_LENGTH``
+        characters. ``ALLOW_INSECURE_DEV_KEY`` is the only way to start with one.
+        """
+        weak = (
+            self.auth_secret_key == DEFAULT_AUTH_SECRET_KEY
+            or len(self.auth_secret_key) < MIN_AUTH_SECRET_KEY_LENGTH
+        )
+        if not weak:
             return
-        if (
-            self.auth_secret_key == "change-me-in-production"
-            or len(self.auth_secret_key) < 32
-        ):
-            raise RuntimeError(
-                "AUTH_SECRET_KEY must be set to a custom key outside development"
+        if self.allow_insecure_dev_key:
+            log.warning(
+                "ALLOW_INSECURE_DEV_KEY is set: tokens are signed with a weak key. "
+                "Never use this on a shared instance."
             )
+            return
+        raise RuntimeError(
+            "AUTH_SECRET_KEY must be a custom key of at least "
+            f"{MIN_AUTH_SECRET_KEY_LENGTH} characters (for example the output of "
+            "`openssl rand -hex 32`). ALLOW_INSECURE_DEV_KEY=1 accepts a weak key for "
+            "local development and tests only."
+        )
 
 
 @lru_cache

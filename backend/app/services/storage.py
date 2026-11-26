@@ -7,6 +7,10 @@ from uuid import UUID
 from fastapi import UploadFile
 
 
+class UploadTooLargeError(ValueError):
+    """An upload went over the size limit while it was being written."""
+
+
 class LocalStudyStorage:
     def __init__(self, root: Path) -> None:
         self.root = root
@@ -68,16 +72,33 @@ class LocalStudyStorage:
             raise ValueError("File path not allowed")
         return target
 
-    def save_upload(self, study_id: UUID, upload: UploadFile, safe_filename: str) -> tuple[Path, int, str]:
+    def save_upload(
+        self,
+        study_id: UUID,
+        upload: UploadFile,
+        safe_filename: str,
+        max_bytes: int | None = None,
+    ) -> tuple[Path, int, str]:
+        """Copy ``upload`` into the study's input directory.
+
+        With ``max_bytes``, stops as soon as the copy goes over it, removes the partial
+        file and raises ``UploadTooLargeError`` (nothing over the limit is kept on disk).
+        """
         self.prepare(study_id)
         destination = self.safe_path(self.input_original_dir(study_id), safe_filename)
         hasher = hashlib.sha256()
         size = 0
-        with destination.open("wb") as out_file:
-            while chunk := upload.file.read(1024 * 1024):
-                size += len(chunk)
-                hasher.update(chunk)
-                out_file.write(chunk)
+        try:
+            with destination.open("wb") as out_file:
+                while chunk := upload.file.read(1024 * 1024):
+                    size += len(chunk)
+                    if max_bytes is not None and size > max_bytes:
+                        raise UploadTooLargeError(safe_filename)
+                    hasher.update(chunk)
+                    out_file.write(chunk)
+        except UploadTooLargeError:
+            destination.unlink(missing_ok=True)
+            raise
         return destination, size, hasher.hexdigest()
 
     def write_metadata(self, study_id: UUID, metadata: dict) -> None:

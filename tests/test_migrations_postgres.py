@@ -1659,6 +1659,8 @@ def test_0012_fills_sizes_of_backfilled_legacy_artefacts(pg_engine, seeded):
 # ---------------------------------------------------------------------------------------
 
 REV_PLANS = "0013_run_plans"
+# 0014 is reserved (removal of the legacy tables); 0015 follows 0013.
+REV_LOGIN_INDEX = "0015_audit_events_login_index"
 PRESET_SHA = "c" * 64
 RUN_IMAGE = "registry.example.org/team/step@sha256:" + "b" * 64
 PIPELINE_CASE = uuid.UUID("cccccccc-0000-4000-8000-000000000001")
@@ -2135,6 +2137,28 @@ def test_0013_on_an_empty_database(pg_engine):
     assert "origin" not in _table_columns(pg_engine, "input_files")
     assert "ck_run_slots_plan_role" not in _check_names(pg_engine, "run_slots")
     alembic("upgrade", "head")
-    assert version(pg_engine) == REV_PLANS
+    assert version(pg_engine) == REV_LOGIN_INDEX
     assert "plan_mode" in _table_columns(pg_engine, "pipeline_runs")
     assert "ck_run_slots_plan_role_reason" in _check_names(pg_engine, "run_slots")
+
+
+# ---------------------------------------------------------------------------------------
+# Migration 0015 (card SEC-01): index for the sign-in throttle.
+# ---------------------------------------------------------------------------------------
+
+
+def _index_names(engine, table: str) -> set[str]:
+    return {i["name"] for i in inspect(engine).get_indexes(table)}
+
+
+def test_0015_adds_and_drops_the_login_throttle_index(pg_engine):
+    alembic("upgrade", "head")
+    assert version(pg_engine) == REV_LOGIN_INDEX
+    assert "ix_audit_events_event_type_timestamp" in _index_names(pg_engine, "audit_events")
+    alembic("downgrade", REV_PLANS)
+    assert version(pg_engine) == REV_PLANS
+    assert "ix_audit_events_event_type_timestamp" not in _index_names(
+        pg_engine, "audit_events"
+    )
+    alembic("upgrade", "head")
+    assert version(pg_engine) == REV_LOGIN_INDEX

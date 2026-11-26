@@ -71,6 +71,7 @@
     "hint": "Los usuarios se crean desde administración. No hay registro público abierto.",
     "loggingIn": "Iniciando sesión...",
     "failed": "No se pudo iniciar sesión.",
+    "tooManyAttempts": "Demasiados intentos fallidos de inicio de sesión. Espere unos minutos y vuelva a intentarlo.",
     "loggedIn": "Sesión iniciada.",
     "sessionExpired": "La sesión ha expirado. Vuelve a iniciar sesión.",
     "emailLabel": "Correo electrónico",

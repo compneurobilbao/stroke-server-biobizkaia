@@ -1,8 +1,11 @@
+import json
 import struct
+import sys
 import zlib
 from pathlib import Path
 
 from processor_adapter import CompneuroAnatprocAdapter, ProcessorAdapter
+from processor_adapter.adapter import processor_environment
 from processor_adapter.artifacts import write_outputs_zip, write_technical_pdf
 from processor_adapter.nifti_renderer import (
     build_slicer_command,
@@ -99,6 +102,99 @@ def test_compneuro_adapter_detects_preproc_outputs(tmp_path):
     assert (output_dir / "Preproc" / "BET").is_dir()
     assert (output_dir / "Preproc" / "ProbTissue").is_dir()
     assert len(result.output_files) == 2
+
+
+WORKER_SECRETS = {
+    "DATABASE_URL": "postgresql+psycopg://u:p@db/x",
+    "CELERY_BROKER_URL": "redis://:pw@redis:6379/0",
+    "SMTP_PASSWORD": "smtp-secret",
+    "AUTH_SECRET_KEY": "k" * 40,
+    "REDIS_PASSWORD": "redis-secret",
+}
+TOOL_VARIABLES = {
+    "FSLDIR": "/opt/fsl",
+    "FSLOUTPUTTYPE": "NIFTI_GZ",
+    "ANTSPATH": "/opt/ants/",
+    "FREESURFER_HOME": "/opt/fs",
+    "FS_LICENSE": "/opt/fs/license.txt",
+    "MNI_DIR": "/opt/fs/mni",
+    "PERL5LIB": "/opt/fs/mni/share/perl5",
+}
+
+
+def test_processor_environment_is_an_allowlist():
+    source = {"PATH": "/bin", "HOME": "/root", "LANG": "C.UTF-8"}
+    source.update(WORKER_SECRETS)
+    source.update(TOOL_VARIABLES)
+    source["UNRELATED"] = "x"
+
+    env = processor_environment(source)
+
+    assert env == {"PATH": "/bin", "HOME": "/root", "LANG": "C.UTF-8", **TOOL_VARIABLES}
+
+
+def test_processor_environment_passthrough_adds_named_variables():
+    source = {
+        "PATH": "/bin",
+        "PROCESSOR_ENV_PASSTHROUGH": " MY_TOOL_HOME , ,OTHER",
+        "MY_TOOL_HOME": "/opt/tool",
+        "DATABASE_URL": "x",
+    }
+
+    env = processor_environment(source)
+
+    assert env == {"PATH": "/bin", "MY_TOOL_HOME": "/opt/tool"}
+
+
+def _dump_env_command(target: Path) -> str:
+    code = "import json, os, sys; json.dump(dict(os.environ), open(sys.argv[1], 'w'))"
+    return f'"{sys.executable}" -c "{code}" {target}'
+
+
+def test_dummy_adapter_does_not_pass_worker_secrets(tmp_path, monkeypatch):
+    for name, value in {**WORKER_SECRETS, **TOOL_VARIABLES}.items():
+        monkeypatch.setenv(name, value)
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    env_file = tmp_path / "env.json"
+    adapter = ProcessorAdapter(_dump_env_command(env_file))
+
+    adapter.run(input_dir, tmp_path / "output", "abc", tmp_path / "logs")
+
+    env = json.loads(env_file.read_text())
+    for name in WORKER_SECRETS:
+        assert name not in env
+    for name, value in TOOL_VARIABLES.items():
+        assert env[name] == value
+    assert "PATH" in env
+
+
+def test_compneuro_adapter_does_not_pass_worker_secrets(tmp_path, monkeypatch):
+    for name, value in {**WORKER_SECRETS, **TOOL_VARIABLES}.items():
+        monkeypatch.setenv(name, value)
+    bids_project_dir = tmp_path / "bids_project"
+    (bids_project_dir / "data").mkdir(parents=True)
+    env_file = tmp_path / "env.json"
+    project_mount = tmp_path / "project"
+    adapter = CompneuroAnatprocAdapter(
+        _dump_env_command(env_file), project_mount=project_mount
+    )
+
+    adapter.run(
+        input_dir=tmp_path / "input",
+        output_dir=tmp_path / "output",
+        study_id="abc",
+        logs_dir=tmp_path / "logs",
+        bids_project_dir=bids_project_dir,
+        runtime_project_dir=tmp_path / "runtime_project",
+    )
+
+    env = json.loads(env_file.read_text())
+    for name in WORKER_SECRETS:
+        assert name not in env
+    for name, value in TOOL_VARIABLES.items():
+        assert env[name] == value
+    assert env["PROJECT_PATH"] == str(project_mount)
 
 
 def test_compneuro_adapter_fails_if_project_mount_is_not_managed(tmp_path):

@@ -8,6 +8,8 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///./test.db")
 os.environ.setdefault("STORAGE_ROOT", "./test-data/studies")
 os.environ.setdefault("CELERY_BROKER_URL", "memory://")
 os.environ.setdefault("CELERY_RESULT_BACKEND", "cache+memory://")
+# The suite runs with the placeholder signing key; the API refuses it without this opt-in.
+os.environ.setdefault("ALLOW_INSECURE_DEV_KEY", "1")
 
 from app.core.config import get_settings
 from app.db.session import get_db

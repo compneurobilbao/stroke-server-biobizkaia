@@ -4,6 +4,7 @@
 
 ```bash
 cp .env.example .env
+sed -i "s/^AUTH_SECRET_KEY=.*/AUTH_SECRET_KEY=$(openssl rand -hex 32)/" .env  # the API refuses the placeholder key
 make up
 make test
 ```

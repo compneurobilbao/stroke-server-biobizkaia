@@ -1,7 +1,9 @@
+# Direct access to the API and the frontend, bypassing the reverse proxy. Bound to the
+# host's loopback only: reach them from the host itself or through an SSH tunnel.
 services:
   api:
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
   frontend:
     ports:
-      - "5173:80"
+      - "127.0.0.1:5173:80"

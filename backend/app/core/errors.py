@@ -12,7 +12,8 @@ HTTP status and default message of each code are defined once in ``_CATALOG``.
 Codes (HTTP status):
 
 Authentication and authorisation
-    invalid_credentials (401), not_authenticated (401), permission_denied (403)
+    invalid_credentials (401), not_authenticated (401), permission_denied (403),
+    too_many_login_attempts (429)
 Users
     invalid_role (400), user_email_exists (409), user_not_found (404),
     cannot_deactivate_self (409), cannot_delete_self (409),
@@ -46,6 +47,7 @@ from fastapi.responses import JSONResponse
 
 class ErrorCode(str, Enum):
     INVALID_CREDENTIALS = "invalid_credentials"
+    TOO_MANY_LOGIN_ATTEMPTS = "too_many_login_attempts"
     NOT_AUTHENTICATED = "not_authenticated"
     PERMISSION_DENIED = "permission_denied"
     INVALID_ROLE = "invalid_role"
@@ -83,6 +85,10 @@ class ErrorCode(str, Enum):
 # code -> (HTTP status, default English message)
 _CATALOG: dict[ErrorCode, tuple[int, str]] = {
     ErrorCode.INVALID_CREDENTIALS: (401, "Invalid credentials"),
+    ErrorCode.TOO_MANY_LOGIN_ATTEMPTS: (
+        429,
+        "Too many failed sign-in attempts for this account; try again later",
+    ),
     ErrorCode.NOT_AUTHENTICATED: (401, "Not authenticated"),
     ErrorCode.PERMISSION_DENIED: (
         403,
@@ -157,14 +163,23 @@ _CATALOG: dict[ErrorCode, tuple[int, str]] = {
 class ApiError(HTTPException):
     """HTTPException that also carries a stable machine-readable ``code``."""
 
-    def __init__(self, code: ErrorCode, detail: str | None = None) -> None:
+    def __init__(
+        self,
+        code: ErrorCode,
+        detail: str | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> None:
         status_code, default_detail = _CATALOG[code]
-        super().__init__(status_code=status_code, detail=detail or default_detail)
+        super().__init__(
+            status_code=status_code, detail=detail or default_detail, headers=headers
+        )
         self.code = code.value
 
 
-def api_error(code: ErrorCode, detail: str | None = None) -> ApiError:
-    return ApiError(code, detail)
+def api_error(
+    code: ErrorCode, detail: str | None = None, headers: dict[str, str] | None = None
+) -> ApiError:
+    return ApiError(code, detail, headers)
 
 
 async def api_error_handler(_: Request, exc: ApiError) -> JSONResponse:

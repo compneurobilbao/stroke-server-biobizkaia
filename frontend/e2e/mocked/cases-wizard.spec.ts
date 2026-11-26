@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './fixtures';
 import { installMockApi, type MockHandle } from './mockApi';
 
 const gz = (name: string) => ({ name, mimeType: 'application/gzip', buffer: Buffer.from('synthetic') });

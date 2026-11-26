@@ -121,7 +121,7 @@ jobs:
         run: pip install -r backend/requirements.txt
       - name: Selected suites and lock concurrency tests on PostgreSQL 16
         run: |
-          PYTHONPATH=.:backend pytest -v -ra             tests/test_api_v1.py             tests/test_api_v1_hardening.py             tests/test_api_v1_origin.py             tests/test_api_v1_plans.py             tests/test_orchestrator.py             tests/test_api.py             tests/test_worker.py             tests/test_legacy_cutover.py             tests/test_legacy_recovery.py             tests/test_data_model.py             tests/test_bundles.py             tests/test_seed_implementations.py             tests/test_postgres_concurrency.py
+          PYTHONPATH=.:backend pytest -v -ra             tests/test_api_v1.py             tests/test_api_v1_hardening.py             tests/test_api_v1_origin.py             tests/test_api_v1_plans.py             tests/test_orchestrator.py             tests/test_api.py             tests/test_security_hardening.py             tests/test_worker.py             tests/test_legacy_cutover.py             tests/test_legacy_recovery.py             tests/test_data_model.py             tests/test_bundles.py             tests/test_seed_implementations.py             tests/test_postgres_concurrency.py
 
   docker-executor:
     name: Docker executor integration (socket proxy)

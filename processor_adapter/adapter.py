@@ -12,6 +12,61 @@ from pathlib import Path
 from processor_adapter.artifacts import list_output_files
 from processor_adapter.cancellation import ProcessorCanceled
 
+# Environment handed to the legacy processors: an allowlist, never the worker's own
+# environment (which holds DATABASE_URL, the broker URL, SMTP credentials and the like).
+# Besides the basics, the compneuro-anatproc image configures FSL, ANTs, FreeSurfer,
+# Convert3D and the MNI tools through environment variables, all covered below.
+PROCESSOR_ENV_NAMES = frozenset(
+    {
+        "PATH",
+        "HOME",
+        "LANG",
+        "LANGUAGE",
+        "LC_ALL",
+        "LC_CTYPE",
+        "TZ",
+        "TMPDIR",
+        "USER",
+        "LOGNAME",
+        "SHELL",
+        "LD_LIBRARY_PATH",
+        "PYTHONUNBUFFERED",
+        "PYTHONDONTWRITEBYTECODE",
+        "OMP_NUM_THREADS",
+        "ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS",
+        "OS",
+        "ANTSPATH",
+        "C3DPATH",
+        "PERL5LIB",
+        "SUBJECTS_DIR",
+        "LOCAL_DIR",
+        "FMRI_ANALYSIS_DIR",
+        "FUNCTIONALS_DIR",
+        "FIX_VERTEX_AREA",
+        "PROJECT_PATH",
+    }
+)
+PROCESSOR_ENV_PREFIXES = ("FSL", "FSF", "FS_", "FREESURFER", "MINC_", "MNI_")
+# Comma-separated extra variable names for a custom PROCESSOR_COMMAND that needs them.
+PROCESSOR_ENV_PASSTHROUGH = "PROCESSOR_ENV_PASSTHROUGH"
+
+
+def processor_environment(source: dict[str, str] | None = None) -> dict[str, str]:
+    """The allowlisted subset of ``source`` (default: this process's environment)."""
+    source = dict(os.environ if source is None else source)
+    extra = {
+        name.strip()
+        for name in source.get(PROCESSOR_ENV_PASSTHROUGH, "").split(",")
+        if name.strip()
+    }
+    return {
+        name: value
+        for name, value in source.items()
+        if name in PROCESSOR_ENV_NAMES
+        or name in extra
+        or name.startswith(PROCESSOR_ENV_PREFIXES)
+    }
+
 
 @dataclass(frozen=True)
 class ProcessorResult:
@@ -77,7 +132,9 @@ class DummyProcessorAdapter:
 
     def _run_command(self, command: str, log_path: Path, started: float) -> tuple[subprocess.CompletedProcess[str] | None, float]:
         try:
-            completed = _run_external_command(command, self.timeout_seconds)
+            completed = _run_external_command(
+                command, self.timeout_seconds, env=processor_environment()
+            )
         except ProcessorCanceled:
             duration = time.monotonic() - started
             log_path.write_text(f"COMMAND: {command}\nCANCELED: true\n", encoding="utf-8")
@@ -209,7 +266,7 @@ class CompneuroAnatprocAdapter:
         link_path.symlink_to(target, target_is_directory=True)
 
     def _run_command(self, command: str, log_path: Path, started: float) -> tuple[subprocess.CompletedProcess[str] | None, float]:
-        env = os.environ.copy()
+        env = processor_environment()
         env.setdefault("PROJECT_PATH", str(self.project_mount))
         try:
             completed = _run_external_command(command, self.timeout_seconds, env=env)
@@ -251,6 +308,8 @@ def _run_external_command(
     timeout_seconds: int = 0,
     env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
+    if env is None:
+        env = processor_environment()
     process = subprocess.Popen(
         command,
         shell=True,

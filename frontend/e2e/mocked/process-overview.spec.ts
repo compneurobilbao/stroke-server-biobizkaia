@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { installMockApi } from './mockApi';
 
 test('the home page explains the process before login and the page stays reachable after it', async ({ page }) => {

@@ -5,7 +5,7 @@ The initial deployment is designed for a single server with Docker Compose.
 ## Local Installation
 
 1. Clone or open the repository.
-2. Create the local configuration with `cp .env.example .env`.
+2. Create the local configuration with `cp .env.example .env` and set a signing key: `sed -i "s/^AUTH_SECRET_KEY=.*/AUTH_SECRET_KEY=$(openssl rand -hex 32)/" .env` (the API refuses the placeholder key and keys shorter than 32 characters).
 3. Review passwords, paths and processor according to `docs/configuration.md`.
 4. Start the services with `make up`.
 5. Create the first admin with `make create-admin EMAIL=admin@example.org`.
@@ -262,7 +262,10 @@ Rollback before any new upload: stop the workers, `alembic downgrade 0011_case_m
 ## Basic Production
 
 - Change secrets in `.env`.
-- Set `AUTH_SECRET_KEY` to your own value.
+- Set `AUTH_SECRET_KEY` to a strong random value of at least 32 characters, for example `openssl rand -hex 32`, and set `ENVIRONMENT=production`. The API refuses the shipped placeholder or a shorter key in every environment; never set `ALLOW_INSECURE_DEV_KEY` on a shared instance.
+- Optionally set `REDIS_PASSWORD`: Compose then starts Redis with `requirepass` and the services add the password to the Redis URLs (leave it empty to keep Redis without a password).
+- `docker-compose.override.yml` publishes the API (`8000`) and the frontend (`5173`) on the host's loopback only, and Mailpit (`8025`) is also loopback-only. Use the reverse proxy on port 80, or an SSH tunnel, to reach them from another machine.
+- The reverse proxy limits `/api/auth/login` per client address (10 per minute, burst 5, JSON 429), sets `X-Forwarded-For` to the address it sees (never the client's own header) and adds security headers (CSP, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`); the API also throttles repeated failed logins per account (`docs/configuration.md`). If another proxy terminates TLS in front of it, configure that proxy to pass the client address (and nginx `real_ip`), otherwise all clients share one rate-limit bucket.
 - Review all the variables described in `docs/configuration.md`.
 - Restrict network access to the server.
 - Add TLS in Nginx or Caddy.

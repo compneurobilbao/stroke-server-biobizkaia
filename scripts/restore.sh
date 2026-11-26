@@ -113,7 +113,8 @@ printf 'Restoring PostgreSQL from %s/db.sql\n' "${BACKUP_DIR}"
 } | docker compose exec -T postgres sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
 
 printf 'Flushing Redis because the Celery queue is transient state and is not restored.\n'
-docker compose exec -T redis redis-cli FLUSHALL >/dev/null
+# REDISCLI_AUTH: works with and without REDIS_PASSWORD (set in the redis container).
+docker compose exec -T redis sh -c 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli FLUSHALL' >/dev/null
 
 if [ -d "${STUDIES_DIR}" ]; then
   mkdir -p "${PRE_RESTORE_ROOT}"

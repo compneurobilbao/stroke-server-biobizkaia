@@ -21,12 +21,16 @@ from app.schemas.auth import (
 )
 from app.services.audit import record_event
 from app.services.auth import (
+    LOGIN_FAILED_EVENT,
+    LOGIN_THROTTLED_EVENT,
+    check_login_password,
     client_ip,
     create_access_token,
     get_current_user,
     get_user_by_email,
-    normalize_email,
-    verify_password,
+    login_failure_details,
+    login_retry_after_seconds,
+    lock_login_attempts,
 )
 from app.api.helpers import _user_read
 
@@ -40,17 +44,29 @@ def login(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> TokenResponse:
+    ip_address = client_ip(request)
+    lock_login_attempts(db, payload.email)
     user = get_user_by_email(db, payload.email)
-    if (
-        not user
-        or not user.is_active
-        or not verify_password(payload.password, user.hashed_password)
-    ):
+    retry_after = login_retry_after_seconds(db, payload.email, user, settings, ip_address)
+    if retry_after is not None:
+        # Checked before the password, so a correct guess during the lock is refused too.
         record_event(
             db,
-            "login_failed",
-            details={"email": normalize_email(payload.email)},
-            ip_address=client_ip(request),
+            LOGIN_THROTTLED_EVENT,
+            details=login_failure_details(payload.email),
+            ip_address=ip_address,
+        )
+        db.commit()
+        raise api_error(
+            ErrorCode.TOO_MANY_LOGIN_ATTEMPTS,
+            headers={"Retry-After": str(retry_after)},
+        )
+    if not check_login_password(payload.password, user):
+        record_event(
+            db,
+            LOGIN_FAILED_EVENT,
+            details=login_failure_details(payload.email),
+            ip_address=ip_address,
         )
         db.commit()
         raise api_error(ErrorCode.INVALID_CREDENTIALS)
@@ -61,7 +77,7 @@ def login(
         "login_succeeded",
         actor=user.email,
         actor_user_id=user.id,
-        ip_address=client_ip(request),
+        ip_address=ip_address,
     )
     db.commit()
     return TokenResponse(
