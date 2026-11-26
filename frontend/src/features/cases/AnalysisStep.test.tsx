@@ -186,7 +186,7 @@ describe('analysis step: custom plan gated by /config', () => {
     await waitFor(() => expect(preview('functional-disconnection')).toBeTruthy());
     expect(preview('functional-disconnection')).toHaveAttribute('data-plan-state', 'target');
     expect(preview('lesion-intake')).toHaveAttribute('data-plan-state', 'upstream');
-    expect(preview('lesion-intake')).toHaveTextContent('Added: needed by report');
+    expect(preview('lesion-intake')).toHaveTextContent('Added: needed by Research report');
     expect(preview('normalisation')).toHaveAttribute('data-plan-state', 'condition_false');
     expect(calls(all, 'POST', PLAN_PATH).map(body).at(-1)).toEqual({
       input_roles: ['lesion_mni'],
