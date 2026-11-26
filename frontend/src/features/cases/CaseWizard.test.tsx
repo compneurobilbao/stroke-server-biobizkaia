@@ -123,7 +123,8 @@ describe('case wizard', () => {
 
     const ct = screen.getByRole('radio', { name: /CT and lesion mask/ });
     await waitFor(() => expect(ct).toBeDisabled());
-    expect(screen.getByRole('radio', { name: /Lesion mask already in MNI/ })).toBeChecked();
+    // The wizard moves to MNI mode once the slots say CT cannot run (an effect after that render).
+    await waitFor(() => expect(screen.getByRole('radio', { name: /Lesion mask already in MNI/ })).toBeChecked());
     const label = ct.closest('label') as HTMLElement;
     expect(label).toHaveAttribute('data-development', 'true');
     expect(within(label).getByText('In development')).toBeInTheDocument();
