@@ -22,6 +22,7 @@ This folder contains the technical and operational documentation of the platform
 - `user-manual.md`: manual for functional users.
 - `developer-manual.md`: development guide and safe changes by type of modification.
 - `operations-manual.md`: daily operation, basic administration and maintenance.
+- `operations/backup-restore.md`: deployment backup and restore, scheduling, restore tests, RPO/RTO.
 - `security.md`: current security state and pending items.
 - `api.md`: main endpoints.
 - `testing.md`: available tests.
