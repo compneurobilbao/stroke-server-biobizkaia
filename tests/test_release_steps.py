@@ -91,7 +91,7 @@ def test_targets_cover_the_registry_once_per_step():
     reg = registry_tool.load(HERE)[1]
     keys = [t.key for t in release.targets(reg)]
     assert len(keys) == len(set(keys))
-    assert "research-report@0.4.0" in keys and "flnm-fast@3.0.0" in keys
+    assert "research-report@0.5.0" in keys and "flnm-fast@3.0.0" in keys
     assert all(t.repository.startswith(NS + "/step-") for t in release.targets(reg))
 
 
@@ -341,7 +341,8 @@ def test_summary_marks_dry_runs():
 # false`); the set is empty again after `registry.py pin` has written their digests.
 # STEPS-02: lnm-tracts 1.1.0 (lesion resampled into the tract-atlas space). The STEPS-01 wrappers
 # were pinned from release run 45628376765.
-UNRELEASED = {"lnm-tracts@1.1.0"}
+# REPORT-02: research-report 0.5.0 (synthetic example input stated on the first page).
+UNRELEASED = {"lnm-tracts@1.1.0", "research-report@0.5.0"}
 
 
 def test_committed_registry_has_real_digests_except_unreleased_steps():

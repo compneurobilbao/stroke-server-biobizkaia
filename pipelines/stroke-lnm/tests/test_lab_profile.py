@@ -43,7 +43,7 @@ from orchestrator.planning import (  # noqa: E402
 
 PRESETS = ["full", "mni-mask-analysis", "ct-normalisation", "lesion-qc-report"]
 CT, MNI = "ct-and-native-mask", "mni-mask"
-VERSION = "0.10.0"
+VERSION = "0.11.0"
 MINIMUM_SLOTS = {
     "lesion-intake",
     "functional-disconnection",
@@ -68,7 +68,9 @@ PUBLISHED = {
 # `published: false`) until released and pinned with `registry.py pin`; any real digest after.
 # STEPS-02: lnm-tracts 1.1.0 (lesion resampled into the space of the tract atlas). The 1.0.1
 # image (760cccde...) stays on Docker Hub; CI compares the new image with it.
-PENDING_RELEASE = {"lnm-tracts@1.1.0"}
+# REPORT-02: research-report 0.5.0 (synthetic example input stated on the first page); the 0.4.0
+# image stays on Docker Hub.
+PENDING_RELEASE = {"lnm-tracts@1.1.0", "research-report@0.5.0"}
 
 
 @pytest.fixture(scope="module")

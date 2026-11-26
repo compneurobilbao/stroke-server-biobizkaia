@@ -8,7 +8,7 @@
 contract_version: "1.0"
 kind: Pipeline
 id: stroke-lnm
-version: 0.10.0
+version: 0.11.0
 title: Lesion network mapping v0
 description: >-
   Lesion intake and QC, normalisation of CT lesions to MNI152 (skipped when an MNI mask is
@@ -52,6 +52,9 @@ description: >-
   MNI152NLin2009aAsym) and xfm-nlin6asym-to-nlin2009aasym 1.0.0. The unpinned lnm-tracts entry
   (CI, a synthetic atlas without metadata.space) resamples nothing and gives the tables of
   1.0.1. Ports and parameters are unchanged.
+  Version 0.11.0: the report slot pins research-report 0.5.0, which states on the first page that
+  the input lesion is a synthetic example (reserved origin stroke-server-example in the run
+  record) and is otherwise unchanged. Wiring, ports and parameters are unchanged.
 
 inputs:
   - name: ct
@@ -220,11 +223,11 @@ slots:
       default: research-report
       allowed:
         - id: research-report
-          step: {name: research-report, version: 0.4.0}
-          image: docker.io/compneurobilbaolab/step-research-report@sha256:1f700ac224d4bd2e58a0c77201573bbe8d4ad7d6607cd6c271ae6be1796ff537
+          step: {name: research-report, version: 0.5.0}
+          image: docker.io/compneurobilbaolab/step-research-report@sha256:0000000000000000000000000000000000000000000000000000000000000000
         # Configured variant of the same image: the report text in Spanish.
         - id: research-report-es
-          step: {name: research-report, version: 0.4.0}
-          image: docker.io/compneurobilbaolab/step-research-report@sha256:1f700ac224d4bd2e58a0c77201573bbe8d4ad7d6607cd6c271ae6be1796ff537
+          step: {name: research-report, version: 0.5.0}
+          image: docker.io/compneurobilbaolab/step-research-report@sha256:0000000000000000000000000000000000000000000000000000000000000000
           parameters:
             language: es

@@ -76,6 +76,9 @@ services:
       # and API_STEP_MANIFESTS_DIR=/app/steps (docs/deployment.md). Bundles live under
       # ./data, which is already mounted; a missing directory means no bundles.
       PIPELINES_DIR: ${API_PIPELINES_DIR:-/app/pipelines-disabled}
+      # Tree scanned for presets/<id>.yaml; empty = the pipelines directory (resolve_presets_dir).
+      # `make seed-implementations` runs seed_implementations inside this service and reads the same value.
+      PRESETS_DIR: ${PRESETS_DIR:-}
       STEP_MANIFESTS_DIR: ${API_STEP_MANIFESTS_DIR:-/app/steps-disabled}
       BUNDLE_ROOT: ${BUNDLE_ROOT:-/app/data/bundles}
       DEPLOYMENT_PROFILE: ${DEPLOYMENT_PROFILE:-research-public}

@@ -3,7 +3,7 @@ Solo para uso en investigación, no para decisiones clínicas. Los valores de es
 investigación y no se han validado para diagnóstico, pronóstico ni tratamiento. Ejecución
 6f1c2a9e-3b7d-4e21-9c55-0d8e4f7a1b23 Caso c3a81f40-5e92-4b6d-8a17-2f9b0c6d4e85 Flujo de procesamiento stroke-
 lnm 0.1.0 Versión de la plataforma 0.3.0 (tipos de artefacto 1.0.0) Conjunto de entradas mni-mask Ejecución
-creada 2026-11-13T11:00:00Z Generador del informe research-report 0.4.0 1. Resumen Sección Estado Lesión
+creada 2026-11-13T11:00:00Z Generador del informe research-report 0.5.0 1. Resumen Sección Estado Lesión
 disponible Mapa de desconexión funcional ausente (entrada no proporcionada) Desconexión de tractos no forma
 parte de este análisis Perfil cognitivo ausente (entrada no proporcionada) Volumen de la lesión 12.128 mL,
 hemisferio: Izquierdo, 1 componente(s) conexo(s).• 2. Lesión Figura 1. Vistas ortogonales por el centroide de

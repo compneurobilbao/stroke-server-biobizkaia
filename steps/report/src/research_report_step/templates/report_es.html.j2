@@ -24,6 +24,9 @@
 <h1>Informe de investigación</h1>
 <p class="muted">Análisis de lesión y desconexión, flujo de cartografía de redes de lesión en ictus</p>
 <div class="box">Solo para uso en investigación, no para decisiones clínicas. Los valores de este informe son resultados de investigación y no se han validado para diagnóstico, pronóstico ni tratamiento.</div>
+{% if "synthetic_example_input" in r.notes %}
+<div class="box">Entrada de ejemplo: lesión sintética, no son datos de pacientes. Esta ejecución usó una lesión de ejemplo sintética ofrecida por la plataforma; los valores siguientes no describen a un sujeto real.</div>
+{% endif %}
 
 <table class="kv">
 <tr><td>Ejecución</td><td class="mono">{{ run.run_id }}</td></tr>
@@ -273,6 +276,9 @@
 {% endif %}
 {% if "external_tool_used" in r.notes %}
 <li>Al menos un resultado lo produjo una herramienta externa; su nombre, versión y licencia están en la sección 5.4.</li>
+{% endif %}
+{% if "synthetic_example_input" in r.notes %}
+<li>Al menos una entrada es un ejemplo sintético ofrecido por la plataforma (origen reservado stroke-server-example), no datos de un sujeto real.</li>
 {% endif %}
 {% if "input_origin_declared_by_user" in r.notes %}
 <li>El origen de al menos una entrada aportada lo declaró el usuario y la plataforma no lo verifica (sección 5.5).</li>

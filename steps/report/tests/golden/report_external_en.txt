@@ -2,7 +2,7 @@ Research report Lesion and disconnection analysis, stroke lesion-network mapping
 only, not for clinical decisions. The values in this report are research outputs and have not been validated
 for diagnosis, prognosis or treatment. Run 4e7a1b93-0c2d-4f68-a5b1-8d3c6e9f2a47 Case
 c3a81f40-5e92-4b6d-8a17-2f9b0c6d4e85 Pipeline stroke-lnm 0.3.0 Platform version 0.3.0 (artefact types 1.0.0)
-Input set mni-mask Run created 2026-11-13T11:00:00Z Report generator research-report 0.4.0 1. Summary Section
+Input set mni-mask Run created 2026-11-13T11:00:00Z Report generator research-report 0.5.0 1. Summary Section
 Status Lesion available Functional disconnection map available Tract disconnection available Cognitive profile
 absent (input not provided) Lesion volume 12.128 mL, hemisphere: Left, 1 connected component(s). Most
 disconnected tract: toy_cst_left (0.812); 1 of 4 tracts above 0.5. External tool: the results of the slot

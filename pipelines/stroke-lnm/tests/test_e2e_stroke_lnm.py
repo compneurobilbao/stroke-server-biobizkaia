@@ -87,7 +87,7 @@ def test_committed_pipeline_is_valid_and_lists_every_slot():
     definition = load_pipeline(HERE / "pipeline.yaml")
     assert [s["name"] for s in definition.slots] == SLOTS
     assert definition.match_input_set(["lesion_mni"]) == "mni-mask"
-    assert definition.version == "0.10.0"
+    assert definition.version == "0.11.0"
 
 
 def test_report_does_not_need_tract_disconnection():
@@ -100,7 +100,7 @@ def test_report_does_not_need_tract_disconnection():
     assert port["from"] == "tract-disconnection.tract_disconnection"
     # the report step version that states the absence in its section
     for impl in slots["report"]["implementations"]["allowed"]:
-        assert impl["step"] == {"name": "research-report", "version": "0.4.0"}
+        assert impl["step"] == {"name": "research-report", "version": "0.5.0"}
 
 
 def test_committed_digests_are_the_published_ones():
@@ -247,7 +247,7 @@ class Stack:
         self.orch = build_orchestrator(
             self.Session, self.store_root, settings=_Settings(), env=env
         )
-        self.pipeline = self.orch.pipelines.get("stroke-lnm", "0.10.0")
+        self.pipeline = self.orch.pipelines.get("stroke-lnm", "0.11.0")
         assert self.pipeline is not None
         # the presets of the materialized tree (registry.py materialize copies them unchanged)
         self.presets = DirectoryPresetRegistry(PIPELINES_DIR, self.orch.pipelines, self.orch.steps)
@@ -461,7 +461,7 @@ def test_default_run_on_the_mni_mask(stack, mni_case, tmp_path):
     # the full plan still gives the full report: the tract section is filled in
     report = json.loads(artifact_path(stack, run_id, "report", "report_json").read_text())
     assert report["sections"]["tract_disconnection"] == "available"
-    assert report["generator"]["version"] == "0.4.0"
+    assert report["generator"]["version"] == "0.5.0"
 
 
 @needs_e2e
@@ -691,7 +691,7 @@ def _runs_of(stack, case_id) -> int:
 
 @needs_e2e
 def test_the_presets_are_attached_to_the_materialized_pipeline(stack):
-    attached = stack.presets.presets("stroke-lnm", "0.10.0")
+    attached = stack.presets.presets("stroke-lnm", "0.11.0")
     assert [p.id for p in attached] == sorted(PRESET_IDS)
     for preset in attached:
         raw = (Path(PIPELINES_DIR) / "stroke-lnm" / "presets" / f"{preset.id}.yaml").read_bytes()
@@ -718,7 +718,7 @@ def test_ct_normalisation_preset_runs_intake_and_normalisation_only(stack, tmp_p
         "mode": "preset",
         "preset": {
             "id": "ct-normalisation",
-            "version": "1.8.0",
+            "version": "1.9.0",
             "sha256": hashlib.sha256(preset_file.read_bytes()).hexdigest(),
         },
         "targets": {"required": ["lesion-intake.lesion_qc", "normalisation.lesion_mask_mni"]},
@@ -749,7 +749,7 @@ def test_ct_normalisation_preset_runs_intake_and_normalisation_only(stack, tmp_p
         assert (run.plan_mode, run.preset_id, run.preset_version) == (
             "preset",
             "ct-normalisation",
-            "1.8.0",
+            "1.9.0",
         )
         rows = {
             r.slot: r for r in db.scalars(select(RunSlot).where(RunSlot.pipeline_run_id == run_id))
@@ -803,10 +803,10 @@ def _finished_preset_run(stack, case_id, preset_id, tmp_path):
     preset_file = Path(PIPELINES_DIR) / "stroke-lnm" / "presets" / f"{preset_id}.yaml"
     sha256 = hashlib.sha256(preset_file.read_bytes()).hexdigest()
     assert record["contract_version"] == "1.2"
-    assert record["plan"]["preset"] == {"id": preset_id, "version": "1.8.0", "sha256": sha256}
+    assert record["plan"]["preset"] == {"id": preset_id, "version": "1.9.0", "sha256": sha256}
     # the report reads the run record as it is (it declares contract 1.2) and states the plan
-    assert report["generator"] == {"step": "research-report", "version": "0.4.0"}
-    assert report["report_version"] == "1.2"
+    assert report["generator"] == {"step": "research-report", "version": "0.5.0"}
+    assert report["report_version"] == "1.3"
     assert report["plan"]["mode"] == "preset"
     assert report["plan"]["preset"] == record["plan"]["preset"]
     assert "external_tools" not in report and "declared_origins" not in report

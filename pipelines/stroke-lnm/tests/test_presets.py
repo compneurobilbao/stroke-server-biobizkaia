@@ -47,7 +47,7 @@ from orchestrator.planning import (  # noqa: E402
 
 PRESETS = ["full", "mni-mask-analysis", "ct-normalisation", "lesion-qc-report"]
 CT, MNI = "ct-and-native-mask", "mni-mask"
-VERSION = "0.10.0"
+VERSION = "0.11.0"
 ALL_SLOTS = [
     "lesion-intake",
     "normalisation",
@@ -104,17 +104,17 @@ def test_registry_check_validates_the_presets(documents):
 
 
 def test_presets_are_attached_to_the_pipeline_version(presets):
-    """P1-P8 through the orchestrator's own loader: all four are offered for 0.10.0."""
+    """P1-P8 through the orchestrator's own loader: all four are offered for 0.11.0."""
     assert [p.id for p in presets.presets("stroke-lnm", VERSION)] == sorted(PRESETS)
     for preset in presets.presets("stroke-lnm", VERSION):
-        assert preset.version == "1.8.0"
+        assert preset.version == "1.9.0"
         assert preset.sha256 == hashlib.sha256((HERE / "presets" / f"{preset.id}.yaml").read_bytes()).hexdigest()
 
 
 def test_the_presets_are_written_for_the_current_pipeline_range():
     for name in PRESETS:
         data = yaml.safe_load((HERE / "presets" / f"{name}.yaml").read_text(encoding="utf-8"))
-        assert data["pipeline"] == {"id": "stroke-lnm", "versions": ">=0.2.0, <0.11.0"}
+        assert data["pipeline"] == {"id": "stroke-lnm", "versions": ">=0.2.0, <0.12.0"}
 
 
 # What each profile offers: the ci profile every preset (default `full`); the deployment (lab)
