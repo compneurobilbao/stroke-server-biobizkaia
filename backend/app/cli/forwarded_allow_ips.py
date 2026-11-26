@@ -6,10 +6,14 @@ read from the kernel routing table (``/proc/net/route``), loopback excluded::
 
     python -m app.cli.forwarded_allow_ips      # e.g. 172.18.0.0/16
 
-Without any such route (not Linux, no network) it prints ``127.0.0.1``. Uvicorn then takes
-the client address from the right-most ``X-Forwarded-For`` entry that is not trusted, so a
-client cannot spoof its address by sending the header itself. ``FORWARDED_ALLOW_IPS``
-overrides the detected value (docker-compose.yml).
+Without any such route (not Linux, no network) it prints ``127.0.0.1``.
+``FORWARDED_ALLOW_IPS`` overrides the detected value (docker-compose.yml).
+
+The reverse proxy overwrites ``X-Forwarded-For`` with the address it sees
+(infra/reverse-proxy/nginx.conf), so a header sent by a client never reaches the API
+through it. Anything else that can reach the API from inside the trusted network (other
+containers, or the host through the loopback-only published port, which arrives from the
+network gateway) can still set the header: such callers are trusted by design.
 """
 
 from __future__ import annotations

@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, Text
+from sqlalchemy import DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -11,6 +11,10 @@ from app.db.base import Base
 
 class AuditEvent(Base):
     __tablename__ = "audit_events"
+    # Sign-in throttle lookups (migration 0015).
+    __table_args__ = (
+        Index("ix_audit_events_event_type_timestamp", "event_type", "timestamp"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     study_id: Mapped[uuid.UUID | None] = mapped_column(

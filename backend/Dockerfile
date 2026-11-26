@@ -21,4 +21,6 @@ COPY external_processor /app/external_processor
 ENV PYTHONPATH=/app:/app/backend
 WORKDIR /app/backend
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Proxy headers are trusted only from FORWARDED_ALLOW_IPS (uvicorn default 127.0.0.1);
+# docker-compose.yml overrides this command and trusts the Compose network.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]

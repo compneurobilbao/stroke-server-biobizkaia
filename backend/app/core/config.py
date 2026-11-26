@@ -116,10 +116,13 @@ class Settings(BaseSettings):
     # Local development and the test suite only; never on a shared instance.
     allow_insecure_dev_key: bool = False
     auth_access_token_expire_minutes: int = 480
-    # Per-account sign-in throttle (services/auth.py): after this many failed logins for
-    # one e-mail address within the window, further attempts get 429 until the oldest
-    # counted failure leaves the window. A successful login resets the count. 0 = off.
+    # Sign-in throttle (services/auth.py). Failed logins are counted per e-mail address
+    # and client address (login_max_failed_attempts) and per e-mail address over all
+    # client addresses (login_max_failed_attempts_per_account, a much higher ceiling), within
+    # the window; over either limit further attempts get 429 until the oldest counted
+    # failure leaves the window. A successful login resets both. 0 disables a limit.
     login_max_failed_attempts: int = 5
+    login_max_failed_attempts_per_account: int = 50
     login_failure_window_minutes: int = 15
     share_link_expire_hours: int = 72
     retention_enabled: bool = False
@@ -143,6 +146,7 @@ class Settings(BaseSettings):
     @field_validator(
         "allow_insecure_dev_key",
         "login_max_failed_attempts",
+        "login_max_failed_attempts_per_account",
         "login_failure_window_minutes",
         mode="before",
     )

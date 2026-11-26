@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Navigate } from 'react-router-dom';
-import { errorText } from '../../api/client';
+import { ApiError, errorText } from '../../api/client';
 import { useMessage } from '../../shared/messages';
 import { useAuth } from './AuthContext';
 
@@ -24,7 +24,11 @@ export function LoginPage() {
       setPassword('');
       setMessage(t('auth.loggedIn'));
     } catch (error) {
-      setMessage(errorText(error, t('auth.failed')));
+      setMessage(
+        error instanceof ApiError && error.code === 'too_many_login_attempts'
+          ? t('auth.tooManyAttempts')
+          : errorText(error, t('auth.failed')),
+      );
     } finally {
       setLoading(false);
     }

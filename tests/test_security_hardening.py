@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import io
+import json
+import os
+import subprocess
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
@@ -15,6 +19,7 @@ from app.core.config import DEFAULT_AUTH_SECRET_KEY, Settings, get_settings
 from app.models.audit_event import AuditEvent
 from app.models.user import User
 from app.services import auth as auth_service
+from app.services.audit import record_event
 from app.services.storage import LocalStudyStorage, UploadTooLargeError
 from tests.test_api import auth_headers, create_test_user
 
@@ -77,8 +82,9 @@ def _login(client, email, attempt=WRONG):
     return client.post("/api/auth/login", json={"email": email, "password": attempt})
 
 
-def _limit_env(monkeypatch, attempts=3, minutes=15):
+def _limit_env(monkeypatch, attempts=3, minutes=15, per_account=50):
     monkeypatch.setenv("LOGIN_MAX_FAILED_ATTEMPTS", str(attempts))
+    monkeypatch.setenv("LOGIN_MAX_FAILED_ATTEMPTS_PER_ACCOUNT", str(per_account))
     monkeypatch.setenv("LOGIN_FAILURE_WINDOW_MINUTES", str(minutes))
     get_settings.cache_clear()
 
@@ -144,9 +150,59 @@ def test_successful_login_resets_the_count(client, monkeypatch):
 
 
 def test_throttle_can_be_disabled(client, monkeypatch):
-    _limit_env(monkeypatch, attempts=0)
+    _limit_env(monkeypatch, attempts=0, per_account=0)
     for _ in range(8):
         assert _login(client, "alice@example.org").status_code == 401
+
+
+def _record_failures(client, email, addresses):
+    db = client.app.state.testing_session_local()
+    for address in addresses:
+        record_event(
+            db,
+            auth_service.LOGIN_FAILED_EVENT,
+            details=auth_service.login_failure_details(email),
+            ip_address=address,
+        )
+    db.commit()
+    db.close()
+
+
+def _retry_after(client, email, address):
+    db = client.app.state.testing_session_local()
+    try:
+        user = auth_service.get_user_by_email(db, email)
+        return auth_service.login_retry_after_seconds(
+            db, email, user, get_settings(), address
+        )
+    finally:
+        db.close()
+
+
+def test_failures_from_one_address_do_not_lock_out_other_addresses(client, monkeypatch):
+    _limit_env(monkeypatch, attempts=3, per_account=50)
+    create_test_user(client, "admin@example.org", "right-pass")
+    _record_failures(client, "admin@example.org", ["203.0.113.7"] * 3)
+
+    assert _retry_after(client, "admin@example.org", "203.0.113.7") is not None
+    # The owner, from another address, can still sign in.
+    assert _retry_after(client, "admin@example.org", "198.51.100.1") is None
+    assert _login(client, "admin@example.org", "right-pass").status_code == 200
+
+
+def test_per_account_ceiling_applies_over_all_addresses(client, monkeypatch):
+    _limit_env(monkeypatch, attempts=3, per_account=4)
+    addresses = [f"203.0.113.{i}" for i in range(4)]  # one failure each, under 3 per address
+    _record_failures(client, "admin@example.org", addresses)
+
+    assert _retry_after(client, "admin@example.org", "198.51.100.1") is not None
+    assert _login(client, "Admin@example.org").status_code == 429
+
+
+def test_per_account_ceiling_can_be_disabled(client, monkeypatch):
+    _limit_env(monkeypatch, attempts=3, per_account=0)
+    _record_failures(client, "admin@example.org", [f"203.0.113.{i}" for i in range(10)])
+    assert _retry_after(client, "admin@example.org", "198.51.100.1") is None
 
 
 def test_login_hashes_a_dummy_password_for_unknown_and_inactive_accounts(
@@ -313,6 +369,35 @@ ROUTES = (
 )
 
 
+def test_celery_app_uses_the_password_even_with_celery_env_urls():
+    """Celery reads CELERY_BROKER_URL / CELERY_RESULT_BACKEND from the environment before
+    its constructor arguments; the app must still carry REDIS_PASSWORD."""
+    env = {
+        **os.environ,
+        "CELERY_BROKER_URL": "redis://redis:6379/0",
+        "CELERY_RESULT_BACKEND": "redis://redis:6379/1",
+        "REDIS_PASSWORD": REDIS_PW,
+        "PYTHONPATH": os.pathsep.join(
+            [str(ROOT), str(ROOT / "backend"), os.environ.get("PYTHONPATH", "")]
+        ),
+    }
+    code = (
+        "import json; from worker.celery_app import celery_app as a; "
+        "print(json.dumps([a.conf.broker_url, a.conf.result_backend]))"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    broker, backend = json.loads(out.strip().splitlines()[-1])
+    assert broker == "redis://:p%40ss%2Fword@redis:6379/0"
+    assert backend == "redis://:p%40ss%2Fword@redis:6379/1"
+
+
 def test_forwarded_allow_ips_lists_the_attached_networks(tmp_path):
     assert attached_networks(ROUTES) == ["172.18.0.0/16", "192.168.16.0/20"]
     table = tmp_path / "route"
@@ -328,6 +413,14 @@ def test_reverse_proxy_limits_login_and_sets_security_headers():
     assert "limit_req_zone $binary_remote_addr zone=login" in conf
     login = conf.split("location = /api/auth/login", 1)[1].split("}", 1)[0]
     assert "limit_req zone=login" in login
+    assert "error_page 429 = @login_throttled" in login
+    throttled = conf.split("location @login_throttled", 1)[1]
+    assert "application/json" in throttled and '"code": "too_many_login_attempts"' in throttled
+    # X-Forwarded-For is overwritten with the address nginx sees, never appended to.
+    assert "$proxy_add_x_forwarded_for" not in conf
+    assert conf.count("proxy_set_header X-Forwarded-For $remote_addr;") == conf.count(
+        "proxy_pass "
+    )
     for header in (
         'X-Content-Type-Options "nosniff"',
         'X-Frame-Options "DENY"',

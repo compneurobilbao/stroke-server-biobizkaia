@@ -71,6 +71,7 @@
     "hint": "Users are created by an administrator. There is no open public registration.",
     "loggingIn": "Signing in...",
     "failed": "Could not sign in.",
+    "tooManyAttempts": "Too many failed sign-in attempts. Please wait a few minutes and try again.",
     "loggedIn": "Signed in.",
     "sessionExpired": "The session has expired. Please sign in again.",
     "emailLabel": "Email",

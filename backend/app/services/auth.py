@@ -11,7 +11,7 @@ from uuid import UUID
 
 from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
@@ -87,40 +87,75 @@ def login_failure_details(email: str) -> dict:
     return {"email": normalize_email(email)}
 
 
-def login_retry_after_seconds(
-    db: Session, email: str, user: User | None, settings: Settings
-) -> int | None:
-    """Seconds until the next login attempt for ``email`` is allowed, or ``None``.
+def lock_login_attempts(db: Session, email: str) -> None:
+    """Serialise login attempts for one address until the transaction ends (PostgreSQL).
 
-    The count is kept in the audit trail, so it is shared by every API process and
-    survives restarts: the ``login_failed`` events of the address within the last
-    ``LOGIN_FAILURE_WINDOW_MINUTES``, ignoring those before the user's last successful
-    login. Unknown addresses are counted the same way, so a 429 says nothing about whether
-    an account exists. Refused attempts are recorded as ``login_throttled`` and do not
-    count, so the lock lifts when the oldest counted failure leaves the window.
+    Without it, concurrent attempts could all read the count before any of them records
+    its failure and so exceed the limit. A transaction-scoped advisory lock keyed on the
+    normalised address; nothing on other databases (SQLite in tests and development).
     """
-    limit = settings.login_max_failed_attempts
-    if limit <= 0:
-        return None
+    if db.get_bind().dialect.name != "postgresql":
+        return
+    db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+        {"key": f"login:{normalize_email(email)}"},
+    )
+
+
+def login_retry_after_seconds(
+    db: Session,
+    email: str,
+    user: User | None,
+    settings: Settings,
+    ip_address: str | None,
+) -> int | None:
+    """Seconds until the next login attempt for ``email`` from ``ip_address`` is allowed,
+    or ``None`` when it is allowed now.
+
+    Failures are the ``login_failed`` audit events of the address within the last
+    ``LOGIN_FAILURE_WINDOW_MINUTES``, ignoring those before the user's last successful
+    login, so the count is shared by every API process and survives restarts. Two limits:
+
+    * ``LOGIN_MAX_FAILED_ATTEMPTS`` per address and client address. Someone guessing from
+      one place is stopped, while the owner, from another place, can still sign in.
+    * ``LOGIN_MAX_FAILED_ATTEMPTS_PER_ACCOUNT`` per address over all client addresses, a
+      much higher ceiling against guessing spread over many client addresses. Reaching it
+      locks the account for everyone until failures age out: the price of the ceiling.
+
+    Unknown addresses are counted the same way, so a 429 says nothing about whether an
+    account exists. Refused attempts are recorded as ``login_throttled`` and do not
+    count, so a lock lifts when the oldest counted failure leaves the window.
+    """
     window = timedelta(minutes=max(settings.login_failure_window_minutes, 1))
     now = datetime.utcnow()
     since = now - window
     if user is not None and user.last_login_at and user.last_login_at > since:
         since = user.last_login_at
     details = json.dumps(login_failure_details(email), ensure_ascii=False)
-    count, oldest = db.execute(
-        select(func.count(AuditEvent.id), func.min(AuditEvent.timestamp)).where(
-            AuditEvent.event_type == LOGIN_FAILED_EVENT,
-            AuditEvent.timestamp > since,
-            AuditEvent.details == details,
-        )
-    ).one()
-    if count < limit:
-        return None
-    # With more failures than the limit (concurrent attempts) the lock lasts until enough
-    # of them have aged out; waiting for the oldest one is a lower bound, which is fine.
-    remaining = (oldest + window - now).total_seconds()
-    return max(int(remaining) + 1, 1)
+    base = select(func.count(AuditEvent.id), func.min(AuditEvent.timestamp)).where(
+        AuditEvent.event_type == LOGIN_FAILED_EVENT,
+        AuditEvent.timestamp > since,
+        AuditEvent.details == details,
+    )
+    same_client = (
+        AuditEvent.ip_address.is_(None)
+        if ip_address is None
+        else AuditEvent.ip_address == ip_address
+    )
+    checks = (
+        (settings.login_max_failed_attempts, base.where(same_client)),
+        (settings.login_max_failed_attempts_per_account, base),
+    )
+    waits = []
+    for limit, query in checks:
+        if limit <= 0:
+            continue
+        count, oldest = db.execute(query).one()
+        if count >= limit:
+            # With more failures than the limit, waiting for the oldest one is a lower
+            # bound; the next attempt is checked again.
+            waits.append(max(int((oldest + window - now).total_seconds()) + 1, 1))
+    return max(waits) if waits else None
 
 
 def create_access_token(user: User, settings: Settings) -> str:

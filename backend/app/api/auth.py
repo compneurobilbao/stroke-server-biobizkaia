@@ -30,6 +30,7 @@ from app.services.auth import (
     get_user_by_email,
     login_failure_details,
     login_retry_after_seconds,
+    lock_login_attempts,
 )
 from app.api.helpers import _user_read
 
@@ -43,15 +44,17 @@ def login(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> TokenResponse:
+    ip_address = client_ip(request)
+    lock_login_attempts(db, payload.email)
     user = get_user_by_email(db, payload.email)
-    retry_after = login_retry_after_seconds(db, payload.email, user, settings)
+    retry_after = login_retry_after_seconds(db, payload.email, user, settings, ip_address)
     if retry_after is not None:
         # Checked before the password, so a correct guess during the lock is refused too.
         record_event(
             db,
             LOGIN_THROTTLED_EVENT,
             details=login_failure_details(payload.email),
-            ip_address=client_ip(request),
+            ip_address=ip_address,
         )
         db.commit()
         raise api_error(
@@ -63,7 +66,7 @@ def login(
             db,
             LOGIN_FAILED_EVENT,
             details=login_failure_details(payload.email),
-            ip_address=client_ip(request),
+            ip_address=ip_address,
         )
         db.commit()
         raise api_error(ErrorCode.INVALID_CREDENTIALS)
@@ -74,7 +77,7 @@ def login(
         "login_succeeded",
         actor=user.email,
         actor_user_id=user.id,
-        ip_address=client_ip(request),
+        ip_address=ip_address,
     )
     db.commit()
     return TokenResponse(

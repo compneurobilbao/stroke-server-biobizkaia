@@ -93,6 +93,23 @@ describe('login flow', () => {
     expect(window.localStorage.getItem(TOKEN_KEY)).toBeNull();
   });
 
+  it('explains the sign-in throttle (API or reverse proxy 429)', async () => {
+    mockApi({
+      'POST /auth/login': () =>
+        jsonResponse({ detail: 'Too many requests', code: 'too_many_login_attempts' }, 429),
+    });
+    const user = userEvent.setup();
+    renderApp('/login');
+
+    await user.type(await screen.findByPlaceholderText('email@institution.org'), 'ana@example.org');
+    await user.type(screen.getByPlaceholderText('Password'), 'x');
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    expect(
+      await screen.findByText('Too many failed sign-in attempts. Please wait a few minutes and try again.'),
+    ).toBeInTheDocument();
+  });
+
   it('falls back to a generic message when the error has no detail', async () => {
     mockApi({ 'POST /auth/login': () => new Response('', { status: 500 }) });
     const user = userEvent.setup();

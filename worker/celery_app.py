@@ -1,8 +1,20 @@
+import os
+
 from celery import Celery
 
 from app.core.config import get_settings
 
 settings = get_settings()
+
+# Celery reads CELERY_BROKER_URL / CELERY_RESULT_BACKEND from the environment before its
+# constructor arguments and its configuration, so the URLs there must be the final ones:
+# the settings add REDIS_PASSWORD to them (idempotent: a URL with credentials is kept).
+for _name, _url in (
+    ("CELERY_BROKER_URL", settings.celery_broker_url),
+    ("CELERY_RESULT_BACKEND", settings.celery_result_backend),
+):
+    if _name in os.environ:
+        os.environ[_name] = _url
 
 celery_app = Celery(
     "neuroimagen_worker",
@@ -18,6 +30,9 @@ celery_app = Celery(
 PIPELINE_QUEUE = "pipelines"
 
 celery_app.conf.update(
+    # Set explicitly as well (see the environment note above).
+    broker_url=settings.celery_broker_url,
+    result_backend=settings.celery_result_backend,
     task_routes={
         "worker.tasks.run_pipeline": {"queue": PIPELINE_QUEUE},
         "worker.tasks.recover_pipeline_runs": {"queue": PIPELINE_QUEUE},
