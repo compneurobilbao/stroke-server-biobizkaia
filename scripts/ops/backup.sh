@@ -163,7 +163,7 @@ compose exec -T postgres sh -c 'pg_dump -Fc -U "$POSTGRES_USER" -d "$POSTGRES_DB
 } >"$WORK/bundles.tsv"
 
 runs_by_pipeline="$(psql_at "SELECT pipeline_id || ' ' || pipeline_version || ' ' || count(*)
-                             FROM pipeline_runs GROUP BY 1 ORDER BY 1" 2>/dev/null || true)"
+                             FROM pipeline_runs GROUP BY pipeline_id, pipeline_version ORDER BY pipeline_id, pipeline_version" 2>/dev/null || true)"
 counts_json="$(psql_at "SELECT '{\"cases\": ' || (SELECT count(*) FROM cases) || ', \"pipeline_runs\": '
                          || (SELECT count(*) FROM pipeline_runs) || '}'" 2>/dev/null || true)"
 [ -n "$counts_json" ] || counts_json="{}"

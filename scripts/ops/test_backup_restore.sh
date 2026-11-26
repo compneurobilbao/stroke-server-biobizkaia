@@ -144,6 +144,8 @@ tar -tzf "$DEFAULT/data.tar.gz" | grep -q "$RUN_ID/report/result.txt" || fail "r
 grep -q 'toy-tract-atlas' "$DEFAULT/bundles.tsv" || fail "bundle inventory incomplete"
 grep -q '"alembic_revision": "0' "$DEFAULT/manifest.json" || fail "no alembic revision in the manifest"
 grep -q '"platform_version": "0.0.0-ops-test"' "$DEFAULT/manifest.json" || fail "no platform version in the manifest"
+grep -q '"pipeline_id": "stroke-lnm", "pipeline_version": "0.11.0", "runs": 1' "$DEFAULT/manifest.json" || fail "runs_by_pipeline incomplete"
+grep -q '"counts": {"cases": 1, "pipeline_runs": 1}' "$DEFAULT/manifest.json" || fail "counts missing from the manifest"
 cat "$DEFAULT/manifest.json"
 if grep -rqF "$DB_PASSWORD" "$BK"; then fail "the database password reached the backup directory or the logs"; fi
 
