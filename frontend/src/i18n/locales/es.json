@@ -10,9 +10,9 @@
   "app": {
     "eyebrow": "Plataforma de investigación en ictus",
     "title": "De la imagen rutinaria del ictus a sus consecuencias en la red cerebral",
-    "subtitle": "Sube una lesión y ejecuta sobre ella pipelines de análisis reproducibles y versionados. Cada resultado registra las herramientas, parámetros y datos de referencia exactos que lo produjeron.",
+    "subtitle": "Suba una lesión y ejecute sobre ella pipelines de análisis reproducibles y versionados. Cada resultado registra las herramientas, parámetros y datos de referencia exactos que lo produjeron.",
     "sessionActive": "Sesión activa: {{name}} ({{role}}).",
-    "loginPrompt": "Inicia sesión con la cuenta que te ha facilitado el administrador de la plataforma.",
+    "loginPrompt": "Inicie sesión con la cuenta que le ha facilitado el administrador de la plataforma.",
     "featureLesion": "Un TAC con su máscara de lesión, o una máscara ya en espacio MNI, revisada y llevada a espacio estándar.",
     "featureNetwork": "Mapeo de redes lesionales y desconexión por tracto frente a conectomas normativos.",
     "featureProvenance": "Pasos versionados, datos de referencia fijados y un registro de procedencia completo en cada ejecución.",
@@ -73,21 +73,21 @@
     "failed": "No se pudo iniciar sesión.",
     "tooManyAttempts": "Demasiados intentos fallidos de inicio de sesión. Espere unos minutos y vuelva a intentarlo.",
     "loggedIn": "Sesión iniciada.",
-    "sessionExpired": "La sesión ha expirado. Vuelve a iniciar sesión.",
+    "sessionExpired": "La sesión ha expirado. Vuelva a iniciar sesión.",
     "emailLabel": "Correo electrónico",
     "passwordLabel": "Contraseña"
   },
   "studies": {
     "upload": {
       "title": "Subir estudio",
-      "hintFormat": "Se espera una imagen anatómica T1w en formato <strong>.nii.gz</strong>. Indica un identificador BIDS como <code>sub-O01</code>; si lo dejas vacío, el sistema generará uno seguro.",
+      "hintFormat": "Se espera una imagen anatómica T1w en formato <strong>.nii.gz</strong>. Indique un identificador BIDS como <code>sub-O01</code>; si lo deja vacío, el sistema generará uno seguro.",
       "hintStorage": "Almacenamiento: <strong>{{used}}</strong> usado de <strong>{{quota}}</strong>.",
       "subjectPlaceholder": "sub-O01",
       "subjectLabel": "Identificador de sujeto BIDS",
       "submit": "Enviar a procesamiento",
       "working": "Trabajando...",
       "hintDuration": "El procesamiento puede tardar entre 10 minutos y 1 hora.",
-      "selectFile": "Selecciona un fichero antes de enviar.",
+      "selectFile": "Seleccione un fichero antes de enviar.",
       "invalidSubject": "El identificador BIDS debe tener formato sub-XXXX, por ejemplo sub-O01.",
       "uploading": "Subiendo estudio...",
       "failed": "No se pudo subir el estudio.",
@@ -118,10 +118,10 @@
     "retry": "Reintentar",
     "delete": "Borrar",
     "confirm": {
-      "cancelProcessing": "¿Seguro que quieres solicitar la cancelación de este procesamiento en ejecución?",
-      "cancelQueued": "¿Seguro que quieres cancelar este job en cola? El estudio quedará en el historial como cancelado.",
-      "retry": "¿Seguro que quieres reintentar este estudio?",
-      "delete": "¿Seguro que quieres borrar este estudio y sus ficheros? Esta acción no se puede deshacer."
+      "cancelProcessing": "¿Seguro que quiere solicitar la cancelación de este procesamiento en ejecución?",
+      "cancelQueued": "¿Seguro que quiere cancelar este job en cola? El estudio quedará en el historial como cancelado.",
+      "retry": "¿Seguro que quiere reintentar este estudio?",
+      "delete": "¿Seguro que quiere borrar este estudio y sus ficheros? Esta acción no se puede deshacer."
     },
     "actionFailed": "No se pudo completar la operación.",
     "actionDone": "Operación completada.",
@@ -144,7 +144,7 @@
     },
     "share": {
       "title": "Compartir informe",
-      "hint": "Crea un enlace temporal para descargar solo el PDF técnico de <strong>{{filename}}</strong>.",
+      "hint": "Cree un enlace temporal para descargar solo el PDF técnico de <strong>{{filename}}</strong>.",
       "create": "Crear enlace temporal",
       "copy": "Copiar",
       "created": "Creado",
@@ -159,12 +159,12 @@
       "active": "Activo",
       "loadFailed": "No se pudieron cargar los enlaces compartidos.",
       "createFailed": "No se pudo crear el enlace compartido.",
-      "createdMessage": "Enlace temporal creado. Cópialo y compártelo solo con destinatarios autorizados.",
-      "confirmRevoke": "¿Seguro que quieres revocar este enlace?",
+      "createdMessage": "Enlace temporal creado. Cópielo y compártalo solo con destinatarios autorizados.",
+      "confirmRevoke": "¿Seguro que quiere revocar este enlace?",
       "revokeFailed": "No se pudo revocar el enlace.",
       "revokedMessage": "Enlace revocado.",
       "copied": "Enlace copiado al portapapeles.",
-      "copyFailed": "No se pudo copiar automáticamente; el enlace quedó seleccionado. Usa Ctrl+C."
+      "copyFailed": "No se pudo copiar automáticamente; el enlace quedó seleccionado. Use Ctrl+C."
     },
     "logs": {
       "title": "Logs del estudio",
@@ -180,7 +180,7 @@
     "emailOnCompleted": "Recibir correo cuando un estudio se complete",
     "emailOnFailed": "Recibir correo cuando un estudio falle",
     "unread": "{{count}} notificación(es) sin leer.",
-    "noneUnread": "No tienes notificaciones pendientes.",
+    "noneUnread": "No tiene notificaciones pendientes.",
     "empty": "Todavía no hay notificaciones.",
     "email": "Correo: {{status}}",
     "markRead": "Marcar leída",
@@ -228,10 +228,10 @@
       "quota": "Cuota",
       "delete": "Borrar",
       "currentUser": "Usuario actual",
-      "quotaPrompt": "Cuota en MB. Deja vacío para sin límite.",
+      "quotaPrompt": "Cuota en MB. Deje vacío para sin límite.",
       "quotaFailed": "No se pudo actualizar la cuota.",
       "quotaUpdated": "Cuota de usuario actualizada.",
-      "confirmDelete": "¿Seguro que quieres borrar lógicamente a {{email}}? No podrá iniciar sesión.",
+      "confirmDelete": "¿Seguro que quiere borrar lógicamente a {{email}}? No podrá iniciar sesión.",
       "deleteFailed": "No se pudo borrar el usuario.",
       "deleted": "Usuario borrado."
     }
@@ -245,8 +245,8 @@
       "male": "Hombre"
     },
     "roles": {
-      "ct": "TC (.nii.gz)",
-      "lesion_native": "Máscara de lesión sobre la TC (.nii.gz)",
+      "ct": "TAC (.nii.gz)",
+      "lesion_native": "Máscara de lesión sobre el TAC (.nii.gz)",
       "lesion_mni": "Máscara de lesión en espacio MNI (.nii.gz)"
     },
     "state": {
@@ -315,11 +315,11 @@
       },
       "modeLegend": "Modo de entrada",
       "mode": {
-        "ct": "TC y máscara de lesión",
+        "ct": "TAC y máscara de lesión",
         "mni": "Máscara de lesión ya en MNI"
       },
       "modeHint": {
-        "ct": "Suba una TC y una máscara de lesión dibujada sobre ella. El pipeline normaliza la lesión al espacio MNI.",
+        "ct": "Suba un TAC y una máscara de lesión dibujada sobre él. El pipeline normaliza la lesión al espacio MNI.",
         "mni": "Suba una máscara de lesión que ya esté en espacio MNI; se omite la normalización."
       },
       "sex": "Sexo (opcional)",
@@ -345,9 +345,9 @@
         "externalTool": "Creada con una herramienta externa",
         "tool": "Nombre de la herramienta",
         "version": "Versión de la herramienta",
-        "needBoth": "Indica el nombre de la herramienta y su versión.",
-        "invalid": "Usa solo letras, dígitos y . _ + - (hasta 64 caracteres). No escribas nombres ni identificadores.",
-        "hint": "Se muestra en la página de la ejecución y en el informe como declarado por el usuario. La plataforma no puede verificarlo. Indica solo el nombre y la versión de la herramienta, nunca nombres ni identificadores."
+        "needBoth": "Indique el nombre de la herramienta y su versión.",
+        "invalid": "Use solo letras, dígitos y . _ + - (hasta 64 caracteres). No escriba nombres ni identificadores.",
+        "hint": "Se muestra en la página de la ejecución y en el informe como declarado por el usuario. La plataforma no puede verificarlo. Indique solo el nombre y la versión de la herramienta, nunca nombres ni identificadores."
       },
       "stepsHint": "Cada paso del análisis elegido usa la implementación predeterminada salvo que elija otra.",
       "pipeline": "Pipeline",
@@ -540,7 +540,8 @@
           "title": "LNM estructural vóxel a vóxel",
           "text": "Se ejecuta en el clúster HPC. Su mapa se muestra pero no se analiza más."
         }
-      }
+      },
+      "modeUnavailableNote": "En desarrollo: este despliegue no tiene ninguna implementación disponible de {{slots}}."
     },
     "implementation": {
       "title": {
@@ -548,8 +549,79 @@
         "flnm-fast-hcp-ya": "flnm-fast · HCP Adultos jóvenes",
         "flnm-fast-synthetic": "flnm-fast · cohorte sintética (CI)",
         "lnm-tracts-hcp1065": "lnm-tracts · atlas de tractos HCP1065",
-        "cognet-stroke-concept-maps": "COGNET-STROKE · mapas de conceptos"
+        "cognet-stroke-concept-maps": "COGNET-STROKE · mapas de conceptos",
+        "fdisconnection-stub": "Desconexión funcional (simulada)",
+        "lnm-tracts": "lnm-tracts · atlas de tractos registrado",
+        "cognet-stroke": "COGNET-STROKE · mapas de conceptos registrados",
+        "research-report": "Informe de investigación (inglés)",
+        "research-report-es": "Informe de investigación (español)"
       }
+    },
+    "slot": {
+      "title": {
+        "lesion-intake": "Entrada y control de calidad de la lesión",
+        "normalisation": "Lesión de TAC a MNI152",
+        "functional-disconnection": "Desconexión funcional",
+        "tract-disconnection": "Desconexión estructural por tractos",
+        "cognet-profile": "Perfil cognitivo COGNET-STROKE",
+        "report": "Informe de investigación"
+      }
+    },
+    "preset": {
+      "ct-normalisation": {
+        "title": "Normalización de una lesión de TAC a MNI152",
+        "description": "Entrada y control de calidad de la lesión y registro del TAC y su máscara de lesión a MNI152, sin más análisis."
+      },
+      "full": {
+        "title": "Análisis completo de redes lesionales",
+        "description": "Entrada y control de calidad de la lesión, normalización de una lesión de TAC a MNI152 cuando es necesaria, desconexión por tractos y el informe de investigación; la desconexión funcional y el perfil cognitivo COGNET-STROKE se añaden cuando el despliegue tiene una implementación habilitada."
+      },
+      "lesion-qc-report": {
+        "title": "Control de calidad de la lesión e informe",
+        "description": "Entrada y control de calidad de la lesión y un informe de investigación cuyas secciones de análisis indican que los análisis de desconexión no formaron parte de la ejecución."
+      },
+      "mni-mask-analysis": {
+        "title": "Análisis de desconexión de una máscara de lesión en MNI",
+        "description": "Control de calidad de la lesión, desconexión funcional con el perfil cognitivo COGNET-STROKE, desconexión estructural por tractos y el informe de investigación para una máscara de lesión que ya está en espacio MNI."
+      }
+    },
+    "failure": {
+      "code": "Código",
+      "inStep": "Paso \"{{slot}}\": {{message}}",
+      "message": {
+        "input_rejected": "El paso rechazó la entrada.",
+        "step_failed": "El paso se detuvo con un error. El registro del paso tiene los detalles.",
+        "step_canceled": "Se canceló el paso.",
+        "canceled": "Se canceló el paso.",
+        "timed_out": "El paso superó su límite de tiempo.",
+        "pipeline_unavailable": "La definición del pipeline de esta ejecución no está disponible en este despliegue.",
+        "manifest_unavailable": "La imagen del paso no está disponible en este despliegue.",
+        "input_unavailable": "Una entrada del paso no está disponible.",
+        "bundle_unavailable": "No está disponible un paquete de datos de referencia que necesita el paso.",
+        "executor_refused": "El sistema de cálculo rechazó iniciar el paso.",
+        "input_missing": "No se proporcionó una entrada obligatoria.",
+        "input_format_invalid": "Un archivo de entrada no tiene el formato esperado: una imagen NIfTI comprimida con gzip, en la rejilla esperada y, si es una máscara, solo con los valores 0 y 1.",
+        "invalid_parameters": "Los parámetros no cumplen el esquema del paso.",
+        "lesion_input_missing": "No se proporcionó ninguna máscara de lesión.",
+        "conflicting_inputs": "Se proporcionó una máscara MNI junto con un TAC o una máscara nativa.",
+        "mask_not_3d": "La máscara tiene más de tres dimensiones.",
+        "affine_invalid": "La matriz vóxel a mundo de la máscara es singular o no es finita.",
+        "mask_empty": "La máscara de lesión no tiene ningún vóxel activo.",
+        "mask_empty_after_resampling": "La lesión es demasiado pequeña para sobrevivir al remuestreo a la rejilla de 2 mm.",
+        "space_not_declared": "La cabecera no declara sistema de coordenadas, así que no se puede confirmar el espacio MNI152.",
+        "space_mismatch": "La cabecera declara espacio nativo, los ejes son oblicuos o la lesión queda fuera de la extensión de MNI152.",
+        "ct_grid_mismatch": "El TAC y la máscara de lesión nativa no están en la misma rejilla.",
+        "lesion_too_large": "El volumen de la lesión supera el máximo.",
+        "bilateral_lesion": "La lesión afecta a ambos hemisferios y esta ejecución rechaza las lesiones bilaterales.",
+        "lesion_outside_parcellation": "La lesión no se solapa con ninguna parcela de la parcelación.",
+        "mask_outside_atlas_space": "No queda ningún vóxel de la lesión tras remuestrear al espacio del atlas.",
+        "disconnection_not_finite": "El mapa de desconexión tiene valores infinitos.",
+        "disconnection_map_undefined": "El mapa de desconexión no tiene ningún valor definido en ninguna parcela.",
+        "disconnection_map_empty": "El mapa de desconexión es cero allí donde está definido."
+      }
+    },
+    "validation": {
+      "help": "Niveles de validación: \"probada con referencia\" significa que la salida se comparó en pruebas automáticas con un cálculo independiente sobre datos sintéticos o públicos; \"validada\" requiere un registro de validación firmado. Los pasos probados con referencia se marcan como experimentales. Todos los resultados son solo para investigación."
     }
   },
   "viewer": {
@@ -573,7 +645,6 @@
     "noTemplate": "No se muestra fondo anatómico. Esta ejecución no tiene un TAC en espacio MNI y la aplicación no incluye una plantilla cerebral porque no se incorpora ninguna plantilla con una licencia que permita su redistribución. Las capas se dibujan sobre un fondo vacío."
   },
   "process": {
-    "pageTitle": "Sobre el proceso",
     "title": "Cómo una lesión se convierte en un informe de investigación",
     "intro": "Hoy la plataforma parte de una máscara de lesión que ya está en espacio estándar y ejecuta dos análisis sobre ella. Los pasos previos, en gris, se están incorporando.",
     "availableTitle": "Disponible ahora",

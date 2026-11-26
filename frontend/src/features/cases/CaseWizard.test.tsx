@@ -1,8 +1,9 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { App } from '../../App';
+import i18n from '../../i18n';
 import { jsonResponse, makeRun, makeSlots, mockApi, type Call } from '../../test/casesMock';
 import { TOKEN_KEY } from '../auth/AuthContext';
 
@@ -109,19 +110,40 @@ describe('case wizard', () => {
     });
   });
 
-  it('mode CT: cannot start when the normalisation step is not mounted in the deployment', async () => {
-    const { calls: all } = mockApi();
+  it('mode CT: greyed with a note when the normalisation step is not mounted, and the wizard starts in MNI mode', async () => {
+    // Normalisation is enabled but not mounted (available: false) and nothing is listed as in development.
+    const slots = makeSlots({ normalisationMounted: true }).map((slot) =>
+      slot.name === 'normalisation'
+        ? { ...slot, implementations: slot.implementations.map((impl) => ({ ...impl, available: false })) }
+        : slot,
+    );
+    mockApi({ slots, development: [] });
     renderWizard();
     await screen.findByRole('heading', { name: 'New case' });
-    await next();
-    await userEvent.upload(screen.getByLabelText('CT scan (.nii.gz)'), mask());
-    await userEvent.upload(screen.getByLabelText('Lesion mask on the CT (.nii.gz)'), mask());
-    await next();
-    await acceptAnalysis();
 
-    expect(await screen.findByText(/CT lesion to MNI152 has no enabled implementation in this deployment\./)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Create case and start run' })).toBeDisabled();
-    expect(calls(all, 'POST', '/v1/cases')).toHaveLength(0);
+    const ct = screen.getByRole('radio', { name: /CT and lesion mask/ });
+    await waitFor(() => expect(ct).toBeDisabled());
+    expect(screen.getByRole('radio', { name: /Lesion mask already in MNI/ })).toBeChecked();
+    const label = ct.closest('label') as HTMLElement;
+    expect(label).toHaveAttribute('data-development', 'true');
+    expect(within(label).getByText('In development')).toBeInTheDocument();
+    expect(screen.getByTestId('mode-note-ct')).toHaveTextContent(
+      'In development: no implementation of CT lesion to MNI152 is available in this deployment.',
+    );
+    await next();
+    expect(screen.getByLabelText('Lesion mask in MNI space (.nii.gz)')).toBeInTheDocument();
+    expect(screen.queryByLabelText('CT scan (.nii.gz)')).not.toBeInTheDocument();
+  });
+
+  it('mode CT: the note is in Spanish', async () => {
+    await i18n.changeLanguage('es');
+    mockApi({ slots: makeSlots(), development: [] });
+    renderWizard();
+    await screen.findByRole('heading', { name: 'Nuevo caso' });
+    await waitFor(() => expect(screen.getByRole('radio', { name: /TAC y máscara de lesión/ })).toBeDisabled());
+    expect(screen.getByTestId('mode-note-ct')).toHaveTextContent(
+      'En desarrollo: este despliegue no tiene ninguna implementación disponible de Lesión de TAC a MNI152.',
+    );
   });
 
   it('does not offer an exact age field and never sends one', async () => {
@@ -237,7 +259,7 @@ describe('case wizard', () => {
     });
 
     it('offers it for the lesion mask of the CT mode and not for the CT scan', async () => {
-      mockApi();
+      mockApi({ slots: makeSlots({ normalisationMounted: true }) });
       renderWizard();
       await screen.findByRole('heading', { name: 'New case' });
       await next();

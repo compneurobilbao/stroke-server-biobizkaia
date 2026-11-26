@@ -21,7 +21,7 @@ El esquema muestra además etapas en gris marcadas como **En desarrollo**: **Nor
 
 1. Abra la dirección de la plataforma que le haya dado el administrador.
 2. Escriba su **Correo electrónico** y su **Contraseña** y pulse **Entrar**.
-3. Use **Cerrar sesión** al terminar. Si aparece "La sesión ha expirado. Vuelve a iniciar sesión.", inicie sesión de nuevo.
+3. Use **Cerrar sesión** al terminar. Si aparece "La sesión ha expirado. Vuelva a iniciar sesión.", inicie sesión de nuevo.
 
 Las cuentas las crea un administrador; no hay registro público. El idioma se cambia con el selector **Idioma** (English o Español).
 
@@ -52,7 +52,7 @@ No ponga nombres ni identificadores en los archivos ni en los datos del caso. Lo
 
 Un caso contiene su archivo de entrada y sus ejecuciones. Vaya a **Casos** y pulse **Nuevo caso**. El asistente tiene cuatro pasos (**Progreso del asistente**): **Modo y datos del caso**, **Archivos**, **Implementaciones** y **Análisis**.
 
-1. **Modo y datos del caso**. En **Modo de entrada** elija **Máscara de lesión ya en MNI**. El otro modo, **TC y máscara de lesión**, necesita la etapa de normalización, que está en desarrollo, así que la instancia del laboratorio no lo ejecuta. Opcionalmente indique **Sexo (opcional)** y **Banda de edad (opcional)**. Solo se guarda la banda; la edad exacta nunca se envía al servidor. La plataforma guarda solo una etiqueta generada para el caso.
+1. **Modo y datos del caso**. En **Modo de entrada** elija **Máscara de lesión ya en MNI**. El otro modo, **TAC y máscara de lesión**, necesita la etapa de normalización, que está en desarrollo, así que la instancia del laboratorio no lo ejecuta: el asistente lo muestra en gris con la etiqueta **En desarrollo** y una nota ("En desarrollo: este despliegue no tiene ninguna implementación disponible de Lesión de TAC a MNI152." cuando el paso de normalización no está instalado en el despliegue). Opcionalmente indique **Sexo (opcional)** y **Banda de edad (opcional)**. Solo se guarda la banda; la edad exacta nunca se envía al servidor. La plataforma guarda solo una etiqueta generada para el caso.
 2. **Archivos**. Seleccione su archivo `.nii.gz` ("Máscara de lesión en espacio MNI (.nii.gz)"). Opcionalmente declare **¿Cómo se obtuvo esta máscara? (opcional)**: **Dibujada a mano** o **Creada con una herramienta externa** (indique **Nombre de la herramienta** y **Versión de la herramienta**; solo letras, dígitos y `. _ + -`, hasta 64 caracteres). Se muestra en la ejecución y en el informe como "Declarado por el usuario (no verificado)".
 3. **Implementaciones**. Cada paso usa la implementación predeterminada salvo que elija otra. Vea la sección 6 para la cohorte.
 4. **Análisis**. Elija qué ejecutar (sección 5).
@@ -71,11 +71,11 @@ En el paso **Análisis** la plataforma lista los análisis que ofrece. El presel
 
 | Opción | Significado |
 |---|---|
-| Un análisis con nombre (preset) | Un conjunto de resultados revisado y versionado. La instancia del laboratorio ofrece **Disconnection analysis of an MNI lesion mask** (el título del preset se muestra en inglés): control de calidad de la lesión, desconexión funcional, perfil COGNET, desconexión por tractos e informe de investigación. Todos estos resultados son obligatorios: si alguno no puede producirse, la ejecución se rechaza en lugar de ejecutarse en silencio sin él. |
+| Un análisis con nombre (preset) | Un conjunto de resultados revisado y versionado. La instancia del laboratorio ofrece **Análisis de desconexión de una máscara de lesión en MNI**: control de calidad de la lesión, desconexión funcional, perfil COGNET, desconexión por tractos e informe de investigación. Todos estos resultados son obligatorios: si alguno no puede producirse, la ejecución se rechaza en lugar de ejecutarse en silencio sin él. |
 | **Plan completo** | Todos los pasos que se aplican al modo de entrada. |
 | **Personalizado** | Usted elige los resultados; los pasos que necesitan se añaden automáticamente. Cada resultado es **Obligatorio** (la ejecución se rechaza si no puede producirse) o **Si está disponible** (se produce cuando es posible y se omite en caso contrario). |
 
-Existen otros presets (**Full lesion network analysis**, **Lesion QC and report**, **Normalisation of a CT lesion to MNI152**), pero un despliegue ofrece solo los que su administrador haya habilitado.
+Existen otros presets (**Análisis completo de redes lesionales**, **Control de calidad de la lesión e informe**, **Normalización de una lesión de TAC a MNI152**), pero un despliegue ofrece solo los que su administrador haya habilitado.
 
 **Quién puede usar Personalizado.** Lo decide el ajuste del despliegue `RUN_PLAN_POLICY`:
 
@@ -97,9 +97,9 @@ El paso de desconexión funcional compara su lesión con una cohorte normativa s
 
 Elija la cohorte que mejor se ajuste a la población que estudia. El paso usa todos los participantes de la cohorte elegida: no hay emparejamiento por edad ni sexo, de modo que el sexo y la banda de edad del caso no afectan al resultado.
 
-Algunos análisis fijan una implementación (**Fijada por este análisis**); esas no se pueden cambiar. El paso del informe puede ofrecer una implementación en inglés y otra en español con el mismo título; elija según el idioma que quiera para el PDF.
+Algunos análisis fijan una implementación (**Fijada por este análisis**); esas no se pueden cambiar. El paso del informe puede ofrecer **Informe de investigación (inglés)** e **Informe de investigación (español)**; elija según el idioma que quiera para el PDF.
 
-Junto a cada implementación la plataforma muestra su nivel de validación y, en las no validadas, la etiqueta **experimental** (vea la sección 10).
+Junto a cada implementación la plataforma muestra su nivel de validación y, en las no validadas, la etiqueta **experimental** (vea la sección 10). Una nota breve bajo la lista (y la ayuda emergente de la etiqueta) explica los niveles.
 
 ## 7. Qué produce cada análisis
 
@@ -134,13 +134,13 @@ Una sección no solicitada indica "No solicitado" y queda vacía.
 
 ## 8. Seguir una ejecución y descargar los resultados
 
-Al pulsar **Crear caso e iniciar ejecución** se abre la página de **Ejecución**. Muestra **Pipeline**, **Conjunto de entradas**, **Creada**, **Finalizada** y la **Cronología de pasos**. Cada paso muestra su estado (**En cola**, **En ejecución**, **Completado**, **Fallido**, **Cancelado**, **Omitido**, **No disponible**), su implementación y quién la eligió, cada **Intento** y un registro (**Ver registro**). Los pasos fuera del plan figuran como "No forma parte de este plan". Las etapas **En desarrollo** figuran como **No forma parte de esta ejecución**.
+Al pulsar **Crear caso e iniciar ejecución** se abre la página de **Ejecución**. Muestra **Pipeline**, **Conjunto de entradas**, **Creada**, **Finalizada** y la **Cronología de pasos**. Cada paso muestra su estado (**En cola**, **En ejecución**, **Completado**, **Fallido**, **Cancelado**, **Omitido**, **No disponible**), su implementación (con su identificador entre paréntesis cuando el nombre mostrado es otro, por ejemplo "Informe de investigación (español) (research-report-es)") y quién la eligió, cada **Intento** y un registro (**Ver registro**). Los pasos fuera del plan figuran como "No forma parte de este plan". Las etapas **En desarrollo** figuran como **No forma parte de esta ejecución**.
 
 Para obtener los resultados:
 
 - **Informes**: **Descargar informe PDF**.
 - **Artefactos**: una tabla con **Salida**, **Tipo** y **Tamaño** y un botón **Descargar** por archivo (el mapa funcional, la tabla de tractos, el perfil COGNET, los archivos de control de calidad, etc.). Los artefactos que proceden del ejemplo sintético llevan la etiqueta **sintético**.
-- **Ver imágenes** abre un visor de solo lectura con la máscara de lesión y el mapa de desconexión como capas (**Mostrar**, **Opacidad**, **Umbral**). Si la ejecución no tiene una TC en espacio MNI, no se muestra fondo anatómico.
+- **Ver imágenes** abre un visor de solo lectura con la máscara de lesión y el mapa de desconexión como capas (**Mostrar**, **Opacidad**, **Umbral**). Si la ejecución no tiene un TAC en espacio MNI, no se muestra fondo anatómico.
 - **Abrir caso** vuelve al caso.
 
 Puede detener una ejecución con **Cancelar ejecución**; se detiene tras el paso actual.
@@ -157,7 +157,7 @@ Si la ejecución no puede iniciarse, el asistente muestra "El servidor ha rechaz
 | "Elegir sus propios resultados no está permitido..." | Elija un análisis con nombre. |
 | "No está disponible un paquete de datos de referencia que necesita ..." | Los datos de la cohorte, del atlas o de los conceptos no están instalados; consulte al administrador. |
 
-Si una ejecución falla mientras corre, abra el paso fallido en la página de **Ejecución**. El campo **Fallo** y el paso muestran un mensaje breve, y **Ver registro** da más detalle. La pantalla muestra el mensaje y no el código, así que relacione el mensaje con la tabla siguiente (los códigos también aparecen en los registros y en la API). Si la causa está en su archivo, corríjalo y cree un caso nuevo, porque los archivos de un caso no se pueden cambiar tras su primera ejecución. Si la causa fue temporal, use **Reintentar desde el paso fallido** (o **Reanudar desde el paso cancelado** tras una cancelación); los pasos que ya terminaron bien no se repiten.
+Si una ejecución falla mientras corre, abra el paso fallido en la página de **Ejecución**. El campo **Fallo** y el paso muestran un mensaje breve y el **Código** del fallo (el mismo código que en los registros y en la API; el campo **Fallo** da el código de la ejecución y el del paso fallido, por ejemplo `input_rejected / mask_empty`), y **Ver registro** da más detalle. La tabla siguiente lista los códigos de los pasos. Si la causa está en su archivo, corríjalo y cree un caso nuevo, porque los archivos de un caso no se pueden cambiar tras su primera ejecución. Si la causa fue temporal, use **Reintentar desde el paso fallido** (o **Reanudar desde el paso cancelado** tras una cancelación); los pasos que ya terminaron bien no se repiten.
 
 | Código | Paso | Significado |
 |---|---|---|
@@ -165,14 +165,14 @@ Si una ejecución falla mientras corre, abra el paso fallido en la página de **
 | `input_format_invalid` | todos | El archivo no es una imagen NIfTI comprimida con gzip, o la máscara tiene valores distintos de 0 y 1. |
 | `invalid_parameters` | todos | Los parámetros no cumplen el esquema del paso. |
 | `lesion_input_missing` | control de calidad | No se proporcionó ninguna máscara de lesión. |
-| `conflicting_inputs` | control de calidad | Se proporcionó una máscara MNI junto con una TC o una máscara nativa. |
+| `conflicting_inputs` | control de calidad | Se proporcionó una máscara MNI junto con un TAC o una máscara nativa. |
 | `mask_not_3d` | control de calidad | La máscara tiene más de tres dimensiones. |
 | `affine_invalid` | control de calidad | La matriz vóxel a mundo es singular o no es finita. |
 | `mask_empty` | control de calidad, flnm-fast, lnm-tracts, COGNET | La máscara no tiene ningún vóxel activo. |
 | `mask_empty_after_resampling` | control de calidad | La lesión es demasiado pequeña para sobrevivir al remuestreo a la rejilla de 2 mm. |
 | `space_not_declared` | control de calidad | La cabecera no declara sistema de coordenadas, así que no se puede confirmar el espacio MNI152. |
 | `space_mismatch` | control de calidad | La cabecera declara espacio nativo, los ejes son oblicuos o la lesión queda fuera de la extensión de MNI152. |
-| `ct_grid_mismatch` | control de calidad | La TC y la máscara nativa no están en la misma rejilla. |
+| `ct_grid_mismatch` | control de calidad | El TAC y la máscara nativa no están en la misma rejilla. |
 | `lesion_too_large` | control de calidad | El volumen supera el máximo. |
 | `bilateral_lesion` | control de calidad | La lesión afecta a ambos hemisferios y la ejecución está configurada para rechazarlas (si no, es solo un aviso). |
 | `lesion_outside_parcellation` | flnm-fast, COGNET | La lesión no se solapa con ninguna parcela de la parcelación. |

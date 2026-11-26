@@ -26,7 +26,9 @@ import { DevelopmentList } from './DevelopmentList';
 import { rerunRequest } from './plan';
 import { RunPlanSummary, originPrefix, originText } from './RunPlanSummary';
 import { RunStatusBadge } from './RunStatusBadge';
-import { RunTimeline } from './RunTimeline';
+import { runFailure } from './failure';
+import { FailureDetail, RunTimeline } from './RunTimeline';
+import { slotLabel } from './slots';
 import { selectLayers } from '../viewer/layers';
 
 const POLL_INTERVAL_MS = 3000;
@@ -48,7 +50,7 @@ function saveBlob(blob: Blob, name: string) {
 
 export function RunPage() {
   const { runId = '' } = useParams();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { api } = useAuth();
   const { setMessage } = useMessage();
   const { date } = useFormatters();
@@ -152,6 +154,7 @@ export function RunPage() {
   const sameCaseRoles = (run.inputs ?? []).map((input) => input.role);
   const steps = run.steps ?? [];
   const declared = (run.inputs ?? []).filter((input) => input.origin);
+  const failure = runFailure({ t, i18n }, run, (slot) => slotLabel(t, slot));
 
   return (
     <>
@@ -183,10 +186,12 @@ export function RunPage() {
           <dd>{date(run.created_at)}</dd>
           <dt>{t('cases.run.finished')}</dt>
           <dd>{date(run.finished_at)}</dd>
-          {run.failure_message && (
+          {failure && (
             <>
               <dt>{t('cases.run.failure')}</dt>
-              <dd>{run.failure_message}</dd>
+              <dd>
+                <FailureDetail failure={failure} testId="run-failure" />
+              </dd>
             </>
           )}
         </dl>

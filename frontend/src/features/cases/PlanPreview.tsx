@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import type { DevelopmentStage, PlanPreview as PlanPreviewData, PlanReason, Slot } from '../../api/v1';
 import { missingOptionalInputs, planSlotState, reasonKey, reasonParams } from './plan';
-import { developmentSlotNames, slotImplementationName } from './slots';
+import { developmentSlotNames, slotImplementationName, slotLabel } from './slots';
 
 /** State of the live plan preview of the wizard. */
 export interface PreviewState {
@@ -13,10 +13,12 @@ export interface PreviewState {
 
 export const IDLE_PREVIEW: PreviewState = { status: 'idle', data: null, error: '' };
 
-/** Title of a slot (or the name when unknown); reasons and states name slots by title. */
-export function slotTitleOf(slots: readonly Slot[]): (name: string) => string {
-  const titles = new Map(slots.map((slot): [string, string] => [slot.name, slot.title || slot.name]));
-  return (name) => titles.get(name) ?? name;
+type Translate = ReturnType<typeof useTranslation>['t'];
+
+/** Title of a slot (catalogue, else API title, else the name); reasons and states name slots by title. */
+export function slotTitleOf(t: Translate, slots: readonly Slot[]): (name: string) => string {
+  const titles = new Map(slots.map((slot): [string, string | null | undefined] => [slot.name, slot.title]));
+  return (name) => slotLabel(t, name, titles.get(name));
 }
 
 interface ReasonListProps {
@@ -62,7 +64,7 @@ interface PlanPreviewProps {
 /** Each slot of the plan the request would get, with its role or why it is left out, and every refusal reason. */
 export function PlanPreview({ preview, slots, roles, idleHint, development = [] }: PlanPreviewProps) {
   const { t } = useTranslation();
-  const titleOf = slotTitleOf(slots);
+  const titleOf = slotTitleOf(t, slots);
   const developmentSlots = developmentSlotNames(development);
   const { data } = preview;
   const position = new Map(slots.map((slot): [string, number] => [slot.name, slot.position]));

@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next';
 import type { DevelopmentStage, PlanSlot, Slot, SlotImplementation } from '../../api/v1';
 import { isPlanned, planSlotState } from './plan';
 import { upstreamText } from './RunTimeline';
+import { ValidationHelp } from './ValidationHelp';
 import {
   defaultImplementationId,
   developmentSlotNames,
@@ -9,6 +10,7 @@ import {
   isSelectable,
   isSlotUnavailable,
   slotApplies,
+  slotLabel,
 } from './slots';
 
 interface SlotSelectorProps {
@@ -61,6 +63,7 @@ function CandidateBadges({ impls, selected }: { impls: readonly SlotImplementati
                 className={`tag ${impl.experimental ? 'tag-warn' : level === 'validated' ? '' : 'tag-muted'}`}
                 data-testid="impl-level"
                 data-level={level}
+                title={t('cases.validation.help')}
               >
                 {t(`cases.slots.level.${level}`)}
                 {impl.experimental ? ` - ${t('cases.slots.experimental')}` : ''}
@@ -105,63 +108,69 @@ export function SlotSelector({
     return isSelectable(impl) ? text : `${text} - ${t('cases.slots.unavailable')}`;
   }
 
+  // What the validation levels mean, once under the list, when a candidate shows its level.
+  const showsLevel = ordered.some((slot) => slot.implementations.some((impl) => impl.validation_level));
+
   return (
-    <ul className="slot-list">
-      {ordered.map((slot) => {
-        const title = slot.title || slot.name;
-        const applies = planned ? true : slotApplies(slot, roles);
-        const planSlot = planned?.get(slot.name);
-        const role = planSlot ? planSlotState(planSlot) : null;
-        const fixedId = fixed[slot.name];
-        const inDevelopment = developmentSlots.has(slot.name);
-        const unavailable = isSlotUnavailable(slot) && !inDevelopment;
-        const defaultId = defaultImplementationId(slot);
-        const state = inDevelopment ? 'development' : !applies ? 'unused' : unavailable ? 'unavailable' : 'ok';
-        return (
-          <li key={slot.name} className="slot-row" data-slot={slot.name} data-state={state}>
-            <div className="slot-head">
-              <strong>{title}</strong>
-              {inDevelopment && <span className="tag tag-muted">{t('cases.development.badge')}</span>}
-              {role && role !== 'unavailable' && <span className="tag">{t(`cases.plan.role.${role}`)}</span>}
-              {slot.optional && <span className="tag">{t('cases.slots.optional')}</span>}
-              {!applies && !inDevelopment && <span className="tag tag-muted">{t('cases.slots.notUsed')}</span>}
-              {applies && unavailable && <span className="tag tag-warn">{t('cases.slots.unavailable')}</span>}
-            </div>
-            {slot.description && <p className="hint slot-description">{slot.description}</p>}
-            {applies && !unavailable && !inDevelopment && fixedId && (
-              <p className="hint slot-fixed" data-fixed={fixedId}>
-                {t('cases.slots.fixed')}:{' '}
-                <strong>{fixedLabel(t, slot, fixedId)}</strong>
-              </p>
-            )}
-            {applies && !unavailable && !inDevelopment && !fixedId && (
-              <select
-                aria-label={title}
-                value={value[slot.name] ?? defaultId ?? ''}
-                disabled={disabled}
-                onChange={(event) => onChange(slot.name, event.target.value)}
-              >
-                {slot.implementations.map((impl) => (
-                  <option key={impl.id} value={impl.id} disabled={!isSelectable(impl)}>
-                    {label(impl, impl.id === defaultId)}
-                  </option>
-                ))}
-              </select>
-            )}
-            {applies && !unavailable && !inDevelopment && (
-              <CandidateBadges
-                impls={fixedId ? slot.implementations.filter((impl) => impl.id === fixedId) : slot.implementations.filter(isSelectable)}
-                selected={fixedId ?? value[slot.name] ?? defaultId ?? ''}
-              />
-            )}
-            {applies && unavailable && (
-              <p className="hint slot-note">
-                {slot.optional ? t('cases.slots.unavailableOptional') : t('cases.slots.unavailableRequired')}
-              </p>
-            )}
-          </li>
-        );
-      })}
-    </ul>
+    <>
+      <ul className="slot-list">
+        {ordered.map((slot) => {
+          const title = slotLabel(t, slot.name, slot.title);
+          const applies = planned ? true : slotApplies(slot, roles);
+          const planSlot = planned?.get(slot.name);
+          const role = planSlot ? planSlotState(planSlot) : null;
+          const fixedId = fixed[slot.name];
+          const inDevelopment = developmentSlots.has(slot.name);
+          const unavailable = isSlotUnavailable(slot) && !inDevelopment;
+          const defaultId = defaultImplementationId(slot);
+          const state = inDevelopment ? 'development' : !applies ? 'unused' : unavailable ? 'unavailable' : 'ok';
+          return (
+            <li key={slot.name} className="slot-row" data-slot={slot.name} data-state={state}>
+              <div className="slot-head">
+                <strong>{title}</strong>
+                {inDevelopment && <span className="tag tag-muted">{t('cases.development.badge')}</span>}
+                {role && role !== 'unavailable' && <span className="tag">{t(`cases.plan.role.${role}`)}</span>}
+                {slot.optional && <span className="tag">{t('cases.slots.optional')}</span>}
+                {!applies && !inDevelopment && <span className="tag tag-muted">{t('cases.slots.notUsed')}</span>}
+                {applies && unavailable && <span className="tag tag-warn">{t('cases.slots.unavailable')}</span>}
+              </div>
+              {slot.description && <p className="hint slot-description">{slot.description}</p>}
+              {applies && !unavailable && !inDevelopment && fixedId && (
+                <p className="hint slot-fixed" data-fixed={fixedId}>
+                  {t('cases.slots.fixed')}:{' '}
+                  <strong>{fixedLabel(t, slot, fixedId)}</strong>
+                </p>
+              )}
+              {applies && !unavailable && !inDevelopment && !fixedId && (
+                <select
+                  aria-label={title}
+                  value={value[slot.name] ?? defaultId ?? ''}
+                  disabled={disabled}
+                  onChange={(event) => onChange(slot.name, event.target.value)}
+                >
+                  {slot.implementations.map((impl) => (
+                    <option key={impl.id} value={impl.id} disabled={!isSelectable(impl)}>
+                      {label(impl, impl.id === defaultId)}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {applies && !unavailable && !inDevelopment && (
+                <CandidateBadges
+                  impls={fixedId ? slot.implementations.filter((impl) => impl.id === fixedId) : slot.implementations.filter(isSelectable)}
+                  selected={fixedId ?? value[slot.name] ?? defaultId ?? ''}
+                />
+              )}
+              {applies && unavailable && (
+                <p className="hint slot-note">
+                  {slot.optional ? t('cases.slots.unavailableOptional') : t('cases.slots.unavailableRequired')}
+                </p>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {showsLevel && <ValidationHelp />}
+    </>
   );
 }

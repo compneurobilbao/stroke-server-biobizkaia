@@ -246,7 +246,17 @@ export interface StepAttempt {
   finished_at?: string | null;
   failure_code?: string | null;
   failure_message?: string | null;
+  /** The step's error.json when it wrote one (a rejected input: `code` is one of the manifest's error codes). */
+  step_error?: StepError | null;
   log_available?: boolean;
+}
+
+/** Error record a step writes to `/out/error.json` (step contract); only the fields the UI uses are typed. */
+export interface StepError {
+  code?: string;
+  category?: string;
+  message?: string;
+  [key: string]: unknown;
 }
 
 export interface RunRead {
@@ -261,6 +271,8 @@ export interface RunRead {
   finished_at?: string | null;
   failure_code?: string | null;
   failure_message?: string | null;
+  /** The attempt that made the run fail, when one did. */
+  failed_step_run_id?: string | null;
   cancel_requested_at?: string | null;
   resume_count?: number;
 }

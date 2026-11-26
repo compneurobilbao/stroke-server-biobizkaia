@@ -153,9 +153,9 @@ const preset = (
 
 /** Presets of the mocked deployment when `presets: true`: two accept the CT mode, two the MNI mode. */
 const PRESETS = [
-  preset('full', 'Full analysis', ['ct-and-native-mask', 'mni-mask'], ['lesion-intake'], { is_default: true }),
+  preset('full', 'Full lesion network analysis', ['ct-and-native-mask', 'mni-mask'], ['lesion-intake'], { is_default: true }),
   preset('mni-mask-analysis', 'Disconnection analysis of an MNI lesion mask', ['mni-mask'], ['functional-disconnection']),
-  preset('ct-normalisation', 'CT normalisation only', ['ct-and-native-mask'], ['normalisation']),
+  preset('ct-normalisation', 'Normalisation of a CT lesion to MNI152', ['ct-and-native-mask'], ['normalisation']),
 ];
 
 interface PlanBody {
@@ -302,6 +302,11 @@ export interface MockOptions {
    * lists it plus four stages without a slot; default none in development.
    */
   inDevelopment?: boolean;
+  /**
+   * The normalisation step is enabled but its image is not mounted (`available: false`) and nothing is
+   * listed as in development: the CT mode cannot run, so the wizard greys it with a note.
+   */
+  normalisationUnmounted?: boolean;
 }
 
 /** The stages `GET .../in-development` lists when `inDevelopment` is set (shapes of docs/api/openapi-v1.json). */
@@ -437,7 +442,13 @@ export async function installMockApi(page: Page, options: MockOptions = {}): Pro
         route,
         options.inDevelopment
           ? SLOTS.map((slot) => (slot.name === 'normalisation' ? { ...slot, implementations: [] } : slot))
-          : SLOTS,
+          : options.normalisationUnmounted
+            ? SLOTS.map((slot) =>
+                slot.name === 'normalisation'
+                  ? { ...slot, implementations: slot.implementations.map((i) => ({ ...i, available: false })) }
+                  : slot,
+              )
+            : SLOTS,
       );
     }
     if (method === 'GET' && path === '/v1/pipelines/stroke-lnm/versions/0.1.0/in-development') {

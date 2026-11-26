@@ -216,7 +216,7 @@ describe('case wizard with stages in development', () => {
   });
 
   it('leaves the CT mode selectable when nothing is in development', async () => {
-    mockApi({ development: [] });
+    mockApi({ development: [], slots: makeSlots({ normalisationMounted: true }) });
     renderAt('/cases/new');
     await screen.findByRole('heading', { name: 'New case' });
     expect(screen.getByRole('radio', { name: /CT and lesion mask/ })).toBeEnabled();
@@ -225,6 +225,7 @@ describe('case wizard with stages in development', () => {
 
   it('ignores a failing in-development call (older server)', async () => {
     mockApi({
+      slots: makeSlots({ normalisationMounted: true }),
       routes: {
         'GET /v1/pipelines/stroke-lnm/versions/0.1.0/in-development': () => new Response('{}', { status: 404 }),
       },
