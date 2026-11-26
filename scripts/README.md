@@ -17,6 +17,7 @@ This folder contains small operation and validation scripts.
 - `check-no-secrets.sh`: blocks committed `.env*` files (except `*.example` templates), study data and simple secret patterns; runs `gitleaks` if installed.
 - `backup.sh`: creates a local backup of PostgreSQL and `data/studies`; pauses `api`/`worker`, refuses to run with active jobs and archives only studies registered in the DB.
 - `restore.sh`: restores PostgreSQL and `data/studies` from a local backup with explicit confirmation, clearing Redis as transient state.
+- `ops/backup.sh`, `ops/restore.sh`: deployment backup and restore (database, cases, runs, outputs, bundle registry; bundle payloads only with `--include-bundles`), see docs/operations/backup-restore.md; `ops/test_backup_restore.sh` is their destructive CI test.
 - `seed.sh`: creates a local dummy file for manual tests.
 
 ## Relationship With The Makefile

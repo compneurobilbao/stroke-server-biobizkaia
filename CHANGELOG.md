@@ -4,6 +4,7 @@ All versions follow semantic versioning and Conventional Commits.
 
 ## Unreleased
 
+- OPS-01: `scripts/ops/backup.sh` / `restore.sh` (`make ops-backup`, `make ops-restore`): consistent backup of a running Compose deployment (`pg_dump -Fc` inside the postgres container, the data tree without reference bundle payloads unless `--include-bundles`, manifest with checksums, alembic revision and versions, retention) and restore into a stopped, empty deployment (checksum and alembic checks, `--force`, owners and modes kept); CI runs backup -> wipe -> restore on the Compose stack; docs/operations/backup-restore.md.
 - REPORT-02: `research-report` 0.5.0 (report 1.3) states on the first page, and in the notes, "Example input: synthetic lesion, not patient data" when a run input carries the reserved origin `stroke-server-example` of the platform's synthetic example inputs (read from the run record of contract 1.2; no contract change; new note `synthetic_example_input`). `stroke-lnm` 0.11.0 pins it (digest pending release, `published: false`), presets 1.9.0.
 - COMPOSE-01: Docker Compose forwards `PRESETS_DIR` (empty default, so behaviour is unchanged when unset) to `api` and to `seed-implementations`.
 
