@@ -1,0 +1,59 @@
+name: backup and restore
+
+# Card OPS-01: scripts/ops/backup.sh -> wipe -> scripts/ops/restore.sh on a throwaway Docker
+# Compose stack (postgres, redis, api; the images of docker-compose.yml), checking that a seeded
+# case, its run and a run output file survive (scripts/ops/test_backup_restore.sh). The runner user
+# is not root, so the container path of both scripts (owners and modes kept by tar inside a
+# container) is the one exercised.
+
+on:
+  pull_request:
+    paths:
+      - "scripts/ops/**"
+      - "backend/**"
+      - "orchestrator/bundles.py"
+      - "docker-compose*.yml"
+      - ".github/workflows/backup-restore.yml"
+  push:
+    branches: [develop, main]
+    paths:
+      - "scripts/ops/**"
+      - "backend/**"
+      - "orchestrator/bundles.py"
+      - "docker-compose*.yml"
+      - ".github/workflows/backup-restore.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup-restore-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backup-restore:
+    name: Backup, wipe and restore on the Compose stack
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - name: Backup -> wipe -> restore
+        env:
+          OPS_TEST_DESTROY_STACK: "yes"
+          OPS_TEST_BACKUP_DIR: ${{ runner.temp }}/ops-backups
+        run: bash scripts/ops/test_backup_restore.sh
+      - name: Compose logs
+        if: failure()
+        run: docker compose -p ops-backup-test logs --no-color --timestamps > compose-logs.txt 2>&1 || true
+      - uses: actions/upload-artifact@v4.6.0
+        if: failure()
+        with:
+          name: backup-restore
+          # Manifests and logs only: the throwaway stack holds synthetic rows, but archives are not uploaded.
+          path: |
+            compose-logs.txt
+            ${{ runner.temp }}/ops-backups/*/manifest.json
+            ${{ runner.temp }}/ops-backups/test.log
+          if-no-files-found: warn
+          retention-days: 7

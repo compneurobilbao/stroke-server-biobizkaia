@@ -266,5 +266,5 @@ Rollback before any new upload: stop the workers, `alembic downgrade 0011_case_m
 - Review all the variables described in `docs/configuration.md`.
 - Restrict network access to the server.
 - Add TLS in Nginx or Caddy.
-- Run `make backup` to back up PostgreSQL and `data/studies`, and copy `backups/` off the server if recovery from disk loss is needed.
+- Run `make ops-backup` to back up PostgreSQL and the data tree (docs/operations/backup-restore.md), and copy the backups off the server if recovery from disk loss is needed.
 - Review the retention policy before using sensitive data.

@@ -44,6 +44,8 @@ make create-admin EMAIL=admin@example.org
 
 Open `http://localhost` for the GUI and `http://localhost/api/docs` for Swagger/OpenAPI.
 
+Researchers using the web platform: see the user guide in [English](docs/user-guide/en.md) or [Spanish](docs/user-guide/es.md).
+
 ## Main Commands
 
 ```bash

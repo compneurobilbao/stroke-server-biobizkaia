@@ -1,4 +1,4 @@
-.PHONY: e2e up down logs test test-steps lint format migrate seed clean smoke check-docs check-secrets frontend-rebuild rebuild create-admin backup restore retention-dry-run retention-execute seed-implementations
+.PHONY: e2e up down logs test test-steps lint format migrate seed clean smoke check-docs check-secrets frontend-rebuild rebuild create-admin backup restore ops-backup ops-restore retention-dry-run retention-execute seed-implementations
 
 WORKER_REPLICAS ?=
 DAYS ?= 90
@@ -67,6 +67,17 @@ backup:
 restore:
 	test -n "$(BACKUP_DIR)" || (echo "Usage: make restore BACKUP_DIR=backups/<timestamp> CONFIRM_RESTORE=YES_I_UNDERSTAND"; exit 1)
 	BACKUP_DIR="$(BACKUP_DIR)" CONFIRM_RESTORE="$(CONFIRM_RESTORE)" sh ./scripts/restore.sh
+
+# Deployment backup and restore (card OPS-01, docs/operations/backup-restore.md): runs while the
+# application runs, covers cases, runs and outputs, leaves the reference bundle payloads out unless
+# ARGS=--include-bundles. Options go in ARGS, e.g. ARGS="--dest /srv/backups --keep 14".
+ops-backup:
+	bash ./scripts/ops/backup.sh $(ARGS)
+
+# Into a stopped, empty deployment: make ops-restore BACKUP=<dir> [ARGS=--force]
+ops-restore:
+	test -n "$(BACKUP)" || (echo "Usage: make ops-restore BACKUP=backups/stroke-server-backup-<timestamp> [ARGS=--force]"; exit 1)
+	bash ./scripts/ops/restore.sh $(ARGS) "$(BACKUP)"
 
 seed:
 	./scripts/seed.sh

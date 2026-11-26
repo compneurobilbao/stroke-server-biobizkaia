@@ -34,6 +34,8 @@ The command asks for the password on the console. There is no open public regist
 
 ## Data And Backups
 
+For deployments with cases and pipeline runs, use `make ops-backup` / `make ops-restore` (docs/operations/backup-restore.md): they cover the database, cases, runs, outputs and the bundle registry, run while the application runs and are tested in CI. The `make backup` / `make restore` described below only archive the folders of the legacy `studies` table and remain for in-place rollback.
+
 - PostgreSQL stores metadata, states and audit records.
 - `data/studies/{study_id}` stores input, BIDS, results, logs and metadata.
 - Back up PostgreSQL and `data/`; both are needed to rebuild traceability.
