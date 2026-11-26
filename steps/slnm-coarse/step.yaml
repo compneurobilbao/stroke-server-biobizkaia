@@ -1,0 +1,137 @@
+# Step manifest of the slnm-coarse wrapper (the coarse workflow of the fast-slnm repository).
+# Validate with contracts/validate.py --kind step.
+contract_version: "1.2"
+kind: Step
+name: slnm-coarse
+version: 1.0.0
+title: Parcel-level structural disconnection (slnm-coarse)
+description: >-
+  Parcel-level structural lesion network mapping of one lesion on a normative diffusion cohort,
+  computed by the slnm-coarse command of the fast-slnm repository, installed unmodified at the
+  commit pinned in upstream.env. For every participant of the cohort cache bundle, the lesion is
+  warped to the participant's native diffusion space with the cached forward ANTs transforms
+  (nearest neighbour); the fraction of each native atlas parcel covered by the lesion is taken
+  as the probability that a streamline visiting the parcel is hit there, the hit probabilities
+  of each streamline are combined over the parcels it visits, and the SIFT2-weighted expected
+  fraction of each parcel's streamlines that is hit is that participant's parcel score. Scores
+  are aggregated per parcel as the equal-weight mean of the four acquisition-site means; a
+  parcel is valid only where all four sites contribute supporting participants and more than
+  four participants support it in total. This is a parcel-level approximation, not an exact
+  streamline-lesion intersection and not a voxel-wise map. The wrapper checks that the cache
+  atlas is on the working grid, passes the lesion on that grid, and writes the group map with
+  NaN (never zero) for parcels without a valid estimate, plus the validity mask.
+provides: structural-disconnection
+image:
+  repository: docker.io/compneurobilbaolab/step-slnm-coarse
+source_url: https://github.com/compneurobilbao/stroke-server-biobizkaia
+licence:
+  # The wrapper is platform code (MIT). fast-slnm is MIT (its LICENSE is copied into the image
+  # next to the commit it was installed from); ANTs is Apache-2.0.
+  spdx: MIT
+  third_party:
+    - {name: fast-slnm (slnm-coarse), version: 226f2ece4a280a6d6f566732dba4f1980b2cfb67, spdx: MIT}
+    - {name: ANTs (antsApplyTransforms), version: 2.6.3, spdx: Apache-2.0}
+    - {name: numpy, version: 1.26.4, spdx: BSD-3-Clause}
+    - {name: nibabel, version: 5.4.2, spdx: MIT}
+    - {name: Python, version: "3.12", spdx: PSF-2.0}
+
+inputs:
+  - name: lesion_mask
+    type: lesion_mask_mni
+    description: >-
+      Binary lesion mask on the 2 mm MNI152NLin6Asym working grid, which is the grid of the
+      cohort cache atlas (checked); it is passed to slnm-coarse on that grid unchanged.
+
+outputs:
+  - name: sdisconnection_map
+    type: sdisconnection_map
+    description: >-
+      Equal-site mean over the cohort of the participants' parcel scores (fraction in [0, 1]),
+      written on the parcels' voxels of the working grid: zero outside the atlas, NaN for a
+      parcel without a valid group estimate (slnm-coarse itself writes zero there; the wrapper
+      replaces it by NaN so that it cannot be read as no disconnection).
+  - name: sdisconnection_valid_mask
+    type: sdisconnection_valid_mask
+    description: >-
+      1 on the voxels of parcels with a valid group estimate (all four sites contribute and more
+      than four participants support the parcel), 0 elsewhere. The valid_mask of slnm-coarse.
+
+parameters:
+  type: object
+  additionalProperties: false
+  properties:
+    workers:
+      description: >-
+        Participants processed in parallel (slnm-coarse --workers). Each worker runs one
+        single-threaded antsApplyTransforms and holds one participant's index in memory. The
+        wrapper uses at most the CPUs granted to the step. Does not change the results.
+      type: integer
+      minimum: 1
+      maximum: 64
+      default: 2
+
+bundles:
+  - name: cohort_cache
+    type: slnm-coarse-cache
+    version: ">=1.0.0, <2.0.0"
+    description: >-
+      The portable per-participant cache of slnm-coarse (no tractograms) and the participant
+      table of the normative cohort. Layout: participants.csv (columns subject_label and site,
+      sites MGH, UCLA, UMinn and WashU) and cache/, the cache root of slnm-coarse, holding the
+      common atlas firsT_2566_MWMA400_min20.nii.gz on the working grid and one directory per
+      participant (<subject_label>_DiffusionRecommended) with metadata.json,
+      atlas_dwispace.nii.gz, index/, dwi_bzero.nii.gz, dwireg/ (forward transforms) and
+      streamlines/sift2_weights.txt. Built from the author's coarse_files cache
+      (docs/reference-data.md, "The slnm-coarse-cache bundle"). Derived from HCP Aging: not
+      redistributable, installed locally.
+
+resources:
+  cpus: 2
+  memory_mb: 8192
+  wall_time_minutes: 240
+  scratch_mb: 2048
+
+errors:
+  - code: input_missing
+    category: input_rejected
+    description: The lesion mask was not provided.
+  - code: input_format_invalid
+    category: input_rejected
+    description: The lesion mask does not satisfy its artefact type (format, grid, binary values).
+  - code: invalid_parameters
+    category: input_rejected
+    description: The parameters do not satisfy the step's parameter schema.
+  - code: mask_empty
+    category: input_rejected
+    description: The lesion mask has no voxels set.
+  - code: lesion_outside_atlas
+    category: input_rejected
+    description: The lesion mask has no voxel in any parcel of the cohort cache atlas.
+
+reference_test:
+  description: >-
+    A synthetic cohort cache bundle (nine participants over the four sites, eight block parcels
+    with gapped labels up to 2966 on the working grid, identity transforms, hash-generated
+    streamline-to-parcel incidence and SIFT2 weights, one parcel without support at one site
+    and one without streamlines) and a synthetic ball lesion, all written by
+    tests/make_reference.py (nothing is committed). The expected map and validity mask are
+    computed independently of the author's code with numpy from the definition of the method.
+    Run with --bundle cohort_cache=steps/slnm-coarse/tests/reference/bundle.
+  generator: tests/make_reference.py
+  inputs:
+    lesion_mask: tests/reference/lesion_mask.nii.gz
+  bundles:
+    cohort_cache: {id: synthetic-slnm-coarse-cache, version: 1.0.0}
+  parameters:
+    workers: 2
+  expected:
+    sdisconnection_map:
+      compare: allclose
+      file: tests/reference/expected/sdisconnection_map.nii.gz
+      rtol: 0.00001
+      atol: 0.000001
+    sdisconnection_valid_mask:
+      compare: allclose
+      file: tests/reference/expected/sdisconnection_valid_mask.nii.gz
+      rtol: 0
+      atol: 0

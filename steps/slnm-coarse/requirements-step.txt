@@ -1,0 +1,9 @@
+# Added to the environment of the author's package (whose lock file brings numpy and nibabel;
+# they are not touched here). The SDK is installed with --no-deps: these are its other
+# requirements, pinned.
+PyYAML==6.0.2
+jsonschema==4.23.0
+attrs==24.2.0
+jsonschema-specifications==2024.10.1
+referencing==0.35.1
+rpds-py==0.20.1

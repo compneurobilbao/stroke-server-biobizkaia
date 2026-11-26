@@ -1478,7 +1478,7 @@ def test_api_wires_the_preset_registry_with_recorded_digests(
 
 # ------------------------------------------------- the lab deployment (MVP-01)
 
-LAB_DEVELOPMENT = ["segmentation", "lesion-bank", "voxel-lnm"]
+LAB_DEVELOPMENT = ["segmentation", "lesion-bank", "slnm-coarse", "voxel-lnm"]
 
 
 def test_lab_offers_only_the_minimum_preset_as_default(lab):
@@ -1528,7 +1528,7 @@ def test_lab_lists_the_stages_in_development(lab):
     normalisation = stages[0]
     assert normalisation["slot"] == "normalisation"
     assert normalisation["title"] == "CT lesion to MNI152"
-    assert [s["slot"] for s in stages[1:]] == [None, None, None]
+    assert [s["slot"] for s in stages[1:]] == [None] * len(LAB_DEVELOPMENT)
     assert all(s["title"] for s in stages)
     detail = lab.client.get(REAL_BASE, headers=lab.alice).json()
     assert detail["in_development"] == stages

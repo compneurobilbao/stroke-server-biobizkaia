@@ -42,6 +42,7 @@ describe('DevelopmentList', () => {
       'normalisation',
       'segmentation',
       'lesion-bank',
+      'slnm-coarse',
       'voxel-lnm',
     ]);
     for (const item of items) {

@@ -266,6 +266,19 @@ in_development:
   - id: lesion-bank
     title: Lesion bank
     description: Capture and store lesions for later reuse.
+  # Parcel-level structural LNM (card SLNM-01): the step steps/slnm-coarse 1.0.0 exists (the
+  # coarse workflow of the author's fast-slnm repository, unmodified at the commit of its
+  # upstream.env), but it has no slot, no implementation entry and no image yet, and its cohort
+  # cache bundle (type slnm-coarse-cache, derived from HCP Aging, not redistributable) is not
+  # built. When it becomes an optional slot, its implementation entry carries
+  #   source: {repository: this, dockerfile: steps/slnm-coarse/Dockerfile,
+  #            upstream: {repository: compneurobilbao/fast-slnm, commit: <UPSTREAM_COMMIT>}}
+  #   licence_review: {status: pending, code: MIT, image_redistribution: allowed, ...}
+  #   validation: {status: reference-tested, ...}  (the synthetic reference test of the step)
+  # and the pipeline gets a minor version. Nothing here is enabled or selectable.
+  - id: slnm-coarse
+    title: Parcel-level structural LNM
+    description: Fast parcel-level estimate on a normative diffusion cohort. Waits for its cohort data.
   - id: voxel-lnm
     title: Voxel-wise structural LNM
     description: Runs on the HPC cluster. Its map is shown but not analysed further.

@@ -7,8 +7,8 @@ This directory holds the SDK every step is built on and the template to copy.
 |---|---|
 | `sdk/` | `compneuro-step-sdk` (Python package `stroke_step_sdk`): the step side of the contract, with unit tests in `sdk/tests/` |
 | `template/` | A trivial working step (lesion volume on an MNI mask): manifest, code, `Dockerfile`, `Apptainer.def`, tests |
-| `<step name>/` | One directory per step of this repository, including the wrappers of the lab's tools in the authors' repositories (`lnm-tracts`, `ct-lesion-to-mni152`, `cognet-stroke`) |
-| `fetch-upstream.sh` | Fetches the author's repository of a wrapper at the commit of its `upstream.env` (CI, local tests) |
+| `<step name>/` | One directory per step of this repository, including the wrappers of the lab's tools in the authors' repositories (`lnm-tracts`, `ct-lesion-to-mni152`, `cognet-stroke`, and `slnm-coarse`, in development) |
+| `fetch-upstream.sh` | Fetches the author's repository of a wrapper at the commit of its `upstream.env` (CI, local tests); a private repository is read with `UPSTREAM_TOKEN` (or `GITHUB_TOKEN`), exit code 3 when it is not readable |
 | `run-step.sh` | Runs a step image once with the contract section 6 flags (CI helper) |
 
 ## Create a new step from the template
