@@ -17,7 +17,7 @@ registry_version: 1
 pipeline: {id: stroke-lnm, version: 0.10.0}
 # false while lnm-tracts 1.1.0 waits for its release: release-steps publishes it, then
 # `registry.py pin` writes its digest and sets this back to true.
-published: false
+published: true
 
 # kind: real     a merged step that runs on real data
 #       stub     synthetic output, only enabled in the ci profile (and demo deployments)
@@ -174,7 +174,7 @@ implementations:
           The step's reference test runs in CI on synthetic or public data, including the
           atlas-space resampling with synthetic identity and shift transforms. No signed
           validation record exists, so it is not validated.
-      image: docker.io/compneurobilbaolab/step-lnm-tracts@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      image: docker.io/compneurobilbaolab/step-lnm-tracts@sha256:626754f10150ea63382e48aa481ad784ec789530160135821d854a3639a28941
       # A port in this repository of the author's src/lnm_tracts.sh: the released image contains
       # no code of the lnm repository. `upstream` names the commit whose unmodified script CI runs
       # for the comparison only (Dockerfile target `legacy`, never released;
