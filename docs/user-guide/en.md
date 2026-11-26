@@ -52,7 +52,7 @@ Do not put names or identifiers in files or in the case data. File names are not
 
 A case holds your input file and its runs. Go to **Cases** and press **New case**. The wizard has four steps (**Wizard progress**): **Mode and case data**, **Files**, **Implementations** and **Analysis**.
 
-1. **Mode and case data**. Under **Input mode** choose **Lesion mask already in MNI**. The other mode, **CT and lesion mask**, needs the normalisation stage, which is in development, so the lab instance does not run it. Optionally set **Sex (optional)** and **Age band (optional)**. Only the band is stored; the exact age is never sent to the server. The platform stores only a generated label for the case.
+1. **Mode and case data**. Under **Input mode** choose **Lesion mask already in MNI**. The other mode, **CT and lesion mask**, needs the normalisation stage, which is in development, so the lab instance does not run it: the wizard shows it greyed with the tag **In development** and a note ("In development: no implementation of CT lesion to MNI152 is available in this deployment." when the normalisation step is not installed in the deployment). Optionally set **Sex (optional)** and **Age band (optional)**. Only the band is stored; the exact age is never sent to the server. The platform stores only a generated label for the case.
 2. **Files**. Select your `.nii.gz` file ("Lesion mask in MNI space (.nii.gz)"). Optionally declare **How was this mask made? (optional)**: **Drawn by hand** or **Created with an external tool** (give **Tool name** and **Tool version**; letters, digits and `. _ + -` only, up to 64 characters). This is shown on the run and in the report as "Declared by the user (not verified)".
 3. **Implementations**. Each step uses the default implementation unless you choose another. See section 6 for the cohort.
 4. **Analysis**. Choose what to run (section 5).
@@ -97,9 +97,9 @@ The functional disconnection step compares your lesion with a healthy normative 
 
 Pick the cohort that better matches the population you study. The step uses every participant of the chosen cohort: there is no matching by age or sex, so the sex and age band of the case do not affect the result.
 
-Some analyses fix an implementation (**Fixed by this analysis**); you cannot change those. The report step may offer an English and a Spanish report implementation under the same title; choose according to the PDF language you want.
+Some analyses fix an implementation (**Fixed by this analysis**); you cannot change those. The report step may offer **Research report (English)** and **Research report (Spanish)**; choose according to the PDF language you want.
 
-Next to each implementation the platform shows its validation level and, for unvalidated ones, the tag **experimental** (see section 10).
+Next to each implementation the platform shows its validation level and, for unvalidated ones, the tag **experimental** (see section 10). A short note under the list (and the tooltip of the tag) explains the levels.
 
 ## 7. What each analysis produces
 
@@ -134,7 +134,7 @@ A section that was not requested says "Not requested" and stays empty.
 
 ## 8. Follow a run and download the results
 
-After you press **Create case and start run**, the **Run** page opens. It shows **Pipeline**, **Input set**, **Created**, **Finished** and the **Step timeline**. Each step shows its state (**Queued**, **Running**, **Succeeded**, **Failed**, **Canceled**, **Skipped**, **Unavailable**), its implementation and who chose it, each **Attempt**, and a log (**Show log**). Steps outside the plan are listed as "Not part of this plan". The **In development** stages are listed as **Not part of this run**.
+After you press **Create case and start run**, the **Run** page opens. It shows **Pipeline**, **Input set**, **Created**, **Finished** and the **Step timeline**. Each step shows its state (**Queued**, **Running**, **Succeeded**, **Failed**, **Canceled**, **Skipped**, **Unavailable**), its implementation (with its identifier in brackets when the display name differs, for example "Research report (Spanish) (research-report-es)") and who chose it, each **Attempt**, and a log (**Show log**). Steps outside the plan are listed as "Not part of this plan". The **In development** stages are listed as **Not part of this run**.
 
 To get the outputs:
 
@@ -157,7 +157,7 @@ If the run cannot start, the wizard shows "The server refused to start this run:
 | "Choosing your own outputs is not allowed..." | Pick a named analysis. |
 | "A reference data bundle needed by ... is not available." | The cohort, atlas or concept data is not installed; ask your administrator. |
 
-If a run fails while running, open the failed step on the **Run** page. The **Failure** field and the step show a short message, and **Show log** gives details. The screen shows the message rather than the code, so match the message to the table below (the codes also appear in the logs and in the API). If the cause is in your file, correct it and create a new case, because the files of a case cannot change after its first run. If the cause was temporary, use **Retry from failed step** (or **Resume from canceled step** after a cancel); steps that already succeeded are not repeated.
+If a run fails while running, open the failed step on the **Run** page. The **Failure** field and the step show a short message and the failure **Code** (the same code as in the logs and in the API; the **Failure** field gives the code of the run and that of the failed step, for example `input_rejected / mask_empty`), and **Show log** gives details. The table below lists the codes of the steps. If the cause is in your file, correct it and create a new case, because the files of a case cannot change after its first run. If the cause was temporary, use **Retry from failed step** (or **Resume from canceled step** after a cancel); steps that already succeeded are not repeated.
 
 | Code | Step | Meaning |
 |---|---|---|

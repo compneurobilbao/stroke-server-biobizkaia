@@ -197,8 +197,8 @@ test.describe('analysis step (mocked API)', () => {
     await uploadMniMask(page);
 
     // The default preset is preselected; the CT-only preset is not offered in this mode; no custom option.
-    await expect(page.getByRole('radio', { name: /Full analysis/ })).toBeChecked();
-    await expect(page.getByRole('radio', { name: /CT normalisation only/ })).toHaveCount(0);
+    await expect(page.getByRole('radio', { name: /Full lesion network analysis/ })).toBeChecked();
+    await expect(page.getByRole('radio', { name: /Normalisation of a CT lesion to MNI152/ })).toHaveCount(0);
     await expect(page.getByRole('radio', { name: /Custom/ })).toHaveCount(0);
 
     await page.getByRole('radio', { name: /Disconnection analysis of an MNI lesion mask/ }).check();
@@ -290,7 +290,7 @@ test.describe('analysis step (mocked API)', () => {
     await installMockApi(page, { presets: true, freeMode: false });
     await openWizard(page);
     await uploadMniMask(page);
-    await expect(page.getByRole('radio', { name: /Full analysis/ })).toBeVisible();
+    await expect(page.getByRole('radio', { name: /Full lesion network analysis/ })).toBeVisible();
     await expect(page.getByRole('radio', { name: /Custom/ })).toHaveCount(0);
   });
 
@@ -366,6 +366,17 @@ test.describe('wizard and run page follow-ups (mocked API)', () => {
     await page.getByRole('button', { name: 'Next' }).click();
     await expect(page.getByTestId('in-development').locator('[data-development]')).toHaveCount(5);
     await expect(page.locator('[data-slot="normalisation"]')).toHaveCount(0);
+  });
+
+  test('the CT mode is disabled with a note when the normalisation step is not mounted', async ({ page }) => {
+    await installMockApi(page, { normalisationUnmounted: true });
+    await openWizard(page);
+    const ct = page.getByRole('radio', { name: /CT and lesion mask/ });
+    await expect(ct).toBeDisabled();
+    await expect(page.getByRole('radio', { name: /Lesion mask already in MNI/ })).toBeChecked();
+    await expect(page.getByTestId('mode-note-ct')).toHaveText(
+      'In development: no implementation of CT lesion to MNI152 is available in this deployment.',
+    );
   });
 
   test('nothing is listed as in development for a deployment that has everything mounted', async ({ page }) => {

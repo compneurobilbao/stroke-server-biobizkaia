@@ -87,12 +87,15 @@ export function ProcessOverview({ id = 'process' }: { id?: string }) {
   );
 }
 
-/** Page behind the "About the process" link; reachable before and after login. */
+/**
+ * Page behind the "About the process" link; reachable before and after login. Its title is the
+ * navigation label itself, so the link and the page always read the same in every language.
+ */
 export function ProcessPage() {
   const { t } = useTranslation();
   return (
     <div className="process-page">
-      <h1>{t('process.pageTitle')}</h1>
+      <h1>{t('nav.about')}</h1>
       <ProcessOverview id="process-page" />
     </div>
   );

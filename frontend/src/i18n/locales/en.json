@@ -540,7 +540,8 @@
           "title": "Voxel-wise structural LNM",
           "text": "Runs on the HPC cluster. Its map is shown but not analysed further."
         }
-      }
+      },
+      "modeUnavailableNote": "In development: no implementation of {{slots}} is available in this deployment."
     },
     "implementation": {
       "title": {
@@ -548,8 +549,79 @@
         "flnm-fast-hcp-ya": "flnm-fast · HCP Young Adult",
         "flnm-fast-synthetic": "flnm-fast · synthetic cohort (CI)",
         "lnm-tracts-hcp1065": "lnm-tracts · HCP1065 tract atlas",
-        "cognet-stroke-concept-maps": "COGNET-STROKE · concept maps"
+        "cognet-stroke-concept-maps": "COGNET-STROKE · concept maps",
+        "fdisconnection-stub": "Functional disconnection (stub)",
+        "lnm-tracts": "lnm-tracts · registered tract atlas",
+        "cognet-stroke": "COGNET-STROKE · registered concept maps",
+        "research-report": "Research report (English)",
+        "research-report-es": "Research report (Spanish)"
       }
+    },
+    "slot": {
+      "title": {
+        "lesion-intake": "Lesion intake and QC",
+        "normalisation": "CT lesion to MNI152",
+        "functional-disconnection": "Functional disconnection",
+        "tract-disconnection": "Tract-wise structural disconnection",
+        "cognet-profile": "COGNET-STROKE cognitive profile",
+        "report": "Research report"
+      }
+    },
+    "preset": {
+      "ct-normalisation": {
+        "title": "Normalisation of a CT lesion to MNI152",
+        "description": "Lesion intake and QC and registration of the CT and its lesion mask to MNI152, without further analysis."
+      },
+      "full": {
+        "title": "Full lesion network analysis",
+        "description": "Lesion intake and QC, normalisation of a CT lesion to MNI152 when needed, tract-wise disconnection and the research report; functional disconnection and the COGNET-STROKE cognitive profile are added when an implementation is enabled in the deployment."
+      },
+      "lesion-qc-report": {
+        "title": "Lesion QC and report",
+        "description": "Lesion intake and QC and a research report whose analysis sections state that the disconnection analyses were not part of the run."
+      },
+      "mni-mask-analysis": {
+        "title": "Disconnection analysis of an MNI lesion mask",
+        "description": "Lesion QC, functional disconnection with the COGNET-STROKE cognitive profile, tract-wise disconnection and the research report for a lesion mask already in MNI space."
+      }
+    },
+    "failure": {
+      "code": "Code",
+      "inStep": "Step \"{{slot}}\": {{message}}",
+      "message": {
+        "input_rejected": "The step rejected the input.",
+        "step_failed": "The step stopped with an error. The step log has the details.",
+        "step_canceled": "The step was canceled.",
+        "canceled": "The step was canceled.",
+        "timed_out": "The step exceeded its time limit.",
+        "pipeline_unavailable": "The pipeline definition of this run is not available in this deployment.",
+        "manifest_unavailable": "The step image is not available in this deployment.",
+        "input_unavailable": "An input of the step is not available.",
+        "bundle_unavailable": "A reference data bundle the step needs is not available.",
+        "executor_refused": "The compute backend refused to start the step.",
+        "input_missing": "A required input was not provided.",
+        "input_format_invalid": "An input file is not in the expected format: a gzip NIfTI image, on the expected grid, with only the values 0 and 1 for a mask.",
+        "invalid_parameters": "The parameters do not satisfy the step's schema.",
+        "lesion_input_missing": "No lesion mask was provided.",
+        "conflicting_inputs": "An MNI mask was provided together with a CT or a native mask.",
+        "mask_not_3d": "The mask has more than three dimensions.",
+        "affine_invalid": "The voxel-to-world matrix of the mask is singular or not finite.",
+        "mask_empty": "The lesion mask has no voxels set.",
+        "mask_empty_after_resampling": "The lesion is too small to survive resampling to the 2 mm grid.",
+        "space_not_declared": "The header declares no coordinate system, so MNI152 space cannot be confirmed.",
+        "space_mismatch": "The header declares native space, the axes are oblique, or the lesion lies outside the MNI152 extent.",
+        "ct_grid_mismatch": "The CT and the native lesion mask are not on the same grid.",
+        "lesion_too_large": "The lesion volume exceeds the maximum.",
+        "bilateral_lesion": "The lesion involves both hemispheres and this run rejects bilateral lesions.",
+        "lesion_outside_parcellation": "The lesion does not overlap any parcel of the parcellation.",
+        "mask_outside_atlas_space": "No lesion voxel is left after resampling to the atlas space.",
+        "disconnection_not_finite": "The disconnection map has infinite values.",
+        "disconnection_map_undefined": "The disconnection map has no defined value in any parcel.",
+        "disconnection_map_empty": "The disconnection map is zero wherever it is defined."
+      }
+    },
+    "validation": {
+      "help": "Validation levels: \"reference-tested\" means the output was compared with an independent computation on synthetic or public data in automated tests; \"validated\" needs a signed validation record. Reference-tested steps are marked experimental. All results are for research use only."
     }
   },
   "viewer": {
@@ -573,7 +645,6 @@
     "noTemplate": "No anatomical background is shown. This run has no CT in MNI space, and the application does not bundle a brain template because no template with a licence that allows redistribution is included. The overlays are drawn on a blank background."
   },
   "process": {
-    "pageTitle": "About the process",
     "title": "How a lesion becomes a research report",
     "intro": "Today the platform starts from a lesion mask that is already in standard space and runs two analyses on it. The earlier steps, shown greyed out, are being added.",
     "availableTitle": "Available now",

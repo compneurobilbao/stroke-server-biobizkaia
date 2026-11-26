@@ -90,6 +90,25 @@ export function implementationLabel(t: Translate, id: string, fallback: string):
   return t(`cases.implementation.title.${id}`, { defaultValue: fallback });
 }
 
+/**
+ * Display title of a pipeline slot: the catalogue entry for its name (en and es), else `fallback`
+ * (the API title from pipeline.yaml), else the name itself.
+ */
+export function slotLabel(t: Translate, name: string, fallback?: string | null): string {
+  return t(`cases.slot.title.${name}`, { defaultValue: fallback || name });
+}
+
+/** Display title of a preset: the catalogue entry for its id (en and es), else the preset file's title. */
+export function presetTitle(t: Translate, preset: Pick<Preset, 'id' | 'title'>): string {
+  return t(`cases.preset.${preset.id}.title`, { defaultValue: preset.title });
+}
+
+/** Display description of a preset: the catalogue entry for its id, else the preset file's description. */
+export function presetDescription(t: Translate, preset: Pick<Preset, 'id' | 'description'>): string {
+  if (!preset.description) return '';
+  return t(`cases.preset.${preset.id}.description`, { defaultValue: preset.description });
+}
+
 /** Display name of a listed implementation. */
 export function implementationTitle(t: Translate, impl: SlotImplementation): string {
   return implementationLabel(t, impl.id, impl.title || `${impl.step_name} ${impl.step_version}`);
@@ -111,6 +130,19 @@ export function developmentBlocked(
 ): boolean {
   const names = developmentSlotNames(stages);
   return slots.some((slot) => names.has(slot.name) && !slot.optional && slotApplies(slot, roles));
+}
+
+/**
+ * Required slots a wizard mode needs that have no selectable implementation in this deployment and
+ * that the other mode does not need (CT mode: normalisation when its step is not mounted). The mode
+ * cannot run, so the wizard shows it greyed with an "In development" note instead of offering it.
+ */
+export function modeUnavailableSlots(
+  slots: readonly Slot[],
+  roles: readonly string[],
+  otherRoles: readonly string[],
+): Slot[] {
+  return blockingSlots(slots, roles).filter((slot) => !slotApplies(slot, otherRoles));
 }
 
 /** Display name of the implementation a plan or run slot uses: its listed title, else the catalogue or the id. */

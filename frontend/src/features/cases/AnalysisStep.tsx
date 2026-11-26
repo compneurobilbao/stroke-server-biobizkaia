@@ -9,7 +9,7 @@ import {
 } from './plan';
 import { DevelopmentList } from './DevelopmentList';
 import { PlanPreview, ReasonList, slotTitleOf, type PreviewState } from './PlanPreview';
-import { developmentSlotNames, isSlotUnavailable, slotApplies } from './slots';
+import { developmentSlotNames, isSlotUnavailable, presetDescription, presetTitle, slotApplies, slotLabel } from './slots';
 
 interface AnalysisStepProps {
   options: AnalysisOptions;
@@ -45,7 +45,7 @@ export function AnalysisStep({
   development = [],
 }: AnalysisStepProps) {
   const { t } = useTranslation();
-  const titleOf = slotTitleOf(slots);
+  const titleOf = slotTitleOf(t, slots);
   const ordered = [...slots].sort((a, b) => a.position - b.position).filter((slot) => slotApplies(slot, roles));
   const noneRequested = !Object.values(custom).some(Boolean);
   const developmentSlots = developmentSlotNames(development);
@@ -66,11 +66,11 @@ export function AnalysisStep({
               onChange={() => onSelect(option.key)}
             />
             <span>
-              <strong>{option.preset.title}</strong>
+              <strong>{presetTitle(t, option.preset)}</strong>
               <code className="tag tag-muted">{option.preset.version}</code>
               {option.preset.is_default && <span className="tag">{t('cases.analysis.recommended')}</span>}
               {!option.available && <span className="tag tag-warn">{t('cases.analysis.unavailable')}</span>}
-              {option.preset.description && <span className="hint block">{option.preset.description}</span>}
+              {option.preset.description && <span className="hint block">{presetDescription(t, option.preset)}</span>}
               {!option.available && (
                 <>
                   {option.reasons.length === 0 && (
@@ -122,7 +122,7 @@ export function AnalysisStep({
           <p className="hint">{t('cases.analysis.outputsHint')}</p>
           <ul className="slot-list">
             {ordered.map((slot) => {
-              const title = slot.title || slot.name;
+              const title = slotLabel(t, slot.name, slot.title);
               const types = [...new Set((slot.produces ?? []).filter((p) => !p.optional).map((p) => p.type))];
               const inDevelopment = developmentSlots.has(slot.name);
               return (

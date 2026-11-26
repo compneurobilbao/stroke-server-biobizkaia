@@ -1,6 +1,7 @@
-import { render, screen, within } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import i18n from '../../i18n';
 import { makeRun } from '../../test/casesMock';
 import { RunTimeline, slotState } from './RunTimeline';
 
@@ -51,6 +52,79 @@ describe('RunTimeline', () => {
     expect(within(item('lesion-intake')).getByText('mask is empty')).toBeInTheDocument();
     expect(within(item('lesion-intake')).getByText(/resumed by user/)).toBeInTheDocument();
     expect(item('functional-disconnection')).toHaveAttribute('data-state', 'pending');
+  });
+
+  it('shows the error code of a rejected step with its translated message', async () => {
+    const run = makeRun({
+      status: 'failed',
+      steps: [
+        {
+          id: 'a1',
+          run_slot_id: 's1',
+          slot: 'lesion-intake',
+          attempt: 1,
+          trigger: 'initial',
+          status: 'failed',
+          outcome: 'rejected',
+          queued_at: '2026-11-14T10:00:00Z',
+          step_error: { code: 'mask_empty', category: 'input_rejected', message: 'Raw text from the step.' },
+        },
+      ],
+    });
+    const { unmount } = render(<RunTimeline slots={run.slots ?? []} steps={run.steps ?? []} loadLog={vi.fn()} />);
+    let failure = within(item('lesion-intake')).getByTestId('step-failure');
+    expect(failure).toHaveTextContent('The lesion mask has no voxels set.');
+    expect(within(failure).getByText('mask_empty').tagName).toBe('CODE');
+    expect(failure).toHaveTextContent('Code: mask_empty');
+    expect(failure).not.toHaveTextContent('Raw text from the step.');
+    unmount();
+
+    await i18n.changeLanguage('es');
+    render(<RunTimeline slots={run.slots ?? []} steps={run.steps ?? []} loadLog={vi.fn()} />);
+    failure = within(screen.getByRole('list', { name: 'Cronología de pasos' }).querySelector('[data-slot="lesion-intake"]') as HTMLElement).getByTestId('step-failure');
+    expect(failure).toHaveTextContent('La máscara de lesión no tiene ningún vóxel activo.');
+    expect(failure).toHaveTextContent('Código: mask_empty');
+  });
+
+  it('shows the code and the raw message of a failure the catalogue does not know', () => {
+    const run = makeRun({
+      status: 'failed',
+      steps: [
+        { id: 'a1', run_slot_id: 's1', slot: 'lesion-intake', attempt: 1, trigger: 'initial', status: 'failed', queued_at: '2026-11-14T10:00:00Z', failure_code: 'contract_violation_outputs', failure_message: 'A declared output is missing.' },
+      ],
+    });
+    renderTimeline(run);
+    const failure = within(item('lesion-intake')).getByTestId('step-failure');
+    expect(failure).toHaveTextContent('A declared output is missing.');
+    expect(failure).toHaveTextContent('Code: contract_violation_outputs');
+  });
+
+  it('names slots and implementations from the catalogue and keeps the implementation id visible', async () => {
+    const run = makeRun();
+    run.slots = [
+      { id: 's6', slot: 'report', position: 6, optional: false, status: 'selected', implementation_id: 'research-report-es', step_name: 'research-report', step_version: '0.5.0', chosen_by: 'user' },
+    ];
+    run.steps = [];
+    renderTimeline(run);
+    expect(within(item('report')).getByText('Research report')).toBeInTheDocument();
+    expect(within(item('report')).getByText('Research report (Spanish)')).toBeInTheDocument();
+    expect(within(item('report')).getByTestId('implementation-id')).toHaveTextContent('(research-report-es)');
+  });
+
+  it('explains the validation levels when a step shows one', () => {
+    const run = makeRun();
+    renderTimeline(run);
+    expect(screen.queryByTestId('validation-help')).not.toBeInTheDocument();
+    cleanup();
+    const slots = (run.slots ?? []).map((s) =>
+      s.slot === 'functional-disconnection' ? { ...s, validation_level: 'reference-tested' as const, experimental: true } : s,
+    );
+    renderTimeline({ ...run, slots });
+    expect(screen.getByTestId('validation-help')).toHaveTextContent(/reference-tested.*validated.*research use only/);
+    expect(within(item('functional-disconnection')).getByTestId('experimental')).toHaveAttribute(
+      'title',
+      expect.stringContaining('signed validation record'),
+    );
   });
 
   it('marks a slot without implementation as unavailable', () => {

@@ -64,7 +64,7 @@ const NO_IMPLEMENTATION: PlanReason = {
 
 function presetList(): Preset[] {
   return [
-    makePreset('full', { title: 'Full analysis', is_default: true, description: 'Every step that applies.' }),
+    makePreset('full', { title: 'Full lesion network analysis', is_default: true, description: 'Every step that applies.' }),
     makePreset('mni-mask-analysis', {
       title: 'Disconnection analysis of an MNI lesion mask',
       version: '1.0.0',
@@ -78,7 +78,7 @@ function presetList(): Preset[] {
       targets: { required: ['functional-disconnection'], if_available: [] },
     }),
     makePreset('ct-normalisation', {
-      title: 'CT normalisation only',
+      title: 'Normalisation of a CT lesion to MNI152',
       input_sets: ['ct-and-native-mask'],
       available: false,
       plans: [{ input_set: 'ct-and-native-mask', available: false, slots: [], reasons: [NO_IMPLEMENTATION] }],
@@ -94,29 +94,29 @@ describe('analysis step: presets', () => {
   it('lists the presets that accept the mode, preselects the default and offers neither custom nor full', async () => {
     mockApi({ presets: presetList() });
     await openAnalysis('mni');
-    expect(modeRadio(/Full analysis/)).toBeChecked();
+    expect(modeRadio(/Full lesion network analysis/)).toBeChecked();
     expect(screen.getByText('Recommended')).toBeInTheDocument();
     expect(modeRadio(/Disconnection analysis of an MNI lesion mask/)).toBeEnabled();
     // one entry per preset id, at its highest version
     expect(screen.getAllByRole('radio', { name: /Disconnection analysis of an MNI lesion mask/ })).toHaveLength(1);
     expect(within(modeRadio(/Disconnection analysis/).closest('label') as HTMLElement).getByText('1.1.0')).toBeInTheDocument();
     // not offered for this mode
-    expect(screen.queryByRole('radio', { name: /CT normalisation only/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: /Normalisation of a CT lesion to MNI152/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('radio', { name: /Custom/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('radio', { name: /Full plan/ })).not.toBeInTheDocument();
   });
 
   it('shows an unavailable preset disabled with its reason', async () => {
-    mockApi({ presets: presetList() });
+    mockApi({ presets: presetList(), slots: makeSlots({ normalisationMounted: true }) });
     await openAnalysis('ct');
-    const radio = modeRadio(/CT normalisation only/);
+    const radio = modeRadio(/Normalisation of a CT lesion to MNI152/);
     expect(radio).toBeDisabled();
     expect(radio).not.toBeChecked();
     const label = radio.closest('label') as HTMLElement;
     expect(within(label).getByText('Unavailable')).toBeInTheDocument();
     // the reason in plain language, with the slot title instead of its name
     expect(within(label).getByText('CT lesion to MNI152 has no enabled implementation in this deployment.')).toBeInTheDocument();
-    expect(modeRadio(/Full analysis/)).toBeChecked();
+    expect(modeRadio(/Full lesion network analysis/)).toBeChecked();
   });
 
   it('offers the full plan when no preset accepts the mode', async () => {
@@ -186,7 +186,7 @@ describe('analysis step: custom plan gated by /config', () => {
     await waitFor(() => expect(preview('functional-disconnection')).toBeTruthy());
     expect(preview('functional-disconnection')).toHaveAttribute('data-plan-state', 'target');
     expect(preview('lesion-intake')).toHaveAttribute('data-plan-state', 'upstream');
-    expect(preview('lesion-intake')).toHaveTextContent('Added: needed by report');
+    expect(preview('lesion-intake')).toHaveTextContent('Added: needed by Research report');
     expect(preview('normalisation')).toHaveAttribute('data-plan-state', 'condition_false');
     expect(calls(all, 'POST', PLAN_PATH).map(body).at(-1)).toEqual({
       input_roles: ['lesion_mni'],
@@ -299,9 +299,9 @@ describe('analysis step: plan preview states', () => {
     await openAnalysis('mni');
     const alert = await screen.findByRole('alert');
     expect(within(alert).getAllByRole('listitem')).toHaveLength(4);
-    expect(within(alert).getByText('Functional disconnection has no enabled implementation in this deployment and report needs it.')).toBeInTheDocument();
-    expect(within(alert).getByText('tract-disconnection is not always produced. Ask for it as "If available" instead of "Required".')).toBeInTheDocument();
-    expect(within(alert).getByText('report cannot be produced here: Functional disconnection needs lesion_mask and no step can provide it with these files.')).toBeInTheDocument();
+    expect(within(alert).getByText('Functional disconnection has no enabled implementation in this deployment and Research report needs it.')).toBeInTheDocument();
+    expect(within(alert).getByText('Tract-wise structural disconnection is not always produced. Ask for it as "If available" instead of "Required".')).toBeInTheDocument();
+    expect(within(alert).getByText('Research report cannot be produced here: Functional disconnection needs lesion_mask and no step can provide it with these files.')).toBeInTheDocument();
     expect(within(alert).getByText('Text sent by the server for a new code.')).toBeInTheDocument();
     expect(screen.getByTestId('plan-summary')).toHaveTextContent('This plan cannot run.');
 
@@ -330,7 +330,7 @@ describe('analysis step: plan preview states', () => {
     await screen.findByText(/cannot read the run record of this plan/);
     expect(startButton()).toBeDisabled();
     await userEvent.click(screen.getByRole('button', { name: 'Back' }));
-    await userEvent.click(modeRadio(/Full analysis/));
+    await userEvent.click(modeRadio(/Full lesion network analysis/));
     await next();
     await waitFor(() => expect(startButton()).toBeEnabled());
   });
@@ -521,7 +521,7 @@ describe('run again with the same plan', () => {
     await openAnalysis('mni', {
       rerun: { mode: 'mni', planMode: 'free', presetId: null, custom: { report: 'required' } },
     });
-    expect(modeRadio(/Full analysis/)).toBeChecked();
+    expect(modeRadio(/Full lesion network analysis/)).toBeChecked();
   });
 });
 

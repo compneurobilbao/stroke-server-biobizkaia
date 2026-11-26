@@ -1,7 +1,7 @@
 import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import i18n from '../i18n';
-import { ProcessOverview } from './ProcessOverview';
+import { ProcessOverview, ProcessPage } from './ProcessOverview';
 
 describe('ProcessOverview', () => {
   it('shows the available pipeline and the stages in development', () => {
@@ -21,5 +21,16 @@ describe('ProcessOverview', () => {
     render(<ProcessOverview />);
     // one section heading plus one badge per stage
     expect(screen.getAllByText('En desarrollo')).toHaveLength(5);
+  });
+
+  it('titles the page with the navigation label, in English and in Spanish', async () => {
+    const { unmount } = render(<ProcessPage />);
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(i18n.t('nav.about'));
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('About the process');
+    unmount();
+    await i18n.changeLanguage('es');
+    render(<ProcessPage />);
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(i18n.t('nav.about'));
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Sobre el proceso');
   });
 });

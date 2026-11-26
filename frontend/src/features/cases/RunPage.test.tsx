@@ -42,6 +42,42 @@ describe('run page', () => {
     expect(screen.queryByRole('button', { name: 'Cancel run' })).not.toBeInTheDocument();
   });
 
+  it('shows the failure code of the run and of the failed step, with the translated step message', async () => {
+    const base = makeRun();
+    mockApi({
+      run: makeRun({
+        status: 'failed',
+        finished_at: '2026-11-14T10:10:00Z',
+        failure_code: 'input_rejected',
+        failure_message: "Step 'lesion-intake' did not succeed. Raw text from the step.",
+        failed_step_run_id: 'a1',
+        steps: [
+          {
+            ...base.steps![0],
+            status: 'failed',
+            outcome: 'rejected',
+            step_error: { code: 'lesion_too_large', category: 'input_rejected', message: 'Raw text from the step.' },
+          },
+        ],
+      }),
+    });
+    renderRun();
+    const failure = await screen.findByTestId('run-failure');
+    expect(failure).toHaveTextContent('Step "Lesion intake and QC": The lesion volume exceeds the maximum.');
+    expect(failure).toHaveTextContent('Code: input_rejected / lesion_too_large');
+    expect(screen.getByTestId('step-failure')).toHaveTextContent('Code: lesion_too_large');
+  });
+
+  it('shows the raw run message when the code has no translation', async () => {
+    mockApi({
+      run: makeRun({ status: 'failed', failure_code: 'something_new', failure_message: 'Raw run text.', steps: [] }),
+    });
+    renderRun();
+    const failure = await screen.findByTestId('run-failure');
+    expect(failure).toHaveTextContent('Raw run text.');
+    expect(failure).toHaveTextContent('Code: something_new');
+  });
+
   it('offers resume for a canceled run', async () => {
     mockApi({ run: makeRun({ status: 'canceled' }) });
     renderRun();

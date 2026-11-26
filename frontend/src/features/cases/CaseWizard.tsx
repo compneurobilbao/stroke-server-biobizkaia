@@ -45,7 +45,14 @@ import { IDLE_PREVIEW, ReasonList, slotTitleOf, type PreviewState } from './Plan
 import { EMPTY_ORIGIN, isValidOrigin, originOf, originRoles, type OriginDraft } from './origin';
 import { OriginField } from './OriginField';
 import { SlotSelector } from './SlotSelector';
-import { baselineImplementation, developmentBlocked, fixedImplementation, implementationOverrides } from './slots';
+import {
+  baselineImplementation,
+  developmentBlocked,
+  fixedImplementation,
+  implementationOverrides,
+  modeUnavailableSlots,
+  slotLabel,
+} from './slots';
 
 export type WizardMode = 'ct' | 'mni';
 
@@ -220,8 +227,11 @@ export function CaseWizard() {
     };
   }, [api, pipeline, setMessage, t]);
 
-  // A mode whose required slot is in development (CT: normalisation) is greyed and not selectable.
-  const ctBlocked = slots ? developmentBlocked(slots, development, MODE_ROLES.ct) : false;
+  // A mode whose required slot is in development (CT: normalisation) is greyed and not selectable,
+  // and so is one whose own required slot has no available implementation here (step not mounted).
+  const ctInDevelopment = slots ? developmentBlocked(slots, development, MODE_ROLES.ct) : false;
+  const ctUnavailable = slots && !ctInDevelopment ? modeUnavailableSlots(slots, MODE_ROLES.ct, MODE_ROLES.mni) : [];
+  const ctBlocked = ctInDevelopment || ctUnavailable.length > 0;
   useEffect(() => {
     if (sameCase || !ctBlocked || mode !== 'ct') return;
     setMode('mni');
@@ -306,7 +316,7 @@ export function CaseWizard() {
   const feasible = preview.status === 'ready' && previewKey === requestKey && preview.data?.feasible === true;
   const canStart =
     !busy && pipeline !== null && slots !== null && request !== null && missingFiles.length === 0 && feasible;
-  const titleOf = slotTitleOf(slots ?? []);
+  const titleOf = slotTitleOf(t, slots ?? []);
 
   function changeMode(value: WizardMode) {
     if (value === mode) return;
@@ -426,7 +436,15 @@ export function CaseWizard() {
                     <strong>{t(`cases.wizard.mode.${value}`)}</strong>
                     {inDevelopment && <span className="tag tag-muted">{t('cases.development.badge')}</span>}
                     <span className="hint block">{t(`cases.wizard.modeHint.${value}`)}</span>
-                    {inDevelopment && <span className="hint block">{t('cases.development.modeNote')}</span>}
+                    {inDevelopment && (
+                      <span className="hint block" data-testid={`mode-note-${value}`}>
+                        {ctUnavailable.length > 0
+                          ? t('cases.development.modeUnavailableNote', {
+                              slots: ctUnavailable.map((slot) => slotLabel(t, slot.name, slot.title)).join(', '),
+                            })
+                          : t('cases.development.modeNote')}
+                      </span>
+                    )}
                   </span>
                 </label>
               );
