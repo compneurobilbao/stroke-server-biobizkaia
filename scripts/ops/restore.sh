@@ -209,7 +209,7 @@ in_data_env "$files_script" || die "restoring the data tree failed (the database
 # ---------------------------------------------------------------- 8. redis
 if compose ps --services --status running 2>/dev/null | grep -qx redis; then
   log "emptying Redis (transient queue state)"
-  compose exec -T redis redis-cli FLUSHALL >/dev/null
+  compose exec -T redis sh -c 'if [ -n "$REDIS_PASSWORD" ]; then export REDISCLI_AUTH="$REDIS_PASSWORD"; fi; redis-cli FLUSHALL' >/dev/null
 fi
 
 log "restore finished from $(manifest_get name)"
