@@ -251,11 +251,12 @@ export function mockApi(options: MockOptions = {}) {
 
 /**
  * What the lab deployment lists as in development: normalisation (a slot with no enabled
- * implementation) and three stages that have no slot yet.
+ * implementation) and four stages that have no slot yet.
  */
 export const DEVELOPMENT: DevelopmentStage[] = [
   { id: 'normalisation', title: 'CT lesion to MNI152', description: null, slot: 'normalisation' },
   { id: 'segmentation', title: 'Lesion segmentation', description: 'Delineate the lesion.', slot: null },
   { id: 'lesion-bank', title: 'Lesion bank', description: 'Capture and store lesions.', slot: null },
+  { id: 'slnm-coarse', title: 'Parcel-level structural LNM', description: 'Waits for its cohort data.', slot: null },
   { id: 'voxel-lnm', title: 'Voxel-wise structural LNM', description: 'Runs on the HPC cluster.', slot: null },
 ];

@@ -353,8 +353,8 @@ test.describe('wizard and run page follow-ups (mocked API)', () => {
     await uploadMniMask(page);
 
     const development = page.getByTestId('in-development');
-    await expect(development.locator('[data-development]')).toHaveCount(4);
-    await expect(development.locator('.tag', { hasText: 'In development' })).toHaveCount(4);
+    await expect(development.locator('[data-development]')).toHaveCount(5);
+    await expect(development.locator('.tag', { hasText: 'In development' })).toHaveCount(5);
     await expect(development.getByText('Lesion segmentation')).toBeVisible();
     await expect(development.getByText('Lesion bank')).toBeVisible();
     for (const control of ['radio', 'checkbox', 'combobox', 'button']) {
@@ -364,7 +364,7 @@ test.describe('wizard and run page follow-ups (mocked API)', () => {
     await expect(planRow(page, 'normalisation')).toContainText('In development');
 
     await page.getByRole('button', { name: 'Next' }).click();
-    await expect(page.getByTestId('in-development').locator('[data-development]')).toHaveCount(4);
+    await expect(page.getByTestId('in-development').locator('[data-development]')).toHaveCount(5);
     await expect(page.locator('[data-slot="normalisation"]')).toHaveCount(0);
   });
 
@@ -381,7 +381,7 @@ test.describe('wizard and run page follow-ups (mocked API)', () => {
     await page.goto('/runs/r1');
     const development = page.getByTestId('in-development');
     await expect(development.getByRole('heading', { name: 'Not part of this run' })).toBeVisible();
-    await expect(development.locator('[data-development]')).toHaveCount(4);
+    await expect(development.locator('[data-development]')).toHaveCount(5);
   });
 
   test('run again on the same case: no files step, nothing is uploaded again, the run goes to the same case', async ({ page }) => {

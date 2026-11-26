@@ -58,7 +58,7 @@ The step is refused, with an exception that names every problem, when a required
 ## Limits and open points
 
 - The cheap check does not detect a same-size content change; that needs a full verification (scheduled or forced with `full=True`).
-- Bundle layouts per bundle type are defined by the consuming steps. The `tract-atlas` type has the layout the structural-disconnection step reads (`labels.txt` plus one `<tract>.tck` per tract at the bundle root); the synthetic fixture `toy-tract-atlas` uses it. The `normative-fc`, `tract-atlas` and `concept-maps` types are described below. The lab's deployment profile pins `hcp1065-tracts` for `tract-atlas` (entry `lnm-tracts-hcp1065`; 1.0.0 since `stroke-lnm` 0.7.0, 1.1.0 with `xfm-nlin6asym-to-nlin2009aasym` 1.0.0 for `space-transform` since 0.10.0) and `cognet-concept-maps` 1.0.0 for `concept-maps` (entry `cognet-stroke-concept-maps`) since 0.7.0; CI keeps the unpinned entries and its synthetic bundles.
+- Bundle layouts per bundle type are defined by the consuming steps. The `tract-atlas` type has the layout the structural-disconnection step reads (`labels.txt` plus one `<tract>.tck` per tract at the bundle root); the synthetic fixture `toy-tract-atlas` uses it. The `normative-fc`, `tract-atlas`, `space-transform`, `concept-maps` and `slnm-coarse-cache` types are described below. The lab's deployment profile pins `hcp1065-tracts` for `tract-atlas` (entry `lnm-tracts-hcp1065`; 1.0.0 since `stroke-lnm` 0.7.0, 1.1.0 with `xfm-nlin6asym-to-nlin2009aasym` 1.0.0 for `space-transform` since 0.10.0) and `cognet-concept-maps` 1.0.0 for `concept-maps` (entry `cognet-stroke-concept-maps`) since 0.7.0; CI keeps the unpinned entries and its synthetic bundles.
 - Installers and release tarballs must skip bundles whose `licence.redistributable` is `false`.
 
 ## The `normative-fc` bundle
@@ -134,3 +134,39 @@ python scripts/bundles/registry.py register /path/to/cognet-concept-maps-1.1.0
 ```
 
 A bundle regenerated with another parcellation or other null parameters in the same layout is a minor version (`versioning.md` section 5), so the step's requirement (`>=1.0.0, <2.0.0`) accepts it; the pipeline entry `cognet-stroke-concept-maps` pins `cognet-concept-maps` 1.0.0 until a pipeline version pins the new one. The concept maps derive from Neurosynth data (ODbL-1.0); the builder defaults to `licence.redistributable: false`, so the bundle stays on the host until the owner decides otherwise. No concept-map data is committed or used in CI: CI uses the synthetic `synthetic-concept-maps` bundle written by `steps/cognet-stroke/tests/make_reference.py`.
+
+## The `slnm-coarse-cache` bundle
+
+Bundle type read by the parcel-level structural disconnection step `slnm-coarse` ([`steps/slnm-coarse`](../steps/slnm-coarse/README.md), mounted at `/ref/cohort_cache`; the step is in development and not yet in a pipeline): the portable per-participant cache of the author's `slnm-coarse` command (fast-slnm) and the participant table of the normative cohort. No tractogram is needed at lesion time.
+
+```
+bundle.yaml                       # id, version, type: slnm-coarse-cache, licence, files; metadata.layout: slnm-coarse-cache-v1
+participants.csv                  # subject_label (without _DiffusionRecommended), site (MGH, UCLA, UMinn, WashU)
+cache/firsT_2566_MWMA400_min20.nii.gz          # common atlas on the 2 mm working grid, labels up to 2966 (gaps kept)
+cache/<subject_label>_DiffusionRecommended/    # metadata.json, atlas_dwispace.nii.gz, index/{roi_offsets,track_ids,roi_weight_totals}.npy,
+                                               # dwi_bzero.nii.gz, dwireg/standard2dwi0GenericAffine.mat, dwireg/standard2dwi1Warp.nii.gz,
+                                               # streamlines/sift2_weights.txt
+```
+
+**Licence.** The cache is derived from the HCP Aging diffusion data (native atlases, streamline indexes, SIFT2 weights, registrations), whose data use terms forbid redistribution: `licence.redistributable: false`, `licence.spdx: LicenseRef-<name>`, built and registered on the server only, never committed, never in an image, a release tarball, an installer or CI. CI and the tests use the synthetic `synthetic-slnm-coarse-cache` (nine participants, eight block parcels, identity transforms, `synthetic: true`, CC0-1.0) that `steps/slnm-coarse/tests/make_reference.py` writes.
+
+**Building it on the server from the author's `coarse_files` cache.** The author builds the cache once with `slnm-prepare --copy-inputs` (or converts a legacy cache with `slnm-materialize`, on the machine with the original inputs, and checks a downloaded copy with `slnm-materialize --verify-downloaded`); see the author's `docs/preparation.md`. A cache whose subjects are symbolic links to the original inputs (`inputs_mode: symlink`) is not portable and is refused. Then, on the server, in any Python environment of this repository:
+
+```bash
+python steps/slnm-coarse/bundle/build_bundle.py \
+    --coarse-files /path/to/coarse_files \
+    --participants /path/to/participants.csv \
+    --dest /path/to/work/slnm-coarse-cache-hcp-aging \
+    --id slnm-coarse-cache-hcp-aging --version 1.0.0 \
+    --licence-spdx LicenseRef-<cohort terms> --terms-url <terms URL>
+python contracts/validate.py /path/to/work/slnm-coarse-cache-hcp-aging/bundle.yaml
+python scripts/bundles/registry.py register /path/to/work/slnm-coarse-cache-hcp-aging
+```
+
+The builder copies, for the participants of the table only (the normative subset the author uses; extra columns are dropped), exactly the files `slnm-coarse` reads, plus the atlas, and never a `.tck`, an inverse warp or an intermediate file (`--hardlink` links instead of copying on the same file system). It refuses a cache that `slnm-coarse` would refuse: a missing file, a symbolic link or `inputs_mode` other than `copy`, a `metadata.json` that names another participant or another atlas (SHA-256 fingerprint), an atlas off the 2 mm MNI152NLin6Asym working grid or without label 2966, a table without the four sites or with at most four participants, or a label with the `_DiffusionRecommended` suffix. It writes `bundle.yaml` with every file's SHA-256 and the content digest. It computes nothing scientific and changes no copied file. Mount the registered bundle read-only; copy it to another host with a full `verify` afterwards.
+
+Open points of this bundle (recorded, not resolved):
+
+- **Not built yet.** The cohort cache arrives later; the number of participants, the bundle size and the build time are not known.
+- **Time per lesion unknown.** The step's `resources` (2 CPUs, 8 GB, 240 minutes) and the default of 2 workers are provisional until a lesion has been run on the real cache.
+- **Atlas grid.** The author documents the atlas as the 2 mm MNI grid (91 x 109 x 91); the builder and the step check that it is exactly the platform's working grid. If the real atlas differs in its affine, the step would need a resampling decision (a new step version), not a silent workaround.

@@ -531,6 +531,10 @@
           "title": "Banco de lesiones",
           "text": "Capturar y almacenar lesiones para reutilizarlas."
         },
+        "slnm-coarse": {
+          "title": "LNM estructural por parcelas",
+          "text": "Estimación rápida por parcelas sobre una cohorte normativa de difusión. Pendiente de sus datos de cohorte."
+        },
         "voxel-lnm": {
           "title": "LNM estructural vóxel a vóxel",
           "text": "Se ejecuta en el clúster HPC. Su mapa se muestra pero no se analiza más."

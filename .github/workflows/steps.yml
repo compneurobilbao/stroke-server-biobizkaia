@@ -52,7 +52,7 @@ jobs:
           python contracts/validate.py --kind step steps/template/step.yaml
           python contracts/validate.py --kind step steps/lesion-qc/step.yaml
           python contracts/validate.py --kind step steps/flnm-fast/step.yaml
-          python contracts/validate.py --kind step steps/lnm-tracts/step.yaml steps/ct-lesion-to-mni152/step.yaml steps/cognet-stroke/step.yaml
+          python contracts/validate.py --kind step steps/lnm-tracts/step.yaml steps/ct-lesion-to-mni152/step.yaml steps/cognet-stroke/step.yaml steps/slnm-coarse/step.yaml
       - name: Research report step dependencies (WeasyPrint system libraries, pinned packages)
         run: |
           sudo apt-get update -q
@@ -1056,3 +1056,162 @@ jobs:
           name: cognet-stroke-step-outputs
           path: artifacts/
           if-no-files-found: warn
+
+  slnm-coarse-container:
+    # The author's repository (compneurobilbao/fast-slnm) is private until its first public
+    # release. This workflow's token cannot read another private repository, so the fetch
+    # reports "not readable" (steps/fetch-upstream.sh exit code 3) and every step that needs the
+    # author's code is SKIPPED with a warning annotation and a note in the job summary; the
+    # manifest and the wrapper tests that do not need it run in sdk-tests. Any other fetch
+    # failure (unknown commit, network, content digest) fails the job. A fine-grained read token
+    # for that repository in the FAST_SLNM_READ_TOKEN secret, or the repository going public,
+    # turns the whole job on without a change here.
+    name: slnm-coarse step under Docker and Apptainer
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      IMAGE: slnm-coarse-step:ci
+      STEP: steps/slnm-coarse
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-python@v5.3.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: steps/sdk/requirements-image.txt
+      - name: Install SDK and pytest (host side, for the reference-test runner, the validator and the tests)
+        run: |
+          pip install -r steps/sdk/requirements-image.txt pytest==8.3.3
+          pip install --no-deps -e steps/sdk
+          python contracts/validate.py --kind step "$STEP/step.yaml"
+
+      - name: The author's code at the pinned commit (skipped only when the repository is not readable)
+        id: upstream
+        env:
+          UPSTREAM_TOKEN: ${{ secrets.FAST_SLNM_READ_TOKEN || github.token }}
+        run: |
+          src="$RUNNER_TEMP/external/fast-slnm"
+          set +e
+          steps/fetch-upstream.sh "$STEP" "$src"
+          code=$?
+          set -e
+          if [ "$code" -eq 3 ]; then
+            msg="compneurobilbao/fast-slnm is not readable with the token of this workflow (private repository): the image build, the tests with the author's code and the reference tests of slnm-coarse are SKIPPED in this run. They run once the repository is public or the FAST_SLNM_READ_TOKEN secret holds a read token."
+            echo "::warning title=slnm-coarse upstream not readable::${msg}"
+            { echo "### slnm-coarse: SKIPPED (author's repository not readable)"; echo; echo "$msg"; } >> "$GITHUB_STEP_SUMMARY"
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          test "$code" -eq 0
+          echo "available=true" >> "$GITHUB_OUTPUT"
+          echo "SLNM_FAST_SRC=$src" >> "$GITHUB_ENV"
+          # a wrong content digest must fail
+          cp -r "$STEP" "$RUNNER_TEMP/tampered"
+          sed -i 's/^UPSTREAM_SHA256=.*/UPSTREAM_SHA256=0000000000000000000000000000000000000000000000000000000000000000/' "$RUNNER_TEMP/tampered/upstream.env"
+          if steps/fetch-upstream.sh "$RUNNER_TEMP/tampered" "$RUNNER_TEMP/tampered-fetch"; then
+            echo "a wrong UPSTREAM_SHA256 was accepted" >&2; exit 1
+          fi
+
+      - name: Tests with the author's code (host side; antsApplyTransforms replaced by an identity nearest-neighbour fake)
+        if: steps.upstream.outputs.available == 'true'
+        env:
+          SLNM_FAST_REQUIRE_UPSTREAM: "1"
+        run: python -m pytest "$STEP" -q -rs -p no:cacheprovider
+
+      - name: Generate the synthetic reference dataset (cohort cache bundle, lesion, expected map and mask)
+        if: steps.upstream.outputs.available == 'true'
+        run: |
+          python "$STEP/tests/make_reference.py"
+          python contracts/validate.py "$STEP/tests/reference/bundle/bundle.yaml"
+
+      - name: Build the step image (the read token is a BuildKit secret, not stored in the image)
+        if: steps.upstream.outputs.available == 'true'
+        env:
+          UPSTREAM_TOKEN: ${{ secrets.FAST_SLNM_READ_TOKEN || github.token }}
+        run: docker build --secret id=upstream_token,env=UPSTREAM_TOKEN -f "$STEP/Dockerfile" -t "$IMAGE" .
+
+      - name: Image checks (mount points, permissions, manifest, the author's package unchanged)
+        if: steps.upstream.outputs.available == 'true'
+        run: |
+          docker run --rm --entrypoint /bin/sh "$IMAGE" -c '
+            set -eu
+            test -x /usr/local/bin/run
+            test -r /opt/step/step.yaml
+            for d in /in /out /ref /tmp; do test -d "$d"; test -z "$(ls -A "$d")"; done
+            test -z "$(find /opt/step /opt/upstream /opt/venv /usr/local/bin/run -not -perm -o=r)"
+            if command -v tck2connectome; then exit 1; fi
+          '
+          docker run --rm --entrypoint cat "$IMAGE" /opt/step/step.yaml | cmp - "$STEP/step.yaml"
+          docker run --rm --entrypoint cat "$IMAGE" /opt/upstream/fast-slnm/LICENSE | cmp - "$SLNM_FAST_SRC/LICENSE"
+          docker run --rm --entrypoint cat "$IMAGE" /opt/upstream/fast-slnm/UPSTREAM_COMMIT | cmp - "$SLNM_FAST_SRC/UPSTREAM_COMMIT"
+          # the installed package is the author's source, byte for byte
+          docker run --rm --entrypoint /bin/sh "$IMAGE" -c \
+            'cd /opt/venv/lib/python3.12/site-packages/slnm_fast && find . -name "*.py" | LC_ALL=C sort | xargs sha256sum' \
+            > "$RUNNER_TEMP/installed.sha256"
+          (cd "$SLNM_FAST_SRC/src/slnm_fast" && find . -name "*.py" | LC_ALL=C sort | xargs sha256sum) > "$RUNNER_TEMP/source.sha256"
+          diff "$RUNNER_TEMP/source.sha256" "$RUNNER_TEMP/installed.sha256"
+          docker run --rm --entrypoint antsApplyTransforms "$IMAGE" --version | head -3
+          size=$(docker image inspect "$IMAGE" --format '{{.Size}}')
+          echo "slnm-coarse image size: $((size / 1000000)) MB" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Reference test under Docker (real ANTs; synthetic cohort cache at /ref/cohort_cache)
+        if: steps.upstream.outputs.available == 'true'
+        run: |
+          mkdir -p artifacts
+          stroke-step-reftest --step-dir "$STEP" --mode docker --image "$IMAGE" \
+            --bundle cohort_cache="$STEP/tests/reference/bundle" \
+            --workdir "$RUNNER_TEMP/docker-run" --save-provenance artifacts/provenance-docker.json
+          python contracts/validate.py "$STEP/step.yaml" "$STEP/tests/reference/bundle/bundle.yaml" artifacts/provenance-docker.json
+          python "$STEP/ci/check_provenance.py" artifacts/provenance-docker.json
+          cp -r "$RUNNER_TEMP/docker-run/out" artifacts/out-docker
+
+      - name: Rejection path under Docker (exit code 10 and error.json)
+        if: steps.upstream.outputs.available == 'true'
+        run: |
+          work="$RUNNER_TEMP/docker-reject"
+          mkdir -p "$work/in" "$work/out"
+          chmod 777 "$work/out"
+          echo '{}' > "$work/in/params.json"
+          set +e
+          docker run --rm --read-only --user 12345:12345 --cap-drop ALL \
+            --security-opt no-new-privileges --network none --tmpfs /tmp:rw,mode=1777 \
+            -v "$work/in:/in:ro" -v "$work/out:/out" \
+            -v "$PWD/$STEP/tests/reference/bundle:/ref/cohort_cache:ro" \
+            -e HOME=/tmp -e TMPDIR=/tmp -e TZ=UTC \
+            -e STEP_CPUS=2 --entrypoint /usr/local/bin/run "$IMAGE" \
+            --in /in --out /out --params /in/params.json
+          code=$?
+          set -e
+          echo "exit code: $code"
+          test "$code" -eq 10
+          python contracts/validate.py "$STEP/step.yaml" "$work/out/provenance.json" "$work/out/error.json"
+
+      - name: Install Apptainer (official release package)
+        if: steps.upstream.outputs.available == 'true'
+        run: |
+          deb="apptainer_${APPTAINER_VERSION}_amd64.deb"
+          curl -sSfL -o "$RUNNER_TEMP/$deb" "https://github.com/apptainer/apptainer/releases/download/v${APPTAINER_VERSION}/${deb}"
+          echo "${APPTAINER_DEB_SHA256}  $RUNNER_TEMP/$deb" | sha256sum -c -
+          sudo apt-get update -q
+          sudo apt-get install -y -q "$RUNNER_TEMP/$deb"
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: Reference test under Apptainer (--containall --cleanenv --no-home); same outputs as Docker
+        if: steps.upstream.outputs.available == 'true'
+        run: |
+          sudo apptainer build --build-arg IMAGE="$IMAGE" "$RUNNER_TEMP/step.sif" "$STEP/Apptainer.def"
+          sudo chown "$(id -u):$(id -g)" "$RUNNER_TEMP/step.sif"
+          stroke-step-reftest --step-dir "$STEP" --mode apptainer --sif "$RUNNER_TEMP/step.sif" \
+            --bundle cohort_cache="$STEP/tests/reference/bundle" \
+            --workdir "$RUNNER_TEMP/apptainer-run" --save-provenance artifacts/provenance-apptainer.json
+          python contracts/validate.py "$STEP/step.yaml" artifacts/provenance-apptainer.json
+          for f in sdisconnection_map.nii.gz sdisconnection_valid_mask.nii.gz; do
+            cmp "$RUNNER_TEMP/docker-run/out/$f" "$RUNNER_TEMP/apptainer-run/out/$f"
+          done
+
+      - uses: actions/upload-artifact@v4.6.0
+        if: always()
+        with:
+          name: slnm-coarse-step-outputs
+          path: artifacts/
+          if-no-files-found: ignore

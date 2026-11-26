@@ -531,6 +531,10 @@
           "title": "Lesion bank",
           "text": "Capture and store lesions for later reuse."
         },
+        "slnm-coarse": {
+          "title": "Parcel-level structural LNM",
+          "text": "Fast parcel-level estimate on a normative diffusion cohort. Waits for its cohort data."
+        },
         "voxel-lnm": {
           "title": "Voxel-wise structural LNM",
           "text": "Runs on the HPC cluster. Its map is shown but not analysed further."

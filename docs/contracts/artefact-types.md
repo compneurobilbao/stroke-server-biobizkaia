@@ -46,7 +46,9 @@ sub-<subject>_ses-<session>[_space-<v>][_res-<v>][_label-<v>][_desc-<v>][_stat-<
 
 with entities in that order (the BIDS order), under `derivatives/<step name>-<step version>/sub-<subject>/ses-<session>/<datatype>/` for derivatives (D5). When two output ports of one step have the same type, the case store adds `desc-<port name without underscores>` to keep names unique. The exact tree is card F0-17's responsibility; this section fixes only the inputs to it.
 
-## 5. Types in registry 1.0.0
+## 5. Types in registry 1.1.0
+
+Registry 1.1.0 (minor, additive: two types added, nothing changed) adds `sdisconnection_map` and `sdisconnection_valid_mask` for the parcel-level structural disconnection step (`steps/slnm-coarse`); every other type is as in 1.0.0.
 
 | Type | Format | Notes |
 |---|---|---|
@@ -62,6 +64,8 @@ with entities in that order (the BIDS order), under `derivatives/<step name>-<st
 | `cognet_profile` | json | Schema `schemas/v1/cognet-profile.schema.json`. Optional `excluded_parcels` `{count, fraction, reason}`: parcels without a defined value in the disconnection map that were left out of the disconnection scores; consumers act on it only when `count` is above zero. |
 | `report_pdf`, `report_json` | pdf, json | Report and its canonical content. |
 | `run_provenance` | json, provenance schema | Produced only by the pseudo-source `run.provenance`. |
+| `sdisconnection_map` | nifti, grid `MNI152NLin6Asym-res2` | *Registry 1.1.0.* Parcel-level structural disconnection (fraction in [0, 1]), zero outside the atlas, NaN where there is no valid estimate. |
+| `sdisconnection_valid_mask` | nifti, binary, grid `MNI152NLin6Asym-res2` | *Registry 1.1.0.* Voxels whose `sdisconnection_map` value is valid. |
 
 ### 5.1 Working grid
 

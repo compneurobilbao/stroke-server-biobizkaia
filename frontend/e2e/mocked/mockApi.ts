@@ -299,7 +299,7 @@ export interface MockOptions {
   exampleInputs?: boolean;
   /**
    * As the lab deployment: normalisation has no enabled implementation and `GET .../in-development`
-   * lists it plus three stages without a slot; default none in development.
+   * lists it plus four stages without a slot; default none in development.
    */
   inDevelopment?: boolean;
 }
@@ -309,6 +309,7 @@ const DEVELOPMENT = [
   { id: 'normalisation', title: 'CT lesion to MNI152', description: null, slot: 'normalisation' },
   { id: 'segmentation', title: 'Lesion segmentation', description: 'Delineate the lesion.', slot: null },
   { id: 'lesion-bank', title: 'Lesion bank', description: 'Capture and store lesions.', slot: null },
+  { id: 'slnm-coarse', title: 'Parcel-level structural LNM', description: 'Waits for its cohort data.', slot: null },
   { id: 'voxel-lnm', title: 'Voxel-wise structural LNM', description: 'Runs on the HPC cluster.', slot: null },
 ];
 

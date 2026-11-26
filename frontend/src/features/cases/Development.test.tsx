@@ -42,6 +42,7 @@ describe('DevelopmentList', () => {
       'normalisation',
       'segmentation',
       'lesion-bank',
+      'slnm-coarse',
       'voxel-lnm',
     ]);
     for (const item of items) {
@@ -205,7 +206,7 @@ describe('case wizard with stages in development', () => {
     await next();
     await screen.findByRole('group', { name: 'Analysis' });
     const list = await screen.findByTestId('in-development');
-    expect(within(list).getAllByRole('listitem')).toHaveLength(4);
+    expect(within(list).getAllByRole('listitem')).toHaveLength(5);
     // Only the analysis is a radio; the stages in development add none.
     expect(screen.getAllByRole('radio')).toHaveLength(1);
     await waitFor(() => expect(screen.getByRole('button', { name: 'Next' })).toBeEnabled());
@@ -260,7 +261,7 @@ describe('run page with stages in development', () => {
     expect(within(timeline).getByText('flnm-fast · HCP Aging')).toBeInTheDocument();
     const section = await screen.findByTestId('in-development');
     expect(within(section).getByRole('heading', { name: 'Not part of this run' })).toBeInTheDocument();
-    expect(within(section).getAllByRole('listitem')).toHaveLength(4);
+    expect(within(section).getAllByRole('listitem')).toHaveLength(5);
     expect(within(section).queryByRole('button')).not.toBeInTheDocument();
   });
 

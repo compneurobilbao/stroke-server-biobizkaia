@@ -3,7 +3,7 @@
 # removing one is a major bump (see docs/contracts/versioning.md).
 contract_version: "1.0"
 kind: ArtefactTypeRegistry
-version: 1.0.0
+version: 1.1.0
 
 grids:
   MNI152NLin6Asym-res2:
@@ -97,6 +97,27 @@ types:
     extension: .tsv
     bids: {suffix: disconnection, entities: {desc: tracts}}
     tsv_columns: [tract, disconnection]
+
+  sdisconnection_map:
+    description: >-
+      Parcel-level structural disconnection estimate on the working grid, float32: for every
+      parcel of the producing step's atlas, the estimated fraction in [0, 1] of the parcel's
+      normative streamline weight that passes through the lesion, aggregated over a normative
+      cohort, written on the parcel's voxels. Zero outside the atlas; NaN for a parcel without a valid estimate (see
+      sdisconnection_valid_mask), never zero. Added in registry 1.1.0.
+    format: nifti
+    extension: .nii.gz
+    bids: {datatype: anat, suffix: statmap, entities: {space: MNI152NLin6Asym, res: "2", desc: sdisconnection}}
+    nifti: {space: MNI152NLin6Asym, grid: MNI152NLin6Asym-res2}
+
+  sdisconnection_valid_mask:
+    description: >-
+      Binary mask on the working grid of the voxels whose sdisconnection_map value is a valid
+      estimate (1) rather than undefined (0). Added in registry 1.1.0.
+    format: nifti
+    extension: .nii.gz
+    bids: {datatype: anat, suffix: mask, entities: {space: MNI152NLin6Asym, res: "2", desc: sdisconnectionvalid}}
+    nifti: {binary: true, space: MNI152NLin6Asym, grid: MNI152NLin6Asym-res2}
 
   cognet_profile:
     description: >-

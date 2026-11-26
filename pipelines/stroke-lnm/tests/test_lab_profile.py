@@ -294,7 +294,13 @@ def test_the_pipeline_file_has_no_title_on_implementation_entries(documents):
 def test_in_development_lists_the_stages_that_cannot_be_used_yet(documents):
     _pipeline, registry = documents
     stages = registry["in_development"]
-    assert [s["id"] for s in stages] == ["normalisation", "segmentation", "lesion-bank", "voxel-lnm"]
+    assert [s["id"] for s in stages] == [
+        "normalisation",
+        "segmentation",
+        "lesion-bank",
+        "slnm-coarse",
+        "voxel-lnm",
+    ]
     assert stages[0] == {"id": "normalisation", "slot": "normalisation"}
     assert all(s["title"] for s in stages[1:])
 
