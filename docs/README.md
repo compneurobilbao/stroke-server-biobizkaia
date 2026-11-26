@@ -19,7 +19,8 @@ This folder contains the technical and operational documentation of the platform
 - `roadmap.md`: historical phase-based roadmap (superseded by the implementation plan).
 - `configuration.md`: environment variables and use of `.env`.
 - `deployment.md`: local installation and Docker Compose deployment.
-- `user-manual.md`: manual for functional users.
+- `user-guide/en.md`, `user-guide/es.md`: user guide for lab researchers who use the web platform (case wizard, analyses, report, failures), in English and Spanish.
+- `user-manual.md`: manual for functional users (thesis prototype, studies flow).
 - `developer-manual.md`: development guide and safe changes by type of modification.
 - `operations-manual.md`: daily operation, basic administration and maintenance.
 - `security.md`: current security state and pending items.
