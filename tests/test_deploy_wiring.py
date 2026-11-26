@@ -79,6 +79,18 @@ def test_pipeline_worker_consumes_only_pipelines_queue(compose):
         assert key in env, key
 
 
+def test_api_forwards_presets_dir_with_an_empty_default(compose):
+    """PRESETS_DIR reaches the API (and `make seed`, which execs in it); unset means empty,
+    which resolve_presets_dir treats as the pipelines directory."""
+    assert compose["api"]["environment"]["PRESETS_DIR"] == "${PRESETS_DIR:-}"
+    keys = {
+        line.split("=", 1)[0].lstrip("# ").strip()
+        for line in (ROOT / ".env.example").read_text(encoding="utf-8").splitlines()
+        if "=" in line
+    }
+    assert "PRESETS_DIR" in keys
+
+
 def test_only_proxy_and_pipeline_worker_join_executor_net(compose):
     members = {n for n, s in compose.items() if "executor-net" in s.get("networks", [])}
     assert members == {"docker-proxy", "pipeline-worker"}

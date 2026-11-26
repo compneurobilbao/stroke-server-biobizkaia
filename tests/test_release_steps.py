@@ -91,7 +91,7 @@ def test_targets_cover_the_registry_once_per_step():
     reg = registry_tool.load(HERE)[1]
     keys = [t.key for t in release.targets(reg)]
     assert len(keys) == len(set(keys))
-    assert "research-report@0.4.0" in keys and "flnm-fast@3.0.0" in keys
+    assert "research-report@0.5.0" in keys and "flnm-fast@3.0.0" in keys
     assert all(t.repository.startswith(NS + "/step-") for t in release.targets(reg))
 
 

@@ -200,7 +200,7 @@ Free mode (a run with outputs chosen by the user instead of a reviewed preset) i
 
 #### Preset files and `PRESETS_DIR`
 
-The API and `seed_implementations` find presets with the same function (`orchestrator.catalog.resolve_presets_dir`): `PRESETS_DIR` when set, else the pipelines directory, scanning every `presets/<id>.yaml`. A preset file must be named after its `id` (`full.yaml` holds `id: full`); a file whose name and `id` differ is a load error, logged by the API and reported (and skipped) by the seeding command. `seed_implementations --reset` also disables the `preset_settings` rows of presets whose file no longer exists and lists them as `update`. The Compose file does not forward `PRESETS_DIR` to `api` yet; with Compose, keep presets under the pipelines tree.
+The API and `seed_implementations` find presets with the same function (`orchestrator.catalog.resolve_presets_dir`): `PRESETS_DIR` when set, else the pipelines directory, scanning every `presets/<id>.yaml`. A preset file must be named after its `id` (`full.yaml` holds `id: full`); a file whose name and `id` differ is a load error, logged by the API and reported (and skipped) by the seeding command. `seed_implementations --reset` also disables the `preset_settings` rows of presets whose file no longer exists and lists them as `update`. The Compose file forwards `PRESETS_DIR` to `api` (`PRESETS_DIR: ${PRESETS_DIR:-}`; set it in `.env`), and `make seed-implementations` runs `seed_implementations` inside `api`, so both read the same value. An empty value (the default) means the pipelines directory, as when it is unset. The path must exist inside the `api` container, for example under a mounted directory such as `/app/pipelines` or `/app/data`.
 
 #### What is not available yet
 

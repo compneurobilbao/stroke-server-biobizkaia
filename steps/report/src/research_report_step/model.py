@@ -13,7 +13,7 @@ from pathlib import Path
 import nibabel as nib
 import numpy as np
 
-REPORT_VERSION = "1.2"
+REPORT_VERSION = "1.3"
 RESEARCH_USE_ONLY = "For research use only, not for clinical decisions."
 # analysis section of the report -> pipeline slot that produces its input
 SECTION_SLOTS = {
@@ -319,6 +319,19 @@ def external_tools_section(run: dict) -> list[dict]:
     return tools
 
 
+# Reserved origin tool of the synthetic example inputs a deployment may offer (the platform
+# stores it as the declared origin of an attached example; run record contract 1.2).
+EXAMPLE_ORIGIN_TOOL = "stroke-server-example"
+
+
+def has_example_input(declared_origins: list[dict] | None) -> bool:
+    """True when a supplied input carries the reserved origin of a synthetic example."""
+    return any(
+        d["origin"].get("kind") == "external-tool" and d["origin"].get("tool") == EXAMPLE_ORIGIN_TOOL
+        for d in declared_origins or []
+    )
+
+
 def declared_origins_section(run: dict) -> list[dict]:
     """Run inputs whose uploader declared an origin. The platform cannot verify it."""
     out = []
@@ -385,6 +398,8 @@ def build_report(
         notes.append("external_tool_used")
     if declared_origins:
         notes.append("input_origin_declared_by_user")
+    if has_example_input(declared_origins):
+        notes.append("synthetic_example_input")
     report = {
         "kind": "ResearchReport",
         "report_version": REPORT_VERSION,

@@ -24,6 +24,9 @@
 <h1>Research report</h1>
 <p class="muted">Lesion and disconnection analysis, stroke lesion-network mapping pipeline</p>
 <div class="box">For research use only, not for clinical decisions. The values in this report are research outputs and have not been validated for diagnosis, prognosis or treatment.</div>
+{% if "synthetic_example_input" in r.notes %}
+<div class="box">Example input: synthetic lesion, not patient data. This run used a synthetic example lesion offered by the platform; the values below do not describe a real subject.</div>
+{% endif %}
 
 <table class="kv">
 <tr><td>Run</td><td class="mono">{{ run.run_id }}</td></tr>
@@ -273,6 +276,9 @@
 {% endif %}
 {% if "external_tool_used" in r.notes %}
 <li>At least one result was produced by an external tool; its upstream name, version and licence are in section 5.4.</li>
+{% endif %}
+{% if "synthetic_example_input" in r.notes %}
+<li>At least one input is a synthetic example offered by the platform (reserved origin stroke-server-example), not data of a real subject.</li>
 {% endif %}
 {% if "input_origin_declared_by_user" in r.notes %}
 <li>The origin of at least one supplied input was declared by the user and is not verified by the platform (section 5.5).</li>

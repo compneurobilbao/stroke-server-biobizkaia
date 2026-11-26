@@ -208,7 +208,7 @@ def test_report_json_golden_without_tract_table_en(tmp_path, reference, no_pdf):
         "cognitive_profile": "available",
     }
     assert doc["tract_disconnection"] == {"status": "absent"}
-    assert doc["generator"] == {"step": "research-report", "version": "0.4.0"}
+    assert doc["generator"] == {"step": "research-report", "version": "0.5.0"}
     absent = [i["port"] for i in doc["inputs"] if not i["present"]]
     assert absent == ["ct_mni", "tract_disconnection"]
 
@@ -234,7 +234,9 @@ def test_tract_table_only_changes_the_tract_parts_of_the_report(tmp_path, refere
 def _assert_no_plan_keys(doc: dict) -> None:
     for key in ("plan", "external_tools", "declared_origins"):
         assert key not in doc
-    assert not {"external_tool_used", "input_origin_declared_by_user"} & set(doc["notes"])
+    assert not {"external_tool_used", "input_origin_declared_by_user", "synthetic_example_input"} & set(
+        doc["notes"]
+    )
 
 
 def test_record_without_plan_gives_the_content_of_report_1_0(tmp_path, reference, no_pdf):
@@ -243,7 +245,7 @@ def test_record_without_plan_gives_the_content_of_report_1_0(tmp_path, reference
     assert staged.run() == EXIT_OK
     doc = json.loads(staged.json_bytes())
     _assert_no_plan_keys(doc)
-    assert doc["report_version"] == "1.2" and doc["generator"]["version"] == "0.4.0"
+    assert doc["report_version"] == "1.3" and doc["generator"]["version"] == "0.5.0"
     assert set(doc) == {
         "kind", "report_version", "language", "research_use_only", "research_use_statement",
         "generator", "sections", "notes", "lesion", "functional_disconnection",
@@ -298,6 +300,74 @@ def test_report_json_golden_custom_run_es(tmp_path, reference, no_pdf):
         assert doc["sections"][section] == "not_requested"
     reasons = {s["slot"]: s["reason"] for s in doc["provenance"]["slots"] if s["reason"]}
     assert reasons["tract-disconnection"] == "not_requested"
+
+
+def _stage_example_input(tmp_path, reference, origin, language="en") -> Staged:
+    """External-tool record whose mask origin is replaced by ``origin``."""
+    staged = Staged(tmp_path, reference, ports=NO_COGNET, language=language)
+    staged.with_run_record(EXTERNAL_RUN)
+    path = staged.in_dir / "run_provenance.json"
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    doc["inputs"][0]["origin"] = origin
+    path.write_text(json.dumps(doc), encoding="utf-8")
+    return staged
+
+
+EXAMPLE_ORIGIN = {"kind": "external-tool", "tool": "stroke-server-example", "version": "synthetic-lesion-01"}
+
+
+def test_example_input_origin_adds_the_synthetic_example_note(tmp_path, reference, no_pdf):
+    staged = _stage_example_input(tmp_path, reference, EXAMPLE_ORIGIN)
+    assert staged.run() == EXIT_OK
+    doc = json.loads(staged.json_bytes())
+    SCHEMA.validate(doc)
+    assert doc["notes"] == [
+        "external_tool_used",
+        "input_origin_declared_by_user",
+        "synthetic_example_input",
+    ]
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        {"kind": "manual", "tool": None, "version": None},
+        {"kind": "external-tool", "tool": "example-segmenter", "version": "2.1.0"},
+        {"kind": "external-tool", "tool": "stroke-server-example-2", "version": "1"},
+    ],
+)
+def test_other_origins_do_not_add_the_synthetic_example_note(tmp_path, reference, no_pdf, origin):
+    if origin["kind"] == "manual":
+        origin = {"kind": "manual"}
+    staged = _stage_example_input(tmp_path, reference, origin)
+    assert staged.run() == EXIT_OK
+    doc = json.loads(staged.json_bytes())
+    assert "synthetic_example_input" not in doc["notes"]
+
+
+@needs_pdf
+@pytest.mark.parametrize(
+    "language,text",
+    [
+        ("en", "Example input: synthetic lesion, not patient data"),
+        ("es", "Entrada de ejemplo: lesión sintética, no son datos de pacientes"),
+    ],
+)
+def test_pdf_first_page_states_the_synthetic_example_input(tmp_path, reference, language, text):
+    staged = _stage_example_input(tmp_path, reference, EXAMPLE_ORIGIN, language)
+    assert staged.run() == EXIT_OK
+    pages = report_pdftext.page_texts(staged.out_dir / "report_pdf.pdf")
+    assert report_pdftext.squash(text) in report_pdftext.squash(pages[0])
+
+
+@needs_pdf
+def test_pdf_without_example_origin_has_no_synthetic_example_statement(tmp_path, reference):
+    staged = _stage_example_input(
+        tmp_path, reference, {"kind": "external-tool", "tool": "example-segmenter", "version": "2.1.0"}
+    )
+    assert staged.run() == EXIT_OK
+    flat = report_pdftext.squash("".join(report_pdftext.page_texts(staged.out_dir / "report_pdf.pdf")))
+    assert report_pdftext.squash("synthetic lesion, not patient data") not in flat
 
 
 def test_report_json_golden_external_tool_and_declared_origin_en(tmp_path, reference, no_pdf):
