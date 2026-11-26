@@ -53,6 +53,20 @@ def test_insecure_key_needs_the_explicit_opt_in(monkeypatch):
     Settings().validate_api_auth_settings()
 
 
+def test_empty_compose_values_fall_back_to_the_defaults(monkeypatch):
+    # docker-compose.yml forwards unset variables as empty strings.
+    for name in (
+        "ALLOW_INSECURE_DEV_KEY",
+        "LOGIN_MAX_FAILED_ATTEMPTS",
+        "LOGIN_FAILURE_WINDOW_MINUTES",
+    ):
+        monkeypatch.setenv(name, "")
+    settings = Settings()
+    assert settings.allow_insecure_dev_key is False
+    assert settings.login_max_failed_attempts == 5
+    assert settings.login_failure_window_minutes == 15
+
+
 # ---------------------------------------------------------------- login throttle
 
 
@@ -268,20 +282,24 @@ def test_redis_password_reaches_redis_and_every_redis_client():
         assert services[name]["environment"]["REDIS_PASSWORD"] == "${REDIS_PASSWORD:-}"
 
 
+REDIS_PW = "p@ss/word"  # reserved URL characters are percent-encoded
+OTHER_PW = "x"
+
+
 def test_redis_password_is_added_to_redis_urls_only():
     urls = {
         "celery_broker_url": "redis://redis:6379/0",
         "celery_result_backend": "rediss://redis:6380/1",
     }
-    settings = Settings(redis_password="p@ss/word", **urls)
+    settings = Settings(redis_password=REDIS_PW, **urls)
     assert settings.celery_broker_url == "redis://:p%40ss%2Fword@redis:6379/0"
     assert settings.celery_result_backend == "rediss://:p%40ss%2Fword@redis:6380/1"
     assert Settings(redis_password="", **urls).celery_broker_url == urls["celery_broker_url"]
-    memory = Settings(redis_password="x", celery_broker_url="memory://")
+    memory = Settings(redis_password=OTHER_PW, celery_broker_url="memory://")
     assert memory.celery_broker_url == "memory://"
     explicit = "redis://:other@redis:6379/0"
     assert (
-        Settings(redis_password="x", celery_broker_url=explicit).celery_broker_url
+        Settings(redis_password=OTHER_PW, celery_broker_url=explicit).celery_broker_url
         == explicit
     )
 

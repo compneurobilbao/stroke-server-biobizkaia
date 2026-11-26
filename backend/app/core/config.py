@@ -7,7 +7,7 @@ from functools import lru_cache
 from pathlib import Path
 from urllib.parse import quote, urlsplit, urlunsplit
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 log = logging.getLogger(__name__)
@@ -139,6 +139,19 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
+
+    @field_validator(
+        "allow_insecure_dev_key",
+        "login_max_failed_attempts",
+        "login_failure_window_minutes",
+        mode="before",
+    )
+    @classmethod
+    def _empty_means_default(cls, value: object, info) -> object:
+        # Compose forwards unset variables as empty strings (``${VAR:-}``).
+        if isinstance(value, str) and not value.strip():
+            return cls.model_fields[info.field_name].default
+        return value
 
     @model_validator(mode="after")
     def _apply_redis_password(self) -> "Settings":
